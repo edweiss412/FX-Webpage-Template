@@ -1966,16 +1966,30 @@ details[open] > summary [data-agenda-day-count] {
  * jump or a search reveal reads (the Today block's and each stacked section's)
  * and the page's scroll padding are this one value, so neither the target nor
  * its ring lands under the chrome.
+ *
+ * The saved-copy bar sticks too (offline spec 4.7.2, merged with this layout
+ * 2026-10-31). It sticks under whatever already sticks above it,
+ * `--saved-copy-bar-top`: the preview banner's height below 1024px (0 on the
+ * crew route, the only route that renders the bar) and the header's bottom
+ * edge from 1024px. The bar publishes its own height on <html> as
+ * `--saved-copy-bar-h` while it shows (components/offline/SavedCopyBar.tsx),
+ * absent otherwise, so `--crew-sticky-bottom`, the bottom edge of everything
+ * that sticks, is the bar's bottom while it shows and the old edge when it
+ * does not. The scroll clearance and the wide nav's sticky offset and height
+ * read that edge, so neither a nav jump, a reveal nor keyboard focus lands
+ * under the bar, and the nav never slides under it.
  */
 :root {
   --crew-header-h: 6rem;
   --crew-sticky-top: var(--preview-banner-h, 0rem);
   --crew-sheet-clearance: var(--preview-banner-bottom, 0rem);
   --crew-header-bottom: calc(var(--crew-sticky-top) + var(--crew-header-h));
+  --saved-copy-bar-top: var(--crew-sticky-top);
+  --crew-sticky-bottom: calc(var(--saved-copy-bar-top) + var(--saved-copy-bar-h, 0rem));
   --crew-ring-clearance: 0.5rem;
-  --crew-scroll-clearance: calc(var(--crew-sticky-top) + var(--crew-ring-clearance));
+  --crew-scroll-clearance: calc(var(--crew-sticky-bottom) + var(--crew-ring-clearance));
   @variant lg {
-    --crew-scroll-clearance: calc(var(--crew-header-bottom) + var(--crew-ring-clearance));
+    --saved-copy-bar-top: var(--crew-header-bottom);
   }
 }
 

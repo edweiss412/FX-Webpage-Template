@@ -524,7 +524,9 @@ describe("SavedCopyBar transition audit (spec 4.7.2)", () => {
     premise("the file has a real string-literal population", literals.length, 10);
     premiseHolds(
       "the walk sees the region's layout classes",
-      literals.some((l) => l.text === "sticky top-0 z-raised flex-none self-stretch"),
+      literals.some(
+        (l) => l.text === "sticky top-(--saved-copy-bar-top) z-raised flex-none self-stretch",
+      ),
     );
 
     const motion = literals.filter((l) => MOTION_CLASS.test(l.text));

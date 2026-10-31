@@ -500,6 +500,26 @@ describe("CrewSections, compact: home and sheet (spec §5.2)", () => {
       "true",
     );
   });
+
+  it("sheet: the controller root names the section on screen, for the saved-copy bar (offline spec 4.7.4)", () => {
+    // The saved-copy bar reads `data-active-section` once on a saved copy and
+    // puts it in the URL's `s`, so the URL says what the copy shows. Failure
+    // modes: no attribute (the bar leaves a stale `s`), a value that does not
+    // follow the open sheet, or "today" missing for the home.
+    renderController("venue");
+    const root = screen.getByTestId("crew-shell-sections");
+    expect(sheet()).toHaveAttribute("data-section", "venue");
+    expect(root).toHaveAttribute("data-active-section", "venue");
+
+    // A deep link's close replaces `s` away and closes at once; the sheet's exit
+    // slide may still hold the dialog, but the home is what the page shows.
+    fireEvent.click(closeButton("venue"));
+    expect(root).toHaveAttribute("data-active-section", "today");
+
+    fireEvent.click(row("schedule"));
+    expect(sheet()).toHaveAttribute("data-section", "schedule");
+    expect(root).toHaveAttribute("data-active-section", "schedule");
+  });
 });
 
 describe("CrewSections, wide: nav and stacked sections (spec §5.3)", () => {

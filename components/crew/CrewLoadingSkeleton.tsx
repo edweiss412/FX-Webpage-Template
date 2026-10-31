@@ -20,6 +20,12 @@ import { cn } from "@/lib/ui/cn";
  *     tall, the title block with twice the search slot's share, the 240px left nav
  *     column, and beside it the Today block (the day row and pass beside a home
  *     body column) over one stacked section frame.
+ * The saved-copy bar (components/offline/SavedCopyBar.tsx) renders between the
+ * header and the body, and the server renders it hidden, a zero-height region,
+ * in every state but `sheet-gone`; the skeleton reserves that zero. A sheet-gone
+ * page's bar cannot be reserved: this file renders before the projection that
+ * says the sheet is gone. The nav column reads `--crew-sticky-bottom`, the same
+ * edge the live nav reads, which takes in the bar's height while it shows.
  * The header bar, its row, its title block and each of that block's lines, the
  * search slot and the nav column carry the real components' class lists
  * verbatim (`components/layout/Header.tsx`,
@@ -113,7 +119,7 @@ export function CrewLoadingSkeleton() {
         {/* Left nav column, 1024px and up: `CrewWideNav`'s box, Today then the base sections. */}
         <div
           data-testid="crew-loading-nav"
-          className="sticky top-(--crew-header-bottom) hidden h-[calc(100dvh-var(--crew-header-bottom))] w-60 shrink-0 flex-col gap-1 self-start overflow-y-auto border-r border-border py-6 pr-3 lg:flex"
+          className="sticky top-(--crew-sticky-bottom) hidden h-[calc(100dvh-var(--crew-sticky-bottom))] w-60 shrink-0 flex-col gap-1 self-start overflow-y-auto border-r border-border py-6 pr-3 lg:flex"
         >
           {BASE_SECTION_IDS.map((id) => (
             <div

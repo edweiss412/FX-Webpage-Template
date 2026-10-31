@@ -135,9 +135,17 @@ function region(): HTMLElement {
  * The region's classes, sorted: layout only (the spec 4.7.2 Dimensional
  * Invariants, measured in a real browser by tests/e2e/crew-offline-layout.spec.ts),
  * so an empty region paints nothing. Compared as a sorted set wherever they are
- * checked, because nothing enforces class order.
+ * checked, because nothing enforces class order. It sticks at
+ * `--saved-copy-bar-top` (app/globals.css), under whatever already sticks on the
+ * redesigned crew page: the viewport top below 1024px, the header from it.
  */
-const REGION_LAYOUT_CLASSES = ["flex-none", "self-stretch", "sticky", "top-0", "z-raised"].sort();
+const REGION_LAYOUT_CLASSES = [
+  "flex-none",
+  "self-stretch",
+  "sticky",
+  "top-(--saved-copy-bar-top)",
+  "z-raised",
+].sort();
 
 /**
  * The server render is the empty live region and nothing else: one `div` with
@@ -158,7 +166,13 @@ function expectEmptyRegionMarkup(markup: string): void {
         .filter((attribute) => attribute.name !== "class")
         .map((attribute) => [attribute.name, attribute.value]),
     ),
-  ).toEqual({ "data-testid": "saved-copy-bar-region", role: "status", "aria-live": "polite" });
+  ).toEqual({
+    "data-testid": "saved-copy-bar-region",
+    role: "status",
+    "aria-live": "polite",
+    // Left live by the crew section sheet's inert sweep (CrewSectionSheet.tsx).
+    "data-sheet-live-region": "",
+  });
   expect([...element.classList].sort()).toEqual(REGION_LAYOUT_CLASSES);
   expect(element.childNodes).toHaveLength(0);
 }

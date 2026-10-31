@@ -900,8 +900,14 @@ export function CrewSections({
     <SectionControllerContext.Provider value={api}>
       <CrewClockProvider initialNow={initialNow}>
         <DaySelectionProvider days={dayIsos} apiRef={daySelection}>
+          {/* `data-active-section` names the section on screen, for the
+              saved-copy bar (offline spec 4.7.4), which reads it once on a
+              saved copy to put that section in the URL's `s`: the open sheet's
+              section, or "today" for the home, through hydration and in the
+              compact layout; the scroll-spy's section in the wide one. */}
           <div
             data-testid="crew-shell-sections"
+            data-active-section={mode === "wide" ? spyActive : (open ?? "today")}
             data-crew-controller-ready={mode === "ssr" ? undefined : "true"}
             data-crew-mode={mode === "ssr" ? undefined : mode}
             className="flex flex-1 flex-col"

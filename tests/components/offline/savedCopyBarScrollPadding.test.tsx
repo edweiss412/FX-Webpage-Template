@@ -1,20 +1,25 @@
 // @vitest-environment jsdom
 /**
- * <SavedCopyBar>'s scroll padding (WCAG 2.4.11 Focus Not Obscured): while the
- * visible bar shows, `<html>` carries `scroll-padding-top` equal to the bar's
- * live region, so a control the keyboard focuses scrolls out from under the
- * sticky bar instead of landing behind it. The height follows the region
- * through a ResizeObserver (copy and width change it), and the padding goes
- * when the bar hides and when the bar unmounts.
+ * <SavedCopyBar>'s share of the scroll padding (WCAG 2.4.11 Focus Not
+ * Obscured): while the visible bar shows, `<html>` carries `--saved-copy-bar-h`
+ * equal to the bar's live region, and the crew layout adds it into the page's
+ * `scroll-padding-top` (app/globals.css, `--crew-scroll-clearance`), so a
+ * control the keyboard focuses scrolls out from under the sticky bar instead of
+ * landing behind it. The height follows the region through a ResizeObserver
+ * (copy and width change it), and the property goes when the bar hides and
+ * when the bar unmounts. The bar never writes `scroll-padding-top` itself: an
+ * inline padding on <html> would override the layout's, which also clears the
+ * sticky header from 1024px and the focus ring's reach.
  *
  * jsdom lays nothing out, so the region's height is a stub and the observer is
  * a fake whose callback the test fires. What a real browser does with the
  * padding is tests/e2e/crew-offline-layout.spec.ts case 7.
  *
- * Failure modes caught: no padding while the bar shows; a padding that keeps
- * the first height after the bar grows; a padding left behind after the bar
+ * Failure modes caught: no height published while the bar shows; a height that
+ * keeps the first value after the bar grows; a height left behind after the bar
  * hides or unmounts, which would offset every later scroll on the page; a
- * padding set while nothing shows; and a crash where ResizeObserver is absent.
+ * height set while nothing shows; an inline padding that overrides the
+ * layout's; and a crash where ResizeObserver is absent.
  */
 import { act, cleanup, render } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, test, vi, type MockInstance } from "vitest";
@@ -58,7 +63,13 @@ class FakeResizeObserver {
 let regionHeight = 0;
 let onLine: MockInstance<() => boolean>;
 
+/** What the bar publishes for the layout's scroll padding (app/globals.css). */
 function scrollPaddingTop(): string {
+  return document.documentElement.style.getPropertyValue("--saved-copy-bar-h");
+}
+
+/** An inline padding on <html>, which would override the layout's own. */
+function inlineScrollPadding(): string {
   return document.documentElement.style.scrollPaddingTop;
 }
 
@@ -99,6 +110,7 @@ beforeEach(() => {
     return new DOMRect(0, 0, 390, height);
   });
   document.documentElement.style.removeProperty("scroll-padding-top");
+  document.documentElement.style.removeProperty("--saved-copy-bar-h");
 });
 
 afterEach(() => {
@@ -107,10 +119,11 @@ afterEach(() => {
   vi.unstubAllGlobals();
   vi.restoreAllMocks();
   document.documentElement.style.removeProperty("scroll-padding-top");
+  document.documentElement.style.removeProperty("--saved-copy-bar-h");
   document.documentElement.removeAttribute("data-fxav-bar");
 });
 
-describe("SavedCopyBar: scroll-padding-top follows the visible bar", () => {
+describe("SavedCopyBar: the published bar height (the scroll padding's share) follows the visible bar", () => {
   test("a hidden bar sets no padding and watches nothing", () => {
     regionHeight = 57;
     render(<SavedCopyBar {...PROPS} />);
@@ -125,6 +138,7 @@ describe("SavedCopyBar: scroll-padding-top follows the visible bar", () => {
     goOnline(false);
     premiseHolds("the bar shows once the phone is offline", barShows());
     expect(scrollPaddingTop()).toBe("57px");
+    expect(inlineScrollPadding(), "the layout's padding is left to the stylesheet").toBe("");
     regionObserver();
   });
 
