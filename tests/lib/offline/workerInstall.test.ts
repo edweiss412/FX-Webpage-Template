@@ -170,27 +170,36 @@ function stalledBody(): ReadableStream<Uint8Array> {
   });
 }
 
-/** `totalBytes` of zeros in `chunkBytes` pieces, counting how often the reader pulled. */
+/**
+ * `totalBytes` of zeros in `chunkBytes` pieces, counting how often the reader
+ * pulled and how many bytes it was sent. With `readAhead: false` the stream
+ * pulls only when its reader asks, so `sent` is exactly what the reader took
+ * off the network (Codex R3 A's probe shape).
+ */
 function counted(
   totalBytes: number,
   chunkBytes: number,
-): { body: ReadableStream; pulls: () => number } {
+  { readAhead = true }: { readAhead?: boolean } = {},
+): { body: ReadableStream; pulls: () => number; sent: () => number } {
   const chunk = new Uint8Array(chunkBytes);
   let sent = 0;
   let pulls = 0;
-  const body = new ReadableStream<Uint8Array>({
-    pull(controller) {
-      pulls += 1;
-      if (sent >= totalBytes) {
-        controller.close();
-        return;
-      }
-      const size = Math.min(chunkBytes, totalBytes - sent);
-      controller.enqueue(size === chunkBytes ? chunk : chunk.subarray(0, size));
-      sent += size;
+  const body = new ReadableStream<Uint8Array>(
+    {
+      pull(controller) {
+        pulls += 1;
+        if (sent >= totalBytes) {
+          controller.close();
+          return;
+        }
+        const size = Math.min(chunkBytes, totalBytes - sent);
+        controller.enqueue(size === chunkBytes ? chunk : chunk.subarray(0, size));
+        sent += size;
+      },
     },
-  });
-  return { body, pulls: () => pulls };
+    readAhead ? undefined : { highWaterMark: 0 },
+  );
+  return { body, pulls: () => pulls, sent: () => sent };
 }
 
 // --- Fakes ------------------------------------------------------------------------
@@ -2110,32 +2119,175 @@ describe("completeness", () => {
     await nav.settled();
   });
 
-  test("assets fetched together never download more than 75 MB between them", async () => {
+  /** Every byte the asset cache holds, across every stored asset. */
+  function storedBytes(worker: Worker): number {
+    let total = 0;
+    for (const entry of worker.assetCache().entries.values()) total += entry.bytes.byteLength;
+    return total;
+  }
+
+  /** The signal the worker's fetch of `path` carried. */
+  function signalOf(worker: Worker, path: string): AbortSignal | null | undefined {
+    const call = worker.net.callsTo(path)[0];
+    return call?.init?.signal ?? call?.request?.signal;
+  }
+
+  // Codex R3 A, the reviewer's probe: twelve 20 MB bodies with no declared length,
+  // in 64 KB chunks, each pulled only when the reader asks. Fetched together with
+  // nothing counting, 240 MB would come; the R2 worker took 75 MB plus twelve
+  // chunks, starting eight more requests after the allowance was spent.
+  test("assets fetched together download at most 75 MB plus one chunk per open fetch, ask for nothing once it is spent, and store at most 75 MB", async () => {
     const worker = boot();
-    // No declared lengths: the bytes are counted as they arrive, whichever arrives
-    // first. Six of 20 MB: fetched together with nothing counting, 120 MB would come.
-    const bodies = [1, 2, 3, 4, 5, 6].map(() => counted(20 * MB, MB));
+    const chunk = 64 * 1024;
+    const bodies = Array.from({ length: 12 }, () => counted(20 * MB, chunk, { readAhead: false }));
     const assets = bodies.map((_, n) => `/api/asset/diagram/${SHOW}/rev-1/big-${n}.png`);
+    const downloaded = () => bodies.reduce((sum, body) => sum + body.sent(), 0);
+    // What had been downloaded when each request went out.
+    const downloadedAtRequest: number[] = [];
     assets.forEach((path, n) => {
-      worker.net.on(
-        path,
-        reply(() => new Response(bodies[n]?.body)),
-      );
+      worker.net.on(path, () => {
+        downloadedAtRequest.push(downloaded());
+        return Promise.resolve(new Response(bodies[n]?.body));
+      });
     });
     worker.net.on(
       U,
       reply(() => htmlResponse(page(save({ assets })))),
     );
     await open(worker, U);
-    // Each pull sends 1 MB, except the one that finds the body over and closes it.
-    const pulledMb = bodies.reduce((sum, body) => sum + Math.min(body.pulls(), 20), 0);
-    premise("the downloads ran into the cap", pulledMb, 60);
-    // Two chunks past the cap per stream at most: the one its reader refused, and
-    // the one the stream had queued ahead of its reader.
-    expect(pulledMb).toBeLessThanOrEqual(75 + 2 * bodies.length);
+
+    premise("the downloads ran into the cap", downloaded(), 75 * MB);
+    // At most one chunk past 75 MB for each of the 4 fetches open at once: the one
+    // each had asked for when the allowance was spent.
+    expect(downloaded()).toBeLessThanOrEqual(75 * MB + 4 * chunk);
+    // No request went out after the allowance was spent: until then every byte
+    // downloaded was taken from it, so the total was at most 75 MB.
+    expect(downloadedAtRequest.filter((bytes) => bytes > 75 * MB)).toEqual([]);
+    expect(storedBytes(worker)).toBeLessThanOrEqual(75 * MB);
     const stored = (await worker.store.copyAtUrl(U))?.assets ?? [];
     expect(stored).toEqual(assets.slice(0, stored.length));
-    expect(stored.length * 20).toBeLessThanOrEqual(75);
+  });
+
+  // Codex R3 A, the two halves of the ruling, each pinned on its own: once the
+  // allowance refuses, no lane starts another fetch, the refused fetch is aborted
+  // there and then, and a body whose headers arrive afterwards is not read at all.
+  test("once the allowance is spent, no lane asks for another asset, the refused fetch is aborted, and a body arriving after is never read", async () => {
+    const worker = boot();
+    const path = (name: string) => `/api/asset/diagram/${SHOW}/rev-1/${name}.png`;
+    const [first, second, stalls, hangs, spends, arrivesAfter, queued] = [
+      "first",
+      "second",
+      "stalls",
+      "hangs",
+      "spends",
+      "arrives-after",
+      "queued",
+    ].map(path) as [string, string, string, string, string, string, string];
+    const declared = (bytes: number) => ({ "content-length": String(bytes) });
+    // 25 + 25 + 20 MB taken at their headers: 5 MB left.
+    worker.net.on(
+      first,
+      reply(() => new Response(new Uint8Array(25 * MB), { headers: declared(25 * MB) })),
+    );
+    worker.net.on(
+      second,
+      reply(() => new Response(new Uint8Array(25 * MB), { headers: declared(25 * MB) })),
+    );
+    worker.net.on(
+      stalls,
+      reply(() => new Response(stalledBody(), { headers: declared(20 * MB) })),
+    );
+    worker.net.on(hangs, hang);
+    const spendsGate = deferred<Response>();
+    const afterGate = deferred<Response>();
+    worker.net.on(spends, later(spendsGate));
+    worker.net.on(arrivesAfter, later(afterGate));
+    worker.net.on(
+      queued,
+      reply(() => new Response(new Uint8Array([1]))),
+    );
+    worker.net.on(
+      U,
+      reply(() =>
+        htmlResponse(
+          page(save({ assets: [first, second, stalls, hangs, spends, arrivesAfter, queued] })),
+        ),
+      ),
+    );
+    const nav = worker.navigate(U);
+    await responseOf(nav);
+    await settle();
+    premise("the two lanes that finished moved on", worker.net.callsTo(arrivesAfter).length, 0);
+    premiseHolds(
+      "all four lanes are busy, so the last asset waits",
+      worker.net.callsTo(queued).length === 0,
+    );
+
+    // 5 MB fits; the chunk after it does not, and the allowance is spent.
+    const spending = counted(10 * MB, 64 * 1024, { readAhead: false });
+    spendsGate.resolve(new Response(spending.body));
+    await settle();
+    expect(spending.sent()).toBe(5 * MB + 64 * 1024);
+    expect(signalOf(worker, spends)?.aborted).toBe(true);
+    // The lane that was refused starts nothing: the queued asset is never asked for.
+    expect(worker.net.callsTo(queued)).toEqual([]);
+
+    // Headers that arrive once the allowance is spent: not one chunk is read.
+    const late = counted(MB, 64 * 1024, { readAhead: false });
+    afterGate.resolve(new Response(late.body));
+    await settle();
+    expect(late.pulls()).toBe(0);
+    expect(signalOf(worker, arrivesAfter)?.aborted).toBe(true);
+    expect(signalOf(worker, stalls)?.aborted).toBe(false);
+
+    await worker.clock.advance(15_000);
+    await nav.settled();
+    expect(await worker.store.copyAtUrl(U)).toMatchObject({ assets: [first, second] });
+    expect(worker.net.callsTo(queued)).toEqual([]);
+    expect(storedBytes(worker)).toBe(50 * MB);
+  });
+
+  // The same allowance counts every chunk read, the one that takes an asset past
+  // 25 MB included: it was downloaded, though the asset is skipped.
+  test("the chunk that takes an asset past 25 MB is taken from the allowance too", async () => {
+    const worker = boot();
+    const path = (name: string) => `/api/asset/diagram/${SHOW}/rev-1/${name}.png`;
+    const [tooBig, middle, last] = ["too-big", "middle", "last"].map(path) as [
+      string,
+      string,
+      string,
+    ];
+    const declared = (bytes: number) => ({ "content-length": String(bytes) });
+    // 12 chunks of 2 MB are 24 MB; the 13th takes it to 26 MB, past 25 MB.
+    const big = counted(30 * MB, 2 * MB, { readAhead: false });
+    worker.net.on(
+      tooBig,
+      reply(() => new Response(big.body)),
+    );
+    const middleGate = deferred<Response>();
+    const lastGate = deferred<Response>();
+    worker.net.on(middle, later(middleGate));
+    worker.net.on(last, later(lastGate));
+    worker.net.on(
+      U,
+      reply(() => htmlResponse(page(save({ assets: [tooBig, middle, last] })))),
+    );
+    const nav = worker.navigate(U);
+    await responseOf(nav);
+    await settle();
+    premise("the oversized body was read past 25 MB", big.sent(), 25 * MB);
+
+    // 26 + 25 MB taken: 24 MB left, so a declared 25 MB does not fit. Had the
+    // 26th MB gone uncounted, it would, and 76 MB would come down.
+    middleGate.resolve(new Response(new Uint8Array(25 * MB), { headers: declared(25 * MB) }));
+    await settle();
+    const lastBody = counted(25 * MB, MB);
+    lastGate.resolve(new Response(lastBody.body, { headers: declared(25 * MB) }));
+    await nav.settled();
+    expect(await worker.store.copyAtUrl(U)).toMatchObject({ assets: [middle] });
+    expect(worker.assetCache().paths()).toEqual([middle]);
+    expect(lastBody.pulls()).toBeLessThanOrEqual(1);
+    expect(big.sent() + 25 * MB + lastBody.sent()).toBeLessThanOrEqual(75 * MB);
   });
 
   // Coordinator follow-up (a): the required static files share one deadline,
@@ -2346,6 +2498,9 @@ describe("completeness", () => {
     // it before its body was read (a stream pulls its first chunk unasked).
     expect(worker.assetCache().paths()).toEqual(assets.slice(0, 3).sort());
     expect(bodies[3]?.pulls()).toBeLessThanOrEqual(1);
+    // Codex R3 A: the declared length that spent the allowance stopped the lanes,
+    // so the asset queued after it was never asked for.
+    expect(worker.net.callsTo(small)).toEqual([]);
   });
 });
 

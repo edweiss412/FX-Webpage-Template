@@ -175,17 +175,27 @@ type Handled = { response: Response; background: Promise<unknown> };
  */
 type Ticket = { token: SaveToken; memoryGeneration: number | null; fetchesAssets: boolean };
 
-/** The bytes one save's asset downloads may still take between them (spec 4.8). */
-type Allowance = { take: (bytes: number) => boolean };
+/**
+ * The bytes one save's asset downloads may still take between them (spec 4.8).
+ * Spent at its first refusal, and from then on it refuses everything: the
+ * show's prefetch has stopped, so no lane asks for another asset and no body
+ * still arriving is read further (Codex R3 A).
+ */
+type Allowance = { take: (bytes: number) => boolean; spent: () => boolean };
 
 function allowance(bytes: number): Allowance {
   let left = bytes;
+  let spent = false;
   return {
     take(count) {
-      if (count > left) return false;
+      if (spent || count > left) {
+        spent = true;
+        return false;
+      }
       left -= count;
       return true;
     },
+    spent: () => spent,
   };
 }
 
@@ -287,13 +297,15 @@ function declaredLength(response: Response): number | null {
 /**
  * Reads a body while counting, and stops reading as soon as it passes `limit`:
  * an asset of unknown length is never buffered whole before it is judged (Task 7).
- * With `take`, every chunk is taken from an allowance first, and reading stops
- * (`refused`) at the first chunk it cannot take.
+ * With `downloads`, every chunk read is taken from that allowance, the one that
+ * passes `limit` included, and reading stops (`refused`) at the first chunk it
+ * cannot take. Once the allowance is spent, by this body or another, not one
+ * more chunk is read (Codex R3 A).
  */
 async function readCapped(
   response: Response,
   limit: number,
-  take?: (bytes: number) => boolean,
+  downloads?: Allowance,
 ): Promise<
   | { kind: "read"; bytes: Uint8Array<ArrayBuffer> }
   | { kind: "over"; read: number }
@@ -304,16 +316,20 @@ async function readCapped(
   const chunks: Uint8Array[] = [];
   let read = 0;
   for (;;) {
+    if (downloads?.spent()) {
+      await reader.cancel();
+      return { kind: "refused" };
+    }
     const { done, value } = await reader.read();
     if (done) break;
     read += value.byteLength;
+    if (downloads !== undefined && !downloads.take(value.byteLength)) {
+      await reader.cancel();
+      return { kind: "refused" };
+    }
     if (read > limit) {
       await reader.cancel();
       return { kind: "over", read };
-    }
-    if (take !== undefined && !take(value.byteLength)) {
-      await reader.cancel();
-      return { kind: "refused" };
     }
     chunks.push(value);
   }
@@ -815,23 +831,28 @@ export function installWorker(scope: WorkerScope, deps: WorkerDeps): void {
   /**
    * One listed asset from the network, stored in the asset cache as soon as it
    * has been read whole (the save's pin keeps it from a sweep), or `skip` it, or
-   * `stop` the show's prefetch at it. Its bytes are taken from `downloads`
-   * before they are read: a declared length at once, otherwise each chunk as it
-   * arrives, so assets fetched together never download past the show's cap.
-   * Any failure to fetch it (a network error, a status other than 200, a body
-   * that fails mid-stream, an abort) skips it; a failure to store it rejects, so
-   * a quota error reaches the save (spec 4.7.2).
+   * `stop` the show's prefetch at it. Its bytes are taken from `downloads`: a
+   * declared length at once, before the body is read, otherwise each chunk as it
+   * arrives, so assets fetched together never download past the show's cap. One
+   * the allowance refuses has its body cancelled and its fetch aborted there and
+   * then (Codex R3 A). Any failure to fetch it (a network error, a status other
+   * than 200, a body that fails mid-stream, an abort) skips it; a failure to
+   * store it rejects, so a quota error reaches the save (spec 4.7.2).
    */
   async function fetchAsset(
     path: string,
-    signal: AbortSignal,
+    controller: AbortController,
     downloads: Allowance,
     cache: CacheLike,
   ): Promise<FetchedAsset> {
+    const stop = (): FetchedAsset => {
+      controller.abort();
+      return STOP;
+    };
     let bytes: Uint8Array<ArrayBuffer>;
     let headers: Headers;
     try {
-      const response = await deps.fetch(absolute(path), { signal });
+      const response = await deps.fetch(absolute(path), { signal: controller.signal });
       if (response.status !== 200) {
         await response.body?.cancel();
         return SKIP;
@@ -843,14 +864,14 @@ export function installWorker(scope: WorkerScope, deps: WorkerDeps): void {
       }
       if (declared !== null && !downloads.take(declared)) {
         await response.body?.cancel();
-        return STOP;
+        return stop();
       }
       const body = await readCapped(
         response,
         ASSET_MAX_BYTES,
-        declared === null ? downloads.take : undefined,
+        declared === null ? downloads : undefined,
       );
-      if (body.kind === "refused") return STOP;
+      if (body.kind === "refused") return stop();
       if (body.kind === "over") return SKIP;
       bytes = body.bytes;
       headers = withoutTransportHeaders(response.headers);
@@ -867,7 +888,10 @@ export function installWorker(scope: WorkerScope, deps: WorkerDeps): void {
    * most ASSET_FETCHES_IN_FLIGHT out at once, all under one deadline,
    * ASSET_FETCH_BUDGET_MS from now: once it passes, every fetch still out is
    * aborted, nothing still queued is asked for, and each of those assets is
-   * skipped (spec 4.8). A store that fails aborts them all and rejects.
+   * skipped (spec 4.8). Once the show's download allowance is spent, no lane
+   * asks for another asset: every one still queued comes after the asset that
+   * stopped the prefetch, so none could be admitted (Codex R3 A). A store that
+   * fails aborts them all and rejects.
    */
   async function fetchMissingAssets(
     paths: readonly string[],
@@ -879,12 +903,12 @@ export function installWorker(scope: WorkerScope, deps: WorkerDeps): void {
     let next = 0;
     let closed = false;
     const lane = async (): Promise<void> => {
-      while (!closed && next < paths.length) {
+      while (!closed && !downloads.spent() && next < paths.length) {
         const index = next;
         next += 1;
         const path = paths[index] as string;
-        const signal = (controllers[index] as AbortController).signal;
-        const fetched = await fetchAsset(path, signal, downloads, cache);
+        const controller = controllers[index] as AbortController;
+        const fetched = await fetchAsset(path, controller, downloads, cache);
         if (!results.has(path)) results.set(path, fetched);
       }
     };
