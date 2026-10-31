@@ -67,9 +67,9 @@ const ENSURE_SAVED_THROTTLE_MS = 10_000;
 
 /**
  * How long a post waits for the worker's reply. Nothing here reads the reply,
- * so the bound only frees the message channel; it matches the bar's
- * PROBE_TIMEOUT_MS because an `ensure-saved` runs the same fetch and status
- * check a probe runs.
+ * so the bound only frees the message channel: an `ensure-saved` that also
+ * fetches the listed assets (up to the worker's 15-second asset deadline, spec
+ * 4.8) can reply after it, and that reply is dropped with nothing lost.
  */
 const ENSURE_SAVED_REPLY_TIMEOUT_MS = 20_000;
 

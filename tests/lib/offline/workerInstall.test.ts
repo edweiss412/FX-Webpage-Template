@@ -1815,6 +1815,46 @@ describe("probe", () => {
     expect(await worker.store.copyAtUrl(U)).not.toBeNull();
   });
 
+  // Codex R2 C2: the bar waits PROBE_TIMEOUT_MS for this reply, so a probe's
+  // save fetches no asset. The reload a saved reply starts saves the page again
+  // and fetches the rest (spec 4.7.3).
+  test("a probe's save fetches no asset: it keeps the listed ones it holds and replies as soon as the page is in", async () => {
+    const worker = boot();
+    await worker.seed({ showId: SHOW, url: U });
+    worker.assetCache().seed(AGENDA, "%PDF-1.7");
+    worker.net.on(DIAGRAM, hang);
+    const gate = deferred<Response>();
+    worker.net.on(U, later(gate));
+    const sent = worker.post({ type: "probe", url: U });
+    await worker.clock.advance(7_999);
+    gate.resolve(htmlResponse(page(save({ renderedAt: LATER, assets: [DIAGRAM, AGENDA] }))));
+    // The reply comes with the page, before any further time passes. Not waited
+    // for through waitUntil, so a probe that waits on the asset fails here rather
+    // than hanging the case.
+    await settle();
+    sent.close();
+    expect(sent.replies).toEqual([{ outcome: "saved" }]);
+    expect(worker.net.callsTo(DIAGRAM)).toEqual([]);
+    expect(await worker.store.copyAtUrl(U)).toMatchObject({ savedAt: LATER, assets: [AGENDA] });
+  });
+
+  test("an ensure-saved still fetches the listed assets it does not hold", async () => {
+    const worker = boot();
+    worker.net.on(
+      DIAGRAM,
+      reply(() => new Response(new Uint8Array([137, 80]))),
+    );
+    worker.net.on(
+      U,
+      reply(() => htmlResponse(page(save({ renderedAt: LATER, assets: [DIAGRAM] })))),
+    );
+    expect(await worker.ask({ type: "ensure-saved", url: U, renderedAt: LATER })).toEqual({
+      outcome: "saved",
+    });
+    expect(worker.net.callsTo(DIAGRAM)).toHaveLength(1);
+    expect(await worker.store.copyAtUrl(U)).toMatchObject({ assets: [DIAGRAM] });
+  });
+
   test("a page still pending at 8 s replies failed", async () => {
     const worker = boot();
     await worker.seed({ showId: SHOW, url: U });
@@ -2000,13 +2040,14 @@ describe("completeness", () => {
     },
   );
 
-  // Spec 4.8: an asset that has not arrived whole 30 s after its request is
-  // skipped like one that failed, so an optional asset never holds back the save.
+  // Spec 4.8: the assets a save does not hold are fetched together, and one that
+  // has not arrived whole 15 s after the save asked for them is skipped like one
+  // that failed, so an optional asset never holds back the save.
   test.each([
     ["whose headers never arrive", hang],
     ["whose body stalls after the headers", reply(() => new Response(stalledBody()))],
   ] as const)(
-    "a listed asset %s is abandoned at 30 s: its fetch is aborted and the save commits without it",
+    "a listed asset %s is abandoned at 15 s: its fetch is aborted and the save commits without it",
     async (_label, route) => {
       const worker = boot();
       await worker.seed({ showId: SHOW, url: U, savedAt: RENDERED });
@@ -2021,7 +2062,7 @@ describe("completeness", () => {
       );
       const nav = worker.navigate(U);
       await responseOf(nav);
-      await worker.clock.advance(29_999);
+      await worker.clock.advance(14_999);
       premise("the hanging asset was requested", worker.net.callsTo(DIAGRAM).length, 0);
       const call = worker.net.callsTo(DIAGRAM)[0];
       const signal = call?.init?.signal ?? call?.request?.signal;
@@ -2036,6 +2077,66 @@ describe("completeness", () => {
       await nav.settled();
     },
   );
+
+  // Codex R2 C2: one shared deadline, not one per asset in turn.
+  test("one hanging asset among several: all are asked for at once, and the save commits at 15 s with the rest", async () => {
+    const worker = boot();
+    const second = `/api/asset/diagram/${SHOW}/rev-1/second.png`;
+    worker.net.on(DIAGRAM, hang);
+    worker.net.on(
+      AGENDA,
+      reply(() => new Response("%PDF")),
+    );
+    worker.net.on(
+      second,
+      reply(() => new Response(new Uint8Array([137, 80]))),
+    );
+    worker.net.on(
+      U,
+      reply(() => htmlResponse(page(save({ assets: [DIAGRAM, AGENDA, second] })))),
+    );
+    const nav = worker.navigate(U);
+    await responseOf(nav);
+    await settle();
+    // In parallel: the assets after the hanging one went out without waiting for it.
+    expect(worker.net.callsTo(AGENDA)).toHaveLength(1);
+    expect(worker.net.callsTo(second)).toHaveLength(1);
+    await worker.clock.advance(14_999);
+    expect(await worker.store.copyAtUrl(U)).toBeNull();
+    await worker.clock.advance(1);
+    expect(await worker.store.copyAtUrl(U)).toMatchObject({ assets: [AGENDA, second] });
+    const call = worker.net.callsTo(DIAGRAM)[0];
+    expect((call?.init?.signal ?? call?.request?.signal)?.aborted).toBe(true);
+    await nav.settled();
+  });
+
+  test("assets fetched together never download more than 75 MB between them", async () => {
+    const worker = boot();
+    // No declared lengths: the bytes are counted as they arrive, whichever arrives
+    // first. Six of 20 MB: fetched together with nothing counting, 120 MB would come.
+    const bodies = [1, 2, 3, 4, 5, 6].map(() => counted(20 * MB, MB));
+    const assets = bodies.map((_, n) => `/api/asset/diagram/${SHOW}/rev-1/big-${n}.png`);
+    assets.forEach((path, n) => {
+      worker.net.on(
+        path,
+        reply(() => new Response(bodies[n]?.body)),
+      );
+    });
+    worker.net.on(
+      U,
+      reply(() => htmlResponse(page(save({ assets })))),
+    );
+    await open(worker, U);
+    // Each pull sends 1 MB, except the one that finds the body over and closes it.
+    const pulledMb = bodies.reduce((sum, body) => sum + Math.min(body.pulls(), 20), 0);
+    premise("the downloads ran into the cap", pulledMb, 60);
+    // Two chunks past the cap per stream at most: the one its reader refused, and
+    // the one the stream had queued ahead of its reader.
+    expect(pulledMb).toBeLessThanOrEqual(75 + 2 * bodies.length);
+    const stored = (await worker.store.copyAtUrl(U))?.assets ?? [];
+    expect(stored).toEqual(assets.slice(0, stored.length));
+    expect(stored.length * 20).toBeLessThanOrEqual(75);
+  });
 
   test("a quota error on put abandons the save and posts save-failed to every open page", async () => {
     const worker = boot();
@@ -2120,17 +2221,18 @@ describe("completeness", () => {
     const worker = boot();
     const assets = [1, 2, 3, 4].map((n) => `/api/asset/diagram/${SHOW}/rev-1/big-${n}.png`);
     const small = `/api/asset/diagram/${SHOW}/rev-1/small.png`;
-    for (const path of assets) {
+    const bodies = assets.map(() => counted(20 * MB, 4 * MB));
+    assets.forEach((path, n) => {
       worker.net.on(
         path,
         reply(
           () =>
-            new Response(counted(20 * MB, 4 * MB).body, {
+            new Response(bodies[n]?.body, {
               headers: { "content-length": String(20 * MB) },
             }),
         ),
       );
-    }
+    });
     worker.net.on(
       small,
       reply(() => new Response("small")),
@@ -2141,7 +2243,11 @@ describe("completeness", () => {
     );
     await open(worker, U);
     expect((await worker.store.copyAtUrl(U))?.assets).toEqual(assets.slice(0, 3));
-    expect(worker.net.callsTo(small)).toEqual([]);
+    // Fetched alongside (Codex R2 C2), but nothing past the stop is stored, and the
+    // asset that would pass 75 MB is not downloaded: its declared length stopped
+    // it before its body was read (a stream pulls its first chunk unasked).
+    expect(worker.assetCache().paths()).toEqual(assets.slice(0, 3).sort());
+    expect(bodies[3]?.pulls()).toBeLessThanOrEqual(1);
   });
 });
 

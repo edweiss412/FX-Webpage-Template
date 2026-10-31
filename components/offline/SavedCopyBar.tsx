@@ -127,9 +127,11 @@ const PROBE_INTERVAL_MS = 30_000;
 /**
  * How long the page waits for a probe's reply. The worker fetches the page
  * under NAV_BUDGET_MS (8 s) and may then ask the status route under
- * STATUS_TIMEOUT_MS (5 s) before it commits, so a page that gave up sooner
- * would read a slow `saved` as nothing. Under PROBE_INTERVAL_MS, so a reply
- * that never comes frees the next tick. A literal because DESIGN.md §5.5 lists
+ * STATUS_TIMEOUT_MS (5 s), so a page that gave up sooner would read a slow
+ * `saved` as nothing. A probe's save fetches no asset (spec 4.7.3), so the
+ * asset deadline is no part of the wait; 5 s more covers the static files and
+ * the commit. Under PROBE_INTERVAL_MS, so a reply that never comes frees the
+ * next tick. A literal because DESIGN.md §5.5 lists
  * it and the timing scanner resolves only numeric-literal constants;
  * savedCopyBarRecovery.test.tsx pins both bounds.
  */

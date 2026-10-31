@@ -67,6 +67,8 @@ const MINUTE_MS = 60_000;
 const HOUR_MS = 60 * MINUTE_MS;
 /** Spec 4.7.3: the probe cadence while the phone reports a connection. */
 const PROBE_EVERY_MS = 30_000;
+/** What a probe's reply may take beyond the page and the status route: its static files and the commit. */
+const PROBE_MARGIN_MS = 5_000;
 /** Spec 4.7.2: how long `updated` shows after a recovery reload. */
 const UPDATED_FOR_MS = 4_000;
 /** The `updated` fade's length: the duration-normal token it runs on (app/globals.css). */
@@ -282,10 +284,13 @@ describe("SavedCopyBar recovery: when the bar probes", () => {
     expect(probes()).toEqual([{ type: "probe", url: PATH }]);
     // The worker's probe fetches the page under NAV_BUDGET_MS and may then ask
     // the status route under STATUS_TIMEOUT_MS; a page that gave up sooner would
-    // read a slow `saved` as nothing. It stays under the 30-second cadence so a
-    // reply that never comes frees the next tick.
+    // read a slow `saved` as nothing. A probe's save fetches no asset, so the
+    // asset deadline is no part of the wait (Codex R2 C2; pinned by
+    // "a probe's save fetches no asset" in tests/lib/offline/workerInstall.test.ts).
+    // A 5-second margin covers the static files and the commit. It stays under
+    // the 30-second cadence so a reply that never comes frees the next tick.
     const timeoutMs = post.mock.calls[0]?.[1].timeoutMs ?? 0;
-    expect(timeoutMs).toBeGreaterThan(NAV_BUDGET_MS + STATUS_TIMEOUT_MS);
+    expect(timeoutMs).toBeGreaterThan(NAV_BUDGET_MS + STATUS_TIMEOUT_MS + PROBE_MARGIN_MS);
     expect(timeoutMs).toBeLessThan(PROBE_EVERY_MS);
   });
 
@@ -435,6 +440,35 @@ describe("SavedCopyBar recovery: what each reply does", () => {
     await advance(2 * PROBE_EVERY_MS);
     expect(post).toHaveBeenCalledTimes(1);
     expect(reload).toHaveBeenCalledTimes(1);
+  });
+
+  // Codex R2 C2: the reply the bar waits for, at the longest a probe's can take,
+  // is still acted on. The transport is held to the bar's own timeout, as
+  // postToWorker holds it (tests/lib/offline/clientMessaging.test.ts).
+  test("a saved reply as late as the worker's longest probe still shows updating, reloads, and the next page shows updated", async () => {
+    setServedMeta("offline", FRESH_SAVED_AT);
+    const { unmount } = renderBar();
+    const latest = NAV_BUDGET_MS + STATUS_TIMEOUT_MS + PROBE_MARGIN_MS;
+    post.mockImplementationOnce(
+      (_message, { timeoutMs }) =>
+        new Promise<PostResult>((resolve) => {
+          setTimeout(() => resolve({ outcome: "timeout" }), timeoutMs);
+          setTimeout(() => resolve({ outcome: "saved" }), latest);
+        }),
+    );
+
+    await fire("online");
+    await advance(latest - 1);
+    expect(barState()).toBe("saved-fresh");
+    await advance(1);
+    expect(barState()).toBe("updating");
+    expect(reload).toHaveBeenCalledTimes(1);
+
+    unmount();
+    setServedMeta(null);
+    renderBar();
+    expect(barState()).toBe("updated");
+    expect(barText()).toBe(UPDATED_TEXT);
   });
 
   test("purged reloads at once and leaves the bar and the session as they were", async () => {

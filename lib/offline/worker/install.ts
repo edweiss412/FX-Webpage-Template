@@ -108,11 +108,12 @@ export type WorkerDeps = {
 const ASSET_TIMEOUT_MS = 5_000;
 
 /**
- * A save waits this long for one listed asset, headers and body together,
- * before it aborts the fetch and skips the asset (spec 4.8): assets are
- * optional, so one that hangs must not hold back the page's own copy.
+ * A save fetches the listed assets it does not hold together, and waits this
+ * long for the whole set, headers and bodies, from the moment it asks for them
+ * (spec 4.8). An asset not read whole by then is skipped and its fetch aborted:
+ * assets are optional, so one that hangs must not hold back the page's copy.
  */
-const ASSET_FETCH_BUDGET_MS = 30_000;
+const ASSET_FETCH_BUDGET_MS = 15_000;
 
 /** Every document the worker builds: a saved copy, the not-saved page (spec 4.7.1, 4.7.5). */
 const HTML_HEADERS: Readonly<Record<string, string>> = {
@@ -145,11 +146,8 @@ type Attempt = { result: Promise<Fetched | null>; abort: () => void };
 
 type Timed<T> = { kind: "done"; value: T } | { kind: "timeout" };
 
-/** One listed asset as a save fetched it: its bytes, or skip it, or stop the show's prefetch. */
-type FetchedAsset =
-  | { kind: "read"; bytes: Uint8Array<ArrayBuffer>; headers: Headers }
-  | { kind: "skip" }
-  | { kind: "stop" };
+/** One listed asset as a save fetched it: stored with its size, or skip it, or stop the show's prefetch. */
+type FetchedAsset = { kind: "stored"; size: number } | { kind: "skip" } | { kind: "stop" };
 
 const SKIP: FetchedAsset = Object.freeze({ kind: "skip" });
 const STOP: FetchedAsset = Object.freeze({ kind: "stop" });
@@ -159,10 +157,25 @@ type Handled = { response: Response; background: Promise<unknown> };
 
 /**
  * What a save began with: the store's token, and G in memory at that moment
- * (spec 4.6). G in memory is null for a save begun in quarantine, which never
- * commits.
+ * (spec 4.6), null for a save begun in quarantine, which never commits. And
+ * whether it fetches the listed assets it does not hold: a probe's does not,
+ * because the bar waits for its reply (spec 4.7.3).
  */
-type Ticket = { token: SaveToken; memoryGeneration: number | null };
+type Ticket = { token: SaveToken; memoryGeneration: number | null; fetchesAssets: boolean };
+
+/** The bytes one save's asset downloads may still take between them (spec 4.8). */
+type Allowance = { take: (bytes: number) => boolean };
+
+function allowance(bytes: number): Allowance {
+  let left = bytes;
+  return {
+    take(count) {
+      if (count > left) return false;
+      left -= count;
+      return true;
+    },
+  };
+}
 
 const NOTHING_MORE: Promise<void> = Promise.resolve();
 
@@ -262,11 +275,18 @@ function declaredLength(response: Response): number | null {
 /**
  * Reads a body while counting, and stops reading as soon as it passes `limit`:
  * an asset of unknown length is never buffered whole before it is judged (Task 7).
+ * With `take`, every chunk is taken from an allowance first, and reading stops
+ * (`refused`) at the first chunk it cannot take.
  */
 async function readCapped(
   response: Response,
   limit: number,
-): Promise<{ kind: "read"; bytes: Uint8Array<ArrayBuffer> } | { kind: "over"; read: number }> {
+  take?: (bytes: number) => boolean,
+): Promise<
+  | { kind: "read"; bytes: Uint8Array<ArrayBuffer> }
+  | { kind: "over"; read: number }
+  | { kind: "refused" }
+> {
   const reader = response.body?.getReader();
   if (reader === undefined) return { kind: "read", bytes: new Uint8Array(0) };
   const chunks: Uint8Array[] = [];
@@ -278,6 +298,10 @@ async function readCapped(
     if (read > limit) {
       await reader.cancel();
       return { kind: "over", read };
+    }
+    if (take !== undefined && !take(value.byteLength)) {
+      await reader.cancel();
+      return { kind: "refused" };
     }
     chunks.push(value);
   }
@@ -635,10 +659,10 @@ export function installWorker(scope: WorkerScope, deps: WorkerDeps): void {
   }
 
   /** A save's ticket, taken before its fetch is sent: in quarantine it can never commit. */
-  async function beginSave(): Promise<Ticket> {
+  async function beginSave(fetchesAssets = true): Promise<Ticket> {
     await markerChecked();
     const generation = quarantined() ? null : memoryGeneration;
-    return { token: await store.beginSave(), memoryGeneration: generation };
+    return { token: await store.beginSave(), memoryGeneration: generation, fetchesAssets };
   }
 
   async function announcePurged(removed: readonly StoredCopy[]): Promise<void> {
@@ -761,84 +785,136 @@ export function installWorker(scope: WorkerScope, deps: WorkerDeps): void {
   }
 
   /**
-   * One listed asset from the network, judged against the caps with `total`
-   * already admitted: its bytes and headers, or `skip` it, or `stop` the show's
-   * prefetch. Headers and body share ASSET_FETCH_BUDGET_MS; past it the fetch
-   * is aborted and the asset skipped. Any failure (a network error, a status
-   * other than 200, a body that fails mid-stream) skips it too.
+   * One listed asset from the network, stored in the asset cache as soon as it
+   * has been read whole (the save's pin keeps it from a sweep), or `skip` it, or
+   * `stop` the show's prefetch at it. Its bytes are taken from `downloads`
+   * before they are read: a declared length at once, otherwise each chunk as it
+   * arrives, so assets fetched together never download past the show's cap.
+   * Any failure to fetch it (a network error, a status other than 200, a body
+   * that fails mid-stream, an abort) skips it; a failure to store it rejects, so
+   * a quota error reaches the save (spec 4.7.2).
    */
-  async function fetchAsset(url: string, total: number): Promise<FetchedAsset> {
-    const controller = new AbortController();
-    const work = (async (): Promise<FetchedAsset> => {
-      const response = await deps.fetch(url, { signal: controller.signal });
+  async function fetchAsset(
+    path: string,
+    signal: AbortSignal,
+    downloads: Allowance,
+    cache: CacheLike,
+  ): Promise<FetchedAsset> {
+    let bytes: Uint8Array<ArrayBuffer>;
+    let headers: Headers;
+    try {
+      const response = await deps.fetch(absolute(path), { signal });
       if (response.status !== 200) {
         await response.body?.cancel();
         return SKIP;
       }
-      const declared = admitAsset(total, declaredLength(response));
-      if (declared !== "admit") {
+      const declared = declaredLength(response);
+      if (declared !== null && declared > ASSET_MAX_BYTES) {
         await response.body?.cancel();
-        return declared === "stop" ? STOP : SKIP;
+        return SKIP;
+      }
+      if (declared !== null && !downloads.take(declared)) {
+        await response.body?.cancel();
+        return STOP;
       }
       const body = await readCapped(
         response,
-        Math.min(ASSET_MAX_BYTES, SHOW_PREFETCH_MAX_BYTES - total),
+        ASSET_MAX_BYTES,
+        declared === null ? downloads.take : undefined,
       );
-      const size = body.kind === "read" ? body.bytes.byteLength : body.read;
-      const verdict = admitAsset(total, size);
-      if (verdict === "stop") return STOP;
-      if (verdict === "skip" || body.kind === "over") return SKIP;
-      return { kind: "read", bytes: body.bytes, headers: response.headers };
-    })().catch(() => SKIP);
-    const outcome = await within(work, ASSET_FETCH_BUDGET_MS);
-    if (outcome.kind === "done") return outcome.value;
-    controller.abort();
-    return SKIP;
+      if (body.kind === "refused") return STOP;
+      if (body.kind === "over") return SKIP;
+      bytes = body.bytes;
+      headers = withoutTransportHeaders(response.headers);
+    } catch {
+      return SKIP;
+    }
+    headers.set("content-length", String(bytes.byteLength));
+    await cache.put(absolute(path), new Response(bytes, { status: 200, headers }));
+    return { kind: "stored", size: bytes.byteLength };
+  }
+
+  /**
+   * The listed assets this save does not hold, fetched together under one
+   * deadline, ASSET_FETCH_BUDGET_MS from now: once it passes, every fetch still
+   * out is aborted and its asset skipped (spec 4.8). A store that fails aborts
+   * them all and rejects.
+   */
+  async function fetchMissingAssets(
+    paths: readonly string[],
+    cache: CacheLike,
+  ): Promise<ReadonlyMap<string, FetchedAsset>> {
+    const results = new Map<string, FetchedAsset>();
+    const downloads = allowance(SHOW_PREFETCH_MAX_BYTES);
+    const controllers = paths.map(() => new AbortController());
+    const all = Promise.all(
+      paths.map(async (path, index) => {
+        const signal = (controllers[index] as AbortController).signal;
+        const fetched = await fetchAsset(path, signal, downloads, cache);
+        if (!results.has(path)) results.set(path, fetched);
+      }),
+    );
+    try {
+      if ((await within(all, ASSET_FETCH_BUDGET_MS)).kind === "timeout") {
+        for (const path of paths) if (!results.has(path)) results.set(path, SKIP);
+      }
+    } finally {
+      // Past the deadline, or after a store that failed, nothing still out is
+      // wanted; aborting a fetch that already finished does nothing.
+      for (const controller of controllers) controller.abort();
+    }
+    return results;
   }
 
   /**
    * Every listed asset within the caps, present in the asset cache, in list
-   * order: one over 25 MB is skipped, and the show's prefetch stops before its
-   * total would pass 75 MB. An asset that cannot be fetched (a network error, a
-   * status other than 200, a body that fails mid-stream, no whole response
-   * within ASSET_FETCH_BUDGET_MS) is skipped the same way: it fails offline the
-   * way it does today (spec 4.8, controller ruling on Task 10). Only static
-   * files are mandatory for a commit. Returns the assets stored, which are the
-   * ones the copy lists.
+   * order (spec 4.8). One already held is sized from the cache. The rest are
+   * fetched together (`fetchMissingAssets`), except by a probe's save, which
+   * fetches none: the bar is waiting for its reply, and the reload a `saved`
+   * reply starts saves the page again and fetches them (spec 4.7.3). Then the
+   * list is walked in order: one over 25 MB is skipped, and the show's prefetch
+   * stops before its total would pass 75 MB, or at an asset whose download the
+   * show's allowance refused. An asset that cannot be had (a network error, a
+   * status other than 200, a body that fails mid-stream, not read whole by the
+   * deadline) is skipped the same way: it fails offline the way it does today
+   * (spec 4.8, controller ruling on Task 10). One fetched but not admitted is
+   * listed by no copy, so the sweep after the save removes it. Only static files
+   * are mandatory for a commit. Returns the assets admitted, which are the ones
+   * the copy lists.
    */
   async function storeAssets(
     paths: readonly string[],
     pin: (path: string) => void,
+    fetchesAssets: boolean,
   ): Promise<string[]> {
     const cache = await assetCache();
-    const stored: string[] = [];
+    const listed = [...new Set(paths)];
+    listed.forEach(pin);
+    const held = await Promise.all(listed.map((path) => cache.match(absolute(path))));
+    const missing = listed.filter((_, index) => held[index] === undefined);
+    const fetched: ReadonlyMap<string, FetchedAsset> = fetchesAssets
+      ? await fetchMissingAssets(missing, cache)
+      : new Map();
+    const admitted: string[] = [];
     let total = 0;
-    for (const path of new Set(paths)) {
-      const url = absolute(path);
-      pin(path);
-      const held = await cache.match(url);
-      if (held !== undefined) {
-        const size = declaredLength(held) ?? (await held.arrayBuffer()).byteLength;
-        const verdict = admitAsset(total, size);
-        if (verdict === "stop") break;
-        if (verdict === "admit") {
-          total += size;
-          stored.push(path);
-        }
-        continue;
+    for (const [index, path] of listed.entries()) {
+      const hit = held[index];
+      let size: number;
+      if (hit !== undefined) {
+        size = declaredLength(hit) ?? (await hit.arrayBuffer()).byteLength;
+      } else {
+        const result = fetched.get(path) ?? SKIP;
+        if (result.kind === "stop") break;
+        if (result.kind === "skip") continue;
+        size = result.size;
       }
-
-      const fetched = await fetchAsset(url, total);
-      if (fetched.kind === "stop") break;
-      if (fetched.kind === "skip") continue;
-      const size = fetched.bytes.byteLength;
-      const headers = withoutTransportHeaders(fetched.headers);
-      headers.set("content-length", String(size));
-      await cache.put(url, new Response(fetched.bytes, { status: 200, headers }));
+      const verdict = admitAsset(total, size);
+      if (verdict === "stop") break;
+      if (verdict === "skip") continue;
       total += size;
-      stored.push(path);
+      admitted.push(path);
     }
-    return stored;
+    return admitted;
   }
 
   async function evictBeyondCap(incomingShowId: string): Promise<void> {
@@ -868,7 +944,7 @@ export function installWorker(scope: WorkerScope, deps: WorkerDeps): void {
     hold(saving, key);
     try {
       const statics = await storeStatics(html, pin);
-      const assets = await storeAssets(marker.assets, pin);
+      const assets = await storeAssets(marker.assets, pin, ticket.fetchesAssets);
       // G in memory: every purge the store could not write since this save began
       // advanced it, and a save begun in quarantine holds none, so this one check
       // refuses every commit while the worker is quarantined.
@@ -1214,9 +1290,12 @@ export function installWorker(scope: WorkerScope, deps: WorkerDeps): void {
 
   // --- Messages (spec 4.3, 4.4, 4.6, 4.7.3) --------------------------------------------
 
-  /** Steps 2 and 3 for U without serving, under the step 2 budget. */
-  async function runSilently(url: string): Promise<SilentResult> {
-    const ticket = await beginSave();
+  /**
+   * Steps 2 and 3 for U without serving, under the step 2 budget. A probe's
+   * save fetches no asset (`fetchesAssets`, spec 4.7.3).
+   */
+  async function runSilently(url: string, fetchesAssets: boolean): Promise<SilentResult> {
+    const ticket = await beginSave(fetchesAssets);
     const attempt = startFetch(absolute(url), { redirect: "manual", credentials: "same-origin" });
     const outcome = await within(attempt.result, NAV_BUDGET_MS);
     if (outcome.kind === "timeout") {
@@ -1237,7 +1316,7 @@ export function installWorker(scope: WorkerScope, deps: WorkerDeps): void {
     try {
       const held = await store.copyAtUrl(url);
       if (held !== null && held.savedAt === renderedAt) return "skipped";
-      return await runSilently(url);
+      return await runSilently(url, true);
     } finally {
       release(saving, key);
     }
@@ -1245,7 +1324,7 @@ export function installWorker(scope: WorkerScope, deps: WorkerDeps): void {
 
   async function probe(rawUrl: string): Promise<SilentResult> {
     const url = crewPath(pathOf(rawUrl));
-    return url === null ? "skipped" : runSilently(url);
+    return url === null ? "skipped" : runSilently(url, false);
   }
 
   async function checkAt(rawUrl: string): Promise<SilentResult> {
