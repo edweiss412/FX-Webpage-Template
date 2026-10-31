@@ -235,6 +235,64 @@ test("scroll-edge: popover forced to open past the scrollport bottom is scrolled
   await expect(confirm).toHaveCount(0);
 });
 
+// Whole-diff review R2-F2. The review modal's Tab trap (lib/a11y/dialogFocus.ts)
+// acts only at its two ends, so the popover's own Tab handlers
+// (components/admin/wizard/CrewRowActions.tsx:130-134, :171-180) run on a Tab
+// the trap never touched. A trap that moved focus on every Tab ran BEFORE them
+// (it listens on the panel, React at the root): Tab and Shift+Tab from Cancel
+// both came back to Cancel, so "Confirm reset" could not be reached from the
+// keyboard, and Tab from the menu ended on the trigger.
+test("keyboard: the reset confirm's Tab moves between Cancel and Confirm reset, and Tab from the menu moves past its trigger (R2-F2)", async ({
+  page,
+}) => {
+  await openModal(page);
+  const crewId = crewIdAt(0);
+  const trigger = rowTrigger(page, crewId);
+  await trigger.scrollIntoViewIfNeeded();
+
+  // Menu: Tab closes it and moves on from the trigger in document order (APG).
+  await trigger.click();
+  await expect(page.getByTestId(`admin-show-preview-as-link-${crewId}`)).toBeFocused();
+  await page.keyboard.press("Tab");
+  await expect(page.getByTestId(`crew-row-menu-${crewId}`)).toHaveCount(0);
+  const afterMenu = await page.evaluate((sel) => {
+    const el = document.activeElement as HTMLElement | null;
+    const trig = document.querySelector(sel);
+    return {
+      tag: el?.tagName ?? null,
+      isTrigger: el === trig,
+      inPanel: el?.closest("[data-review-modal-panel]") != null,
+      followsTrigger:
+        el != null &&
+        trig != null &&
+        (trig.compareDocumentPosition(el) & Node.DOCUMENT_POSITION_FOLLOWING) !== 0,
+    };
+  }, `[data-testid="crew-row-menu-button-${crewId}"]`);
+  expect(afterMenu, JSON.stringify(afterMenu)).toMatchObject({
+    isTrigger: false,
+    inPanel: true,
+    followsTrigger: true,
+  });
+
+  // Confirm: Tab and Shift+Tab move between its two buttons, never stuck.
+  await trigger.click();
+  await page.getByTestId(`crew-row-reset-item-${crewId}`).click();
+  const cancel = page.getByTestId("crew-row-reset-cancel");
+  const go = page.getByTestId("crew-row-reset-confirm-go");
+  await expect(cancel).toBeFocused();
+  await page.keyboard.press("Tab");
+  await expect(go, "Tab from Cancel").toBeFocused();
+  await page.keyboard.press("Tab");
+  await expect(cancel, "Tab from Confirm reset").toBeFocused();
+  await page.keyboard.press("Shift+Tab");
+  await expect(go, "Shift+Tab from Cancel").toBeFocused();
+  // The reset completes from the keyboard alone (WCAG 2.1.1).
+  await page.keyboard.press("Enter");
+  await expect(page.getByTestId("crew-row-reset-ok")).toContainText(
+    "Reset Alex Rodrigues. They'll pick again next visit.",
+  );
+});
+
 test("Preview as navigates to the impersonated preview route", async ({ page }) => {
   await openModal(page);
   const crewId = crewIdAt(0);

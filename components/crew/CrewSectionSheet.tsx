@@ -256,7 +256,7 @@ function SheetModalEffects({
 
   // Tab kept inside the dialog; on close, focus goes back to the opener read
   // above (the hook's own snapshot is taken after the title has focus).
-  useDialogFocus(dialogRef, titleRef, undefined, { restoreTargetRef: openerRef });
+  useDialogFocus(dialogRef, titleRef, undefined, { restoreTargetRef: openerRef, walkTabs: true });
 
   useEffect(() => acquireScrollLock(), []);
 

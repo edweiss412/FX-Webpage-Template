@@ -233,6 +233,100 @@ test.describe("published review modal — interactions (spec §3/§5/§6.5)", ()
     }
   });
 
+  // Whole-diff review R2-F1. A control inside a CLOSED <details> reports an
+  // offsetParent and tabIndex 0 in both engines, but focus() on it does nothing.
+  // A trap that moved focus on every Tab counted it as a stop, so Tab stuck on
+  // the fold's summary and Shift+Tab stuck below it. The review modal's trap
+  // (lib/a11y/dialogFocus.ts) acts only at its two ends, so the browser skips
+  // the closed fold natively. The fold here is CrewUnderRowStack's "N more"
+  // (components/admin/wizard/step3ReviewSections.tsx:1731): three crew warnings
+  // on one member, two shown, the third folded. The Ignored (N) and Accepted (N)
+  // folds are the same shape in the same trap.
+  test.describe("a closed disclosure's controls (R2-F1)", () => {
+    let foldShow: SeededShow;
+    const FOLD_MEMBER = "Dana Fold";
+    test.beforeAll(async () => {
+      foldShow = await seedShowWithCrew({
+        title: "Modal Fold Tab E2E Show",
+        crew: [{ name: FOLD_MEMBER, role: "A1", email: "dana@fxav.test" }],
+        internal: {
+          parseWarnings: ["A1", "A2", "A3"].map((a1) => ({
+            severity: "warn",
+            code: "UNKNOWN_FIELD",
+            message: `Unrecognized crew row label at ${a1}`,
+            blockRef: { kind: "crew", name: FOLD_MEMBER },
+            sourceCell: { title: "Crew", gid: 0, a1 },
+          })),
+        },
+      });
+    });
+    test.afterAll(async () => {
+      if (foldShow) await deleteSeededShow(foldShow.driveFileId);
+    });
+
+    test("Tab from a closed fold's summary moves past the fold, and Shift+Tab from below comes back to it", async ({
+      page,
+    }) => {
+      await openModal(page, POPUP, { url: `/admin?show=${foldShow.slug}` });
+      const fold = page.locator(`${MODAL} details[data-testid^="crew-warn-more-"]`);
+      await expect(fold).toHaveCount(1);
+      // PREMISE: the fold is closed and holds a control that passes the trap's
+      // old stop test (offsetParent, tabIndex) while focus() on it does nothing,
+      // the shape the walk stuck on. Without one, this case cannot fail.
+      const premise = await fold.evaluate((details) => {
+        const d = details as HTMLDetailsElement;
+        const summary = d.querySelector(":scope > summary");
+        const before = document.activeElement;
+        const unfocusable = Array.from(
+          d.querySelectorAll<HTMLElement>(
+            'a[href], button:not([disabled]), [tabindex]:not([tabindex="-1"])',
+          ),
+        ).filter((el) => {
+          if (summary?.contains(el) || el.offsetParent === null || el.tabIndex < 0) return false;
+          el.focus();
+          return document.activeElement !== el;
+        });
+        (before as HTMLElement | null)?.focus();
+        return { open: d.open, unfocusable: unfocusable.length };
+      });
+      expect(premise.open, "the fold is closed").toBe(false);
+      expect(premise.unfocusable, "the fold holds a control focus() cannot reach").toBeGreaterThan(
+        0,
+      );
+
+      const where = () =>
+        fold.evaluate((details) => {
+          const el = document.activeElement as HTMLElement | null;
+          return {
+            tag: el?.tagName ?? null,
+            testid: el?.getAttribute("data-testid") ?? null,
+            isSummary: el === details.querySelector(":scope > summary"),
+            inFold: el !== null && details.contains(el),
+            inPanel: el?.closest("[data-review-modal-panel]") != null,
+            followsFold:
+              el !== null &&
+              (details.compareDocumentPosition(el) & Node.DOCUMENT_POSITION_FOLLOWING) !== 0 &&
+              !details.contains(el),
+          };
+        });
+
+      await fold.locator(":scope > summary").focus();
+      expect((await where()).isSummary, "focus starts on the summary").toBe(true);
+      await page.keyboard.press("Tab");
+      const below = await where();
+      expect(below, `Tab from the summary: ${JSON.stringify(below)}`).toMatchObject({
+        inPanel: true,
+        inFold: false,
+        followsFold: true,
+      });
+      await page.keyboard.press("Shift+Tab");
+      const back = await where();
+      expect(back, `Shift+Tab from below the fold: ${JSON.stringify(back)}`).toMatchObject({
+        isSummary: true,
+      });
+    });
+  });
+
   test("focus continuity: Esc-close restores focus to the still-mounted dashboard trigger (real inert)", async ({
     page,
   }) => {
