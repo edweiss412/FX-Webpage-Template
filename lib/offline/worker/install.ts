@@ -1041,37 +1041,53 @@ export function installWorker(scope: WorkerScope, deps: WorkerDeps): void {
   }
 
   /**
+   * Whether a saved copy lists the asset at `path`. False in quarantine, and when
+   * the store cannot be read, so the network answers.
+   */
+  async function isListed(path: string): Promise<boolean> {
+    try {
+      const copies = await store.listCopies();
+      return copies.some((copy) => copy.assets.includes(path)) && !quarantined();
+    } catch {
+      return false;
+    }
+  }
+
+  /**
    * The stored asset, answering the request's Range, only when a saved copy lists
    * it. The listing is read again as the last await, so an asset whose copy was
-   * purged while the cache was read is not served. A store or cache that fails
-   * reads as unlisted, so the network answers.
+   * purged while the cache was read is not served. A cache that fails reads as
+   * no stored asset, so the network answers.
    */
   async function listedAsset(request: Request): Promise<Response | undefined> {
     try {
       const path = rootRelative(request.url);
-      const listed = async () =>
-        (await store.listCopies()).some((copy) => copy.assets.includes(path)) && !quarantined();
-      if (!(await listed())) return undefined;
+      if (!(await isListed(path))) return undefined;
       const stored = await (await assetCache()).match(absolute(path));
       if (stored === undefined) return undefined;
       const answer = await answerRange(stored, request.headers.get("range"));
-      return (await listed()) ? answer : undefined;
+      return (await isListed(path)) ? answer : undefined;
     } catch {
       return undefined;
     }
   }
 
   /**
-   * Network first. A 2xx whose body arrives whole within 5 s is served, as the
-   * bytes read with the network's status and headers. Otherwise (a non-2xx
-   * answer, a network error, a body that fails mid-stream, 5 s without the whole
-   * response) the stored asset is served when a saved copy lists it, and the
-   * network's fetch is aborted: after an archive the asset routes refuse an
-   * ended copy's assets, which are still the right ones to show (controller
-   * ruling, Task 10). An unlisted asset gets the network's own answer, or its
-   * error, or a longer wait. The page's own abort still reaches the fetch.
+   * Whether a saved copy lists the asset is decided first (Codex R2 A2). One
+   * that no copy lists passes through untouched, streaming exactly as it would
+   * without the worker: its answer, its error, or its wait.
+   *
+   * A listed one is network first. A 2xx whose body arrives whole within 5 s is
+   * served, as the bytes read with the network's status and headers. Otherwise
+   * (a non-2xx answer, a network error, a body that fails mid-stream, 5 s
+   * without the whole response) the stored asset is served while a saved copy
+   * still lists it, and the network's fetch is aborted: after an archive the
+   * asset routes refuse an ended copy's assets, which are still the right ones
+   * to show (controller ruling, Task 10). The page's own abort still reaches the
+   * fetch.
    */
   async function serveAsset(request: Request): Promise<Response> {
+    if (!(await isListed(rootRelative(request.url)))) return deps.fetch(request);
     const controller = new AbortController();
     if (request.signal.aborted) controller.abort();
     else request.signal.addEventListener("abort", () => controller.abort(), { once: true });

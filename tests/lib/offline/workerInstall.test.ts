@@ -2240,6 +2240,38 @@ describe("asset requests (spec 4.8)", () => {
     await expect(responseOf(worker.dispatchFetch(new Request(ORIGIN + DIAGRAM)))).rejects.toThrow();
   });
 
+  // Codex R2 A2: listed-ness is decided before anything is buffered, so an asset
+  // no saved copy lists streams exactly as it would without the worker.
+  test.each([
+    ["a diagram", DIAGRAM],
+    ["an agenda", AGENDA],
+  ])(
+    "%s no saved copy lists passes through untouched: its headers reach the page while its body is still arriving",
+    async (_label, path) => {
+      const worker = boot();
+      // Stored, but listed by no copy (skipped by a cap, say): still unlisted.
+      worker.assetCache().seed(path, "orphan");
+      const network = new Response(stalledBody(), {
+        status: 200,
+        headers: { "content-type": "application/pdf", "content-length": "4096" },
+      });
+      worker.net.on(
+        path,
+        reply(() => network),
+      );
+      const dispatched = worker.dispatchFetch(new Request(ORIGIN + path));
+      const served = watch(responseOf(dispatched));
+      await settle();
+      expect(served.done()).toBe(true);
+      const response = await responseOf(dispatched);
+      expect(response).toBe(network);
+      const reader = response.body?.getReader();
+      const first = await reader?.read();
+      expect(new TextDecoder().decode(first?.value)).toBe("partial");
+      await reader?.cancel();
+    },
+  );
+
   test("an unlisted asset keeps waiting on the network past 5 s", async () => {
     const worker = boot();
     const gate = deferred<Response>();

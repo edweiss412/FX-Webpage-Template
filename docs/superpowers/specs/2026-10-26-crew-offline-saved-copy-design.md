@@ -150,6 +150,7 @@ The worker registers at scope `/` and acts only on:
 | Any navigation (`GET` or `POST`) to `/auth/sign-out` or `/auth/callback` | Passed through unchanged (`respondWith(fetch(request))` with the request's own redirect mode), with every saved copy purged before the request is sent and again after its response arrives (§4.6) |
 | `GET /_next/static/**` and `GET /fonts/**` | Cache first, store on first fetch (§4.8) |
 | `GET /api/asset/diagram/**` and `GET /api/asset/agenda/**` listed by a saved copy | Network first with a 5-second timeout that covers the whole response, headers and body, falling back to the stored asset (§4.8) |
+| `GET /api/asset/diagram/**` and `GET /api/asset/agenda/**` that no saved copy lists | Passed through unchanged (`respondWith(fetch(request))`), streaming as it would without the worker. Whether a copy lists it is decided first, before anything is read: that takes a store read, and `respondWith` cannot wait for one |
 | Everything else, including Next RSC requests (`_rsc` query parameter or `RSC: 1` header), Server Action POSTs, all other `/api/**` and `/auth/**`, admin pages, `/show/<slug>/unpublish` | Never answered: the worker does not call `respondWith`, so the browser behaves exactly as today |
 
 The crew-URL test is derived, not listed: a unit test walks `app/show/[slug]/` and asserts that every static sibling of `[shareToken]` is excluded, so a sibling added later fails the test instead of being swallowed.
