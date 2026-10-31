@@ -88,7 +88,10 @@ export const REQUIRED = {
   // 39: inv3 skipped itself at runtime because the local shared seed rendered no
   // gear scope cards (the same seed state that fails crew-layout-dimensions'
   // 5-card gear case locally and on origin/main), so the row is that run plus inv3.
-  "crew-page.spec.ts": 40,
+  // 42 since the UI-gate fixes: the pass sizing case (no time, label or role is
+  // cut, X1) and the pass floor case (a set day and after the show, review R4-F7).
+  // Re-derived from the wiring guard's live Playwright resolution (42).
+  "crew-page.spec.ts": 42,
   // The crew page's wide layout (crew page redesign plan PR A, Task 6): eight cases,
   // desktop-chromium ALONE (its testMatch; the wide layout begins at 1024px). Nine
   // since Task 7 added the wide header case (search between title and chip).
@@ -97,8 +100,12 @@ export const REQUIRED = {
   // four "compound" cases across the 1024px breakpoint (into wide with the sheet
   // open, mid-drag, with a nested dialog, and back into compact). Seventeen since
   // Task 13 added two "dimensional" cases (the nav and content column, and the
-  // header token). Counted from the observed desktop-chromium run.
-  "crew-wide-nav.spec.ts": 17,
+  // header token). Counted from the observed desktop-chromium run. Twenty-two since
+  // the UI-gate fixes added five (card headings one level under their section, Y5;
+  // the Today block with no run of show, Y9; Shift+Tab never under the sticky
+  // header, Y1; the title fits its row, Y4; the header under the preview banner,
+  // Y2). Re-derived from the wiring guard's live Playwright resolution (22).
+  "crew-wide-nav.spec.ts": 22,
   // 9, and the number is the MATRIX rather than a multiple (plan
   // 2026-08-09-quick-wins-2 "e2e harness readiness"). theme-toggle runs two arms:
   //   arm (a) — 4 standalone-toggle cases, BOTH projects            = 8
@@ -140,8 +147,10 @@ export const REQUIRED = {
   // over plain http). Counted from
   // `playwright test --project=desktop-chromium tests/e2e/crew-search.spec.ts --list`
   // ("Total: 8 tests in 1 file"), not from arithmetic. Re-derive with --list after
-  // adding or removing a case.
-  "crew-search.spec.ts": 8,
+  // adding or removing a case. 12 since review repair R1-F1 added two cases at each
+  // viewport (a Today run-of-show result reveals its line after the viewer picked
+  // another day, and after the device clock passed midnight).
+  "crew-search.spec.ts": 12,
   // The census, across mobile-safari + desktop-chromium. The checker enforces
   // `executed >= min`, so THE NUMBER IS THE GUARD: a row of 1 would let every
   // case but one skip while CI stayed green, which is exactly what the registry

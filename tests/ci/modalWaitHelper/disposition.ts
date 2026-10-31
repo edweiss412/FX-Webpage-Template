@@ -539,7 +539,13 @@ export const DISPOSITION_RULES: DispositionRule[] = [
     // same mkdtemp harness at `baseUrl + "live.html"` at a wider viewport. A harness
     // navigation, never the /admin loader. 96 -> 97, re-derived from the failure's own
     // count (97 candidates).
-    expectedCount: 97,
+    //
+    // feat/crew-page-redesign's UI-gate fix Y3 adds two, both in
+    // `tests/e2e/forcedColors.spec.ts` at the same mkdtemp `baseUrl` harness: AC-4f (a
+    // selected control's text on the selected fill) and AC-4g (the crew pass's done and
+    // remaining show days). 97 -> 99, re-derived from the failure's own count (99
+    // candidates).
+    expectedCount: 99,
     match: (c) => isHarnessNavigation(c.matchLineText),
   },
   {
@@ -671,7 +677,10 @@ export const DISPOSITION_RULES: DispositionRule[] = [
     // crew-page.spec.ts ("pass: no time, label or role is cut ...") loads the
     // preview-as route for the seed's longest role. Re-derived from the
     // failure's own count (19 candidates).
-    expectedCount: 19,
+    // 20 since the crew page redesign's gate fixes Y1/Y2: crew-wide-nav.spec.ts's
+    // case for the crew header sticking under the preview banner loads the
+    // preview-as route. Re-derived from the failure's own count (20 candidates).
+    expectedCount: 20,
     match: (c) =>
       !isTestTitle(c.matchLineText) &&
       !/^\["\/admin\/show\//.test(c.matchLineText) &&
