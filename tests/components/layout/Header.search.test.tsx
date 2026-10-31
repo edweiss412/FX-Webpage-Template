@@ -16,7 +16,10 @@
  * invariant-8 fixes (audit P2-3, critique F8): the wide title block is a grid
  * holding the status pill on the date line, the h1 carries `title`, and the
  * search caps at `max-w-sm`; and the wide header sticks at `--crew-sticky-top`
- * so the admin preview banner never covers it (audit P1-3). That an absent or
+ * so the admin preview banner never covers it (audit P1-3). Re-recorded
+ * 2026-10-31 (UI-gate re-run, critique N7): the pill moved from the date line to
+ * the end of the eyebrow line, so it no longer reads as qualifying the
+ * unlabeled set date. That an absent or
  * null `search` adds no
  * element at all, not even a wrapper, is pinned by
  * tests/components/layout/crewHeader.test.tsx ("search slot: renders nothing,
@@ -58,11 +61,11 @@ describe("Header without the search slot (markup unchanged)", () => {
           class="mx-auto flex w-full max-w-[1200px] flex-wrap items-baseline justify-between gap-x-6 gap-y-3 px-4 py-3 sm:gap-y-4 sm:px-8 sm:py-4 lg:h-full lg:flex-nowrap lg:items-center lg:py-0"
         >
           <div
-            class="min-w-0 flex-1 lg:grid lg:flex-[2_1_0%] lg:grid-cols-[auto_minmax(0,1fr)] lg:items-center lg:gap-x-2 lg:gap-y-1"
+            class="min-w-0 flex-1 lg:grid lg:flex-[2_1_0%] lg:grid-cols-[minmax(0,1fr)_auto] lg:items-center lg:gap-x-2 lg:gap-y-1"
             data-testid="page-header-title-block"
           >
             <p
-              class="text-xs font-medium uppercase tracking-eyebrow text-text-subtle lg:col-span-2 lg:truncate"
+              class="text-xs font-medium uppercase tracking-eyebrow text-text-subtle lg:truncate lg:col-start-1"
               data-testid="page-header-eyebrow"
             >
               Acme Corp
@@ -88,7 +91,7 @@ describe("Header without the search slot (markup unchanged)", () => {
                 Spring Gala 2026
               </h1>
               <span
-                class="shrink-0 lg:order-last lg:justify-self-start"
+                class="shrink-0 lg:col-start-2 lg:row-start-1 lg:justify-self-end"
                 data-testid="header-status-pill"
               >
                 <span>
@@ -97,7 +100,7 @@ describe("Header without the search slot (markup unchanged)", () => {
               </span>
             </div>
             <p
-              class="mt-1 text-xs text-text-subtle lg:mt-0"
+              class="mt-1 text-xs text-text-subtle lg:col-span-2 lg:mt-0"
             >
               <time
                 class="font-medium text-text"
@@ -162,11 +165,11 @@ describe("Header without the search slot (markup unchanged)", () => {
           class="mx-auto flex w-full max-w-[1200px] flex-wrap items-baseline justify-between gap-x-6 gap-y-3 px-4 py-3 sm:gap-y-4 sm:px-8 sm:py-4 lg:h-full lg:flex-nowrap lg:items-center lg:py-0"
         >
           <div
-            class="min-w-0 flex-1 lg:grid lg:flex-[2_1_0%] lg:grid-cols-[auto_minmax(0,1fr)] lg:items-center lg:gap-x-2 lg:gap-y-1"
+            class="min-w-0 flex-1 lg:grid lg:flex-[2_1_0%] lg:grid-cols-[minmax(0,1fr)_auto] lg:items-center lg:gap-x-2 lg:gap-y-1"
             data-testid="page-header-title-block"
           >
             <p
-              class="text-xs font-medium uppercase tracking-eyebrow text-text-subtle lg:col-span-2 lg:truncate"
+              class="text-xs font-medium uppercase tracking-eyebrow text-text-subtle lg:truncate lg:col-span-2"
               data-testid="page-header-eyebrow"
             >
               Acme Corp
@@ -189,7 +192,7 @@ describe("Header without the search slot (markup unchanged)", () => {
               Spring Gala 2026
             </h1>
             <p
-              class="mt-1 text-xs text-text-subtle lg:mt-0"
+              class="mt-1 text-xs text-text-subtle lg:col-span-2 lg:mt-0"
             >
               <time
                 class="font-medium text-text"

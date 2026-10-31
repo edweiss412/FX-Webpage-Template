@@ -812,7 +812,7 @@ test.describe("crew wide nav (spec §5.3)", () => {
   // larger share, the status pill moves to the date line, and the h1 carries the
   // full title as `title`. Measured with the crew viewer's full header (search,
   // theme switch, identity chip), the tightest row the header has.
-  test("header: at 1024px and 1280px the seeded show title fits its row whole, the status pill sits on the date line, and the h1 names the full title", async ({
+  test("header: at 1024px and 1280px the seeded show title fits its row whole, the status pill sits on the eyebrow line, and the h1 names the full title", async ({
     page,
   }) => {
     await signOut(page);
@@ -837,7 +837,14 @@ test.describe("crew wide nav (spec §5.3)", () => {
           .getBoundingClientRect();
         const date = head.querySelector("time")!.getBoundingClientRect();
         const title = h1.getBoundingClientRect();
+        const eyebrow = head
+          .querySelector('[data-testid="page-header-eyebrow"]')!
+          .getBoundingClientRect();
         return {
+          eyebrowTop: eyebrow.top,
+          eyebrowBottom: eyebrow.bottom,
+          eyebrowRight: eyebrow.right,
+          titleTop: title.top,
           text: h1.textContent,
           titleAttr: h1.getAttribute("title"),
           truncated: h1.scrollWidth > h1.clientWidth,
@@ -854,13 +861,18 @@ test.describe("crew wide nav (spec §5.3)", () => {
       expect(r.text!.length, JSON.stringify(r)).toBeGreaterThan(40);
       expect(r.truncated, `${width}: the title is cut: ${JSON.stringify(r)}`).toBe(false);
       expect(r.titleAttr, "the h1 names the full title").toBe(r.text);
-      // The pill sits under the title, beside the date.
-      expect(r.pillTop, `${width}: ${JSON.stringify(r)}`).toBeGreaterThanOrEqual(
-        r.titleBottom - 0.5,
+      // The pill sits on the eyebrow's line, after it and above the title: off
+      // the title's line (audit P2-3), and off the date's line too, where "April
+      // 20, 2026 · Show day 1 of 2" read as if the unlabeled set date were show
+      // day 1 (UI-gate re-run, critique N7).
+      const at = `${width}: ${JSON.stringify(r)}`;
+      expect(r.pillTop, at).toBeLessThan(r.eyebrowBottom);
+      expect(r.pillBottom, at).toBeGreaterThan(r.eyebrowTop);
+      expect(r.pillLeft, at).toBeGreaterThanOrEqual(r.eyebrowRight - 0.5);
+      expect(r.pillBottom, at).toBeLessThanOrEqual(r.titleTop + 0.5);
+      expect(r.pillBottom, `${at} the pill is not on the date's line`).toBeLessThanOrEqual(
+        r.dateTop + 0.5,
       );
-      expect(r.pillTop).toBeLessThan(r.dateBottom);
-      expect(r.pillBottom).toBeGreaterThan(r.dateTop);
-      expect(r.pillLeft).toBeGreaterThanOrEqual(r.dateRight - 0.5);
     }
     // The search placeholder fits its field whole on this, the tightest header
     // row, at every width (UI-gate re-run P3-4 / critique N8: at 1024 it read

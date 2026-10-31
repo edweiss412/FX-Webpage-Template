@@ -115,6 +115,7 @@ export function Header({ show, identityChip, statusPill, search }: HeaderProps) 
   const venue = eyebrowPart(show.venue?.name);
   const hasEyebrow = client !== null || venue !== null;
   const hasIdentity = identityChip !== undefined && identityChip !== null;
+  const hasPill = statusPill !== undefined && statusPill !== null;
 
   return (
     <>
@@ -127,22 +128,25 @@ export function Header({ show, identityChip, statusPill, search }: HeaderProps) 
             search node the row is the single line it always was. `gap-y`
             equals the padding the search row used to carry under the title. */}
         <div className="mx-auto flex w-full max-w-[1200px] flex-wrap items-baseline justify-between gap-x-6 gap-y-3 px-4 py-3 sm:gap-y-4 sm:px-8 sm:py-4 lg:h-full lg:flex-nowrap lg:items-center lg:py-0">
-          {/* Wide: a two-column grid (the date's width, then the rest), so the
-              status pill can leave the title's line for the date's (audit P2-3):
-              eyebrow and title span both columns, then the date and the pill
-              share the last row. The title row's wrapper becomes `contents`
-              there, its h1 and pill placed by the grid; DOM order (title, pill,
-              date) is the reading order in both modes. The block takes twice
-              the search slot's share of the row, so a long title fits whole
-              where it can; one-line truncation stays the fallback. */}
+          {/* Wide: a two-column grid (the rest, then the pill's width), so the
+              status pill leaves the title's line (audit P2-3) for the eyebrow's,
+              at its end: the eyebrow and the pill share the first row, then the
+              title and the date span both columns. Not the date's line: beside
+              the unlabeled set date, "April 20, 2026 · Show day 1 of 2" read as
+              if that date were show day 1 (UI-gate re-run, critique N7). The
+              title row's wrapper becomes `contents` there, its h1 and pill
+              placed by the grid; DOM order (title, pill, date) is the reading
+              order in both modes. The block takes twice the search slot's share
+              of the row, so a long title fits whole where it can; one-line
+              truncation stays the fallback. */}
           <div
             data-testid="page-header-title-block"
-            className="min-w-0 flex-1 lg:grid lg:flex-[2_1_0%] lg:grid-cols-[auto_minmax(0,1fr)] lg:items-center lg:gap-x-2 lg:gap-y-1"
+            className="min-w-0 flex-1 lg:grid lg:flex-[2_1_0%] lg:grid-cols-[minmax(0,1fr)_auto] lg:items-center lg:gap-x-2 lg:gap-y-1"
           >
             {hasEyebrow ? (
               <p
                 data-testid="page-header-eyebrow"
-                className="text-xs font-medium uppercase tracking-eyebrow text-text-subtle lg:col-span-2 lg:truncate"
+                className={`text-xs font-medium uppercase tracking-eyebrow text-text-subtle lg:truncate ${hasPill ? "lg:col-start-1" : "lg:col-span-2"}`}
               >
                 {client}
                 {client !== null && venue !== null ? (
@@ -157,7 +161,7 @@ export function Header({ show, identityChip, statusPill, search }: HeaderProps) 
                 {venue}
               </p>
             ) : null}
-            {statusPill !== undefined && statusPill !== null ? (
+            {hasPill ? (
               // Pill present (crew page): h1 + pill share a flex title row. The
               // mt-1 (when an eyebrow is above) lives on this wrapper.
               <div
@@ -171,7 +175,7 @@ export function Header({ show, identityChip, statusPill, search }: HeaderProps) 
                 </h1>
                 <span
                   data-testid="header-status-pill"
-                  className="shrink-0 lg:order-last lg:justify-self-start"
+                  className="shrink-0 lg:col-start-2 lg:row-start-1 lg:justify-self-end"
                 >
                   {statusPill}
                 </span>
@@ -190,7 +194,7 @@ export function Header({ show, identityChip, statusPill, search }: HeaderProps) 
               </h1>
             )}
             {date ? (
-              <p className="mt-1 text-xs text-text-subtle lg:mt-0">
+              <p className="mt-1 text-xs text-text-subtle lg:col-span-2 lg:mt-0">
                 <time dateTime={date} className="font-medium text-text">
                   {formatHeaderDate(date)}
                 </time>
