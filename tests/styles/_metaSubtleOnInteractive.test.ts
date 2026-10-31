@@ -3,7 +3,7 @@ import ts from "typescript";
 import { describe, expect, it } from "vitest";
 import { stripCommentsSafely } from "../_shared/stripComments";
 import { premiseHolds } from "../_shared/premise";
-import { SUBTLE_INTERACTIVE_EXEMPTIONS } from "./subtleInteractiveExemptions";
+import { SUBTLE_INTERACTIVE_EXEMPTIONS, type SubtleFamily } from "./subtleInteractiveExemptions";
 import { scanSubtleInteractive } from "./subtleInteractiveScan";
 
 const hits = scanSubtleInteractive(process.cwd());
@@ -75,5 +75,46 @@ describe("subtle-on-interactive policy (DESIGN §1.1/§1.1a, spec §4)", () => {
     // feat/crew-page-redesign: this branch's sub-nav row gone, that arc's two Accepted (N)
     // rows present. Re-derived by running this guard on the merged tree.
     expect(SUBTLE_INTERACTIVE_EXEMPTIONS.length).toBe(16);
+  });
+});
+
+// DESIGN.md §1.1a states each family's site tally and lists Family D's sites in
+// a table. Both are copies of this registry, and both drifted: the Family S
+// tally stayed at 7 when the wizard's Ignored (N) disclosure joined (2026-08-28),
+// and the Family D table kept the crew sub-nav row after the sub-nav left. So
+// the prose is read against the registry rather than retyped from it.
+describe("DESIGN.md §1.1a tallies match this registry", () => {
+  const design = readFileSync("DESIGN.md", "utf8");
+  const from = design.indexOf("### 1.1a");
+  const section = design.slice(from, design.indexOf("\n## ", from));
+  const rowsOf = (family: SubtleFamily) =>
+    SUBTLE_INTERACTIVE_EXEMPTIONS.filter((r) => r.family === family).length;
+  /** The paragraph that opens with `**<heading> \u2014`, up to its blank line. */
+  const paragraph = (heading: string): string => {
+    const start = section.indexOf(`**${heading} \u2014`);
+    premiseHolds(`DESIGN.md §1.1a has a ${heading} paragraph`, from >= 0 && start >= 0);
+    return section.slice(start, section.indexOf("\n\n", start));
+  };
+  const HEADINGS: Record<SubtleFamily, string> = {
+    "summary-disclosure": "Family S",
+    "dismissable-chip": "Family C",
+    "state-dim": "Family D",
+  };
+
+  for (const family of Object.keys(HEADINGS) as SubtleFamily[]) {
+    it(`${HEADINGS[family]}'s "(N sites.)" tally is the registry's ${family} row count`, () => {
+      const tally = paragraph(HEADINGS[family]).match(/\((\d+) sites?\b/);
+      expect(tally, `${HEADINGS[family]} states a tally`).not.toBeNull();
+      expect(Number(tally?.[1])).toBe(rowsOf(family));
+    });
+  }
+
+  it("the Family D table has one row per state-dim site, a row marked (xN) counting N", () => {
+    const start = section.indexOf("| Dim member |");
+    premiseHolds("DESIGN.md §1.1a has the Family D table", start >= 0);
+    const rows = section.slice(start).split("\n\n")[0]!.split("\n").slice(2);
+    premiseHolds("the Family D table has rows", rows.length > 0);
+    const sites = rows.reduce((n, row) => n + Number(row.match(/\(x(\d+)\)/)?.[1] ?? 1), 0);
+    expect(sites).toBe(rowsOf("state-dim"));
   });
 });

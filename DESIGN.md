@@ -62,7 +62,7 @@ interactive rests at `--color-text` or stronger.
 **Family S — `<summary>` disclosure headers.** A disclosure summary is half
 caption, half control: its text names the CONTENT it folds, and the fold
 affordance is carried by the marker/chevron and the interaction, not by label
-weight. Resting subtle is sanctioned. (7 sites.)
+weight. Resting subtle is sanctioned. (8 sites.)
 
 **What carries Family S when a site suppresses the native marker (2026-08-25).**
 The family's whole argument is that something OTHER than label weight carries
@@ -90,15 +90,19 @@ stays distinguishable by at least one cue besides the text-color delta**. The
 cue may sit on EITHER member — fill, border, weight, glyph, or `aria-current`
 semantics — and every registry row names its cue and the file it lives in; the
 suite reads that file and fails the row if the cue is gone, so the claim cannot
-go stale. (6 sites.)
+go stale. (5 sites.)
 
 | Dim member | The cue that carries the state |
 | --- | --- |
 | Inactive desktop admin nav link | active carries `bg-surface-raised` + `text-text-strong` + `aria-current="page"` |
 | Inactive admin bottom tab | active carries `aria-current="page"`; the visual delta is `text-accent-on-bg` vs subtle — a hue-plus-lightness delta with no layout cue, recorded as-is |
-| Inactive crew sub-nav tab | active desktop branch carries `border-accent` + `text-text-strong`; active mobile branch carries `text-accent-on-bg` plus `aria-current="page"` |
 | Unselected dashboard bucket segment (x2) | selected carries `bg-surface` + `shadow-tile` + `text-text-strong` + `aria-current="page"` |
 | Claimed picker row | the dim member ITSELF carries the cues: a `bg-surface-sunken` fill plus the lock glyph |
+
+The crew sub-nav's inactive tab left this table with the sub-nav (crew page
+redesign, 2026-10-27). The crew left nav that replaced it
+(`components/crew/CrewWideNav.tsx`) rests its inactive labels at `text-text`
+and dims only the icon, so it is not a Family D member.
 
 No pair is color-ALONE in the semantic tree: every one carries `aria-current`
 or a structural glyph, holding the §1 color-blind floor while preserving the

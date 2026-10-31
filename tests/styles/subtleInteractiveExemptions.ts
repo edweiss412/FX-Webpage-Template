@@ -37,7 +37,7 @@ export type SubtleExemption = {
 };
 
 export const SUBTLE_INTERACTIVE_EXEMPTIONS: readonly SubtleExemption[] = [
-  // ---- Family S: <summary> disclosure headers (7) -------------------------
+  // ---- Family S: <summary> disclosure headers (8) -------------------------
   // Half caption, half control: the text names the CONTENT it folds, and the
   // fold affordance is carried by the marker/chevron and the interaction, not
   // by label weight.
@@ -273,7 +273,7 @@ export const SUBTLE_INTERACTIVE_EXEMPTIONS: readonly SubtleExemption[] = [
   // ratified policy says about a control that belongs to no carve-out family.
   // The family set is untouched; a membership claim that was false is not.
 
-  // ---- Family D: state-pair dim members (6) -------------------------------
+  // ---- Family D: state-pair dim members (5) -------------------------------
   // The dim member of a state pair may rest subtle only while the pair stays
   // distinguishable by at least one cue besides the text-color delta. The cue
   // may sit on EITHER member, and the suite validates it against source.
