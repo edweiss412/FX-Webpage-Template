@@ -144,6 +144,25 @@ function stalledBody(): ReadableStream<Uint8Array> {
   });
 }
 
+/** A stalled body that counts how often a reader cancels it. */
+function cancellableBody(cancels: { count: number }): ReadableStream<Uint8Array> {
+  return new ReadableStream<Uint8Array>({
+    start(controller) {
+      controller.enqueue(new TextEncoder().encode("missing, part"));
+    },
+    cancel() {
+      cancels.count += 1;
+    },
+  });
+}
+
+/** The signal each fetch so far was sent with. */
+function sentSignals(): (AbortSignal | undefined)[] {
+  return fetchMock.mock.calls.map(
+    ([, init]) => (init as RequestInit | undefined)?.signal ?? undefined,
+  );
+}
+
 type Installed = {
   container: EventTarget & { controller: ServiceWorker | null };
   register: ReturnType<typeof vi.fn>;
@@ -692,6 +711,20 @@ describe("agenda viewer code (spec 4.8)", () => {
     expect(fetchMock).toHaveBeenCalledTimes(1);
   });
 
+  // Codex R4 C2: nothing reads a non-ok body, so it is cancelled, not left downloading.
+  test("a non-ok pdf.js worker fetch has its body cancelled and its request aborted", async () => {
+    installServiceWorker({ controlled: true });
+    installStorage();
+    const cancels = { count: 0 };
+    fetchMock.mockResolvedValueOnce(new Response(cancellableBody(cancels), { status: 404 }));
+
+    render(<SavedCopyRegistrar {...BASE} hasAgenda />);
+    await settle();
+    expect(fetchMock.mock.calls).toEqual([workerFetch()]);
+    expect(cancels.count).toBe(1);
+    expect(sentSignals().map((signal) => signal?.aborted)).toEqual([true]);
+  });
+
   test("a 404 from the pdf.js worker fetch is not done: the next online event fetches it again", async () => {
     installServiceWorker({ controlled: true });
     installStorage();
@@ -1072,6 +1105,70 @@ describe("static files loaded before control (spec 4.8)", () => {
       expect(fetchMock).toHaveBeenCalledTimes(2 * files.length);
     },
   );
+
+  // Codex R4 C2: the first failure fails the run, so nothing still out is needed.
+  describe("a run that fails early leaves no request open", () => {
+    /** A 404 on the stylesheet and a body that never ends on the chunk, every time. */
+    function notFoundAndStalled(cancels: { count: number }, abortedWhenSent: boolean[]) {
+      const [chunk, stylesheet] = lazyComponentLoadedBeforeControl();
+      fetchMock.mockImplementation((url: string, init?: RequestInit) => {
+        abortedWhenSent.push(init?.signal?.aborted ?? false);
+        if (url === stylesheet) {
+          return Promise.resolve(new Response(cancellableBody(cancels), { status: 404 }));
+        }
+        if (url === chunk) return Promise.resolve(new Response(stalledBody(), { status: 200 }));
+        return Promise.resolve(new Response(""));
+      });
+    }
+
+    test("one 404 and one stalled body: the rejection aborts every request still out and cancels the 404's body", async () => {
+      installServiceWorker({ controlled: true });
+      installStorage();
+      const cancels = { count: 0 };
+      const abortedWhenSent: boolean[] = [];
+      notFoundAndStalled(cancels, abortedWhenSent);
+
+      render(<SavedCopyRegistrar {...BASE} />);
+      await settle();
+      expect(fetchMock).toHaveBeenCalledTimes(3);
+      // Sent live, aborted once the 404 failed the run, the stalled one included.
+      expect(abortedWhenSent).toEqual([false, false, false]);
+      expect(sentSignals().map((signal) => signal?.aborted)).toEqual([true, true, true]);
+      expect(cancels.count).toBe(1);
+    });
+
+    test("a second online event leaves none of the first run's requests open, and its own run gets a fresh controller", async () => {
+      installServiceWorker({ controlled: true });
+      installStorage();
+      const cancels = { count: 0 };
+      const abortedWhenSent: boolean[] = [];
+      notFoundAndStalled(cancels, abortedWhenSent);
+
+      render(<SavedCopyRegistrar {...BASE} />);
+      await settle();
+      act(() => {
+        window.dispatchEvent(new Event("online"));
+      });
+      await settle();
+
+      expect(fetchMock).toHaveBeenCalledTimes(6);
+      const signals = sentSignals();
+      // Two runs, one controller each, the second's live when its fetches went out.
+      expect(new Set(signals).size).toBe(2);
+      expect(signals[3]).not.toBe(signals[0]);
+      expect(abortedWhenSent).toEqual([false, false, false, false, false, false]);
+      // Both stalled requests aborted, not only the latest.
+      expect(signals.map((signal) => signal?.aborted)).toEqual([
+        true,
+        true,
+        true,
+        true,
+        true,
+        true,
+      ]);
+      expect(cancels.count).toBe(2);
+    });
+  });
 
   // Codex R4 C1: an agenda opened before control shares its viewer import with
   // the agenda prefetch, and its files reach resource timing only when their

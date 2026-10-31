@@ -41,9 +41,10 @@
  *   read every body to its end before they count as done. One that could not
  *   run (offline at idle) or failed (an import that rejects, a fetch that fails
  *   or answers other than ok, a body that fails or has not arrived whole by its
- *   deadline, PREFETCH_TIMEOUT_MS after the fetches were sent) is tried again
- *   on the next `online` event; one that succeeded is not repeated in this page
- *   load.
+ *   deadline, PREFETCH_TIMEOUT_MS after the fetches were sent) aborts every
+ *   fetch it still has out and is tried again, under a new controller and
+ *   deadline, on the next `online` event; one that succeeded is not repeated in
+ *   this page load.
  * - A failed registration and a `save-failed` broadcast from the worker are
  *   logged with source `client.crew` (spec 6), the source crew components use
  *   and the client-error route accepts. Neither is shown: nothing here renders
@@ -227,13 +228,21 @@ function loadedStaticFiles(): string[] {
 /** Fetches `url` and reads its body to the end; rejects unless both succeed. */
 async function readThrough(url: string, signal: AbortSignal): Promise<void> {
   const response = await fetch(url, { signal });
-  // A 404 or a 503 put nothing in the worker's static cache.
-  if (!response.ok) throw new Error(`${url} answered ${response.status}`);
+  // A 404 or a 503 put nothing in the worker's static cache. Nothing reads its
+  // body, so it is cancelled rather than left downloading (Codex R4 C2).
+  if (!response.ok) {
+    void response.body?.cancel().catch(() => undefined);
+    throw new Error(`${url} answered ${response.status}`);
+  }
   // Neither does a body that fails or stalls once the headers are in.
   await response.arrayBuffer();
 }
 
-/** Reads every one of `urls` through, all within PREFETCH_TIMEOUT_MS; past it, aborts the rest and rejects. */
+/**
+ * Reads every one of `urls` through, all within PREFETCH_TIMEOUT_MS, under a
+ * controller of its own. Past the deadline, or at the first failure, it aborts
+ * every fetch still out and rejects (Codex R4 C2).
+ */
 async function readAllThrough(urls: readonly string[]): Promise<void> {
   const controller = new AbortController();
   const read = Promise.all(urls.map((url) => readThrough(url, controller.signal)));
@@ -249,6 +258,7 @@ async function readAllThrough(urls: readonly string[]): Promise<void> {
       },
       (error: unknown) => {
         window.clearTimeout(timer);
+        controller.abort();
         reject(error);
       },
     );
