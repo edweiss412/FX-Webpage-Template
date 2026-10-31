@@ -27,6 +27,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { CrewDayRow } from "@/components/crew/CrewDayRow";
 import { CrewRunOfShowCard } from "@/components/crew/CrewRunOfShowCard";
 import { CrewSections, useSectionController } from "@/components/crew/CrewSections";
+import { ScheduleSection } from "@/components/crew/sections/ScheduleSection";
 import { DaySelectionProvider } from "@/components/crew/daySelection";
 import type { AgendaDay, AgendaExtraction } from "@/lib/agenda/types";
 import { DEFAULT_CARD_REPORT } from "@/lib/crew/cardReportContext";
@@ -53,6 +54,7 @@ import { transportTileVisible } from "@/lib/visibility/scopeTiles";
 import { premiseHolds } from "@/tests/_shared/premise";
 import { makeShowForViewer } from "@/tests/fixtures/showForViewer";
 import { at, matchMediaStub } from "./_passFixture";
+import { ledgerProp } from "./sections/_ledgerProp";
 
 const upsertAdminAlert = vi.hoisted(() => vi.fn());
 vi.mock("@/lib/adminAlerts/upsertAdminAlert", () => ({ upsertAdminAlert }));
@@ -168,6 +170,7 @@ function showData(
     agendaFor?: string | null;
     restriction?: DateRestriction;
     transport?: boolean;
+    dates?: ShowForViewer["show"]["dates"];
   } = {},
 ): ShowForViewer {
   const base = makeShowForViewer({
@@ -175,7 +178,7 @@ function showData(
     sourceAnchors: anchors(),
     show: {
       title: "Spring Gala",
-      dates: DATES,
+      dates: opts.dates ?? DATES,
       agenda_links: opts.agendaFor ? [agendaLinkFor(opts.agendaFor)] : [],
     },
   });
@@ -255,6 +258,10 @@ const rowTitles = () =>
   ].map((row) => row.textContent ?? "");
 /** The reveal's gone-line copy, typed from the crew search spec, never imported. */
 const REVEAL_GONE = "That line isn't on the page anymore.";
+/** A line from a day the card cannot show, with no Schedule line to open instead. */
+const REVEAL_OTHER_DAY = "That line is from another day's run of show.";
+/** How long a reveal waits for its line before it announces (search spec §6.6). */
+const REVEAL_WAIT_MS = 1500;
 const marked = () => [...card()!.querySelectorAll('[data-testid="crew-run-next"]')];
 const tapDay = (iso: string) =>
   fireEvent.click(document.querySelector(`[data-testid="crew-day-button"][data-day="${iso}"]`)!);
@@ -674,7 +681,19 @@ async function runCardCarrier(data: ShowForViewer, viewer: Viewer): Promise<stri
     // Nothing else crosses: the timezone, the header actions' inputs and the per-day rows.
     expect(Object.keys(runCard).sort()).toEqual(["days", "header", "timezone"]);
     for (const day of runCard.days) {
-      expect(Object.keys(day).sort()).toEqual(["iso", "minutes", "more", "rows", "targets"]);
+      expect(Object.keys(day).sort()).toEqual([
+        "iso",
+        "minutes",
+        "more",
+        "rows",
+        "scheduleTargets",
+        "targets",
+      ]);
+      // Schedule's ids for the same rows, and nothing else: each one a line of
+      // the viewer's own Schedule day cards (round 2, 2B-1).
+      for (const id of day.scheduleTargets ?? []) {
+        if (id !== undefined) expect(id).toMatch(/^schedule:schedule-days:[0-9a-z]+(~\d+)?$/);
+      }
     }
   }
   return JSON.stringify(runCard);
@@ -701,7 +720,11 @@ describe("run card: a search reveal shows the day its line was indexed for", () 
    * The home under the real controller. The shell built the props at `serverNow`
    * (the request's clock); the device clock reads `clientNow`.
    */
-  function renderController(serverNow: Date, clientNow: Date): RunCardProps {
+  function renderController(
+    serverNow: Date,
+    clientNow: Date,
+    data: ShowForViewer = showData(),
+  ): RunCardProps {
     // The reveal looks for its line once a frame; frames on the timer clock.
     vi.stubGlobal("requestAnimationFrame", (cb: FrameRequestCallback) =>
       window.setTimeout(() => cb(performance.now()), 16),
@@ -709,7 +732,6 @@ describe("run card: a search reveal shows the day its line was indexed for", () 
     vi.stubGlobal("cancelAnimationFrame", (id: number) => window.clearTimeout(id));
     vi.stubGlobal("matchMedia", vi.fn(matchMediaStub({ reducedMotion: true })));
     vi.setSystemTime(clientNow);
-    const data = showData();
     const dayRow = buildDayRowProps(
       data.show,
       resolveViewerContext(crewViewer, data).dateRestriction,
@@ -725,7 +747,16 @@ describe("run card: a search reveal shows the day its line was indexed for", () 
               <Capture />
             </div>
           ),
-          schedule: <div>schedule</div>,
+          // The real Schedule section, so a reveal into it finds the ids the page renders.
+          schedule: (
+            <ScheduleSection
+              {...ledgerProp()}
+              data={data}
+              viewer={crewViewer}
+              today={serverNow}
+              showId="show-1"
+            />
+          ),
         }}
         dayRow={dayRow}
         runCard={run}
@@ -811,6 +842,135 @@ describe("run card: a search reveal shows the day its line was indexed for", () 
     await waitFor(() => expect(status()).toHaveTextContent(REVEAL_GONE), { timeout: 3000 });
     expect(present().getAttribute("data-body"), "the picked day is left as it was").toBe(DAY2);
     expect(cardSelection()).toBe(`day:${DAY2}`);
+  });
+
+  // Whole-diff review round 2, 2B-1. Dates the day row cannot show (it needs
+  // travel in, travel out in order, and a show day) leave the row off the page,
+  // so no day can be selected, while the card still built and indexed its days.
+  // Past midnight the card's live day is not the line's, the reveal could not
+  // select it, and it announced "That line isn't on the page anymore." about a
+  // line that is still on the show. Schedule lists every day: the reveal opens
+  // the same line there.
+  describe("when the card cannot show the line's day (no day row)", () => {
+    const NO_DAY_ROW: Array<{
+      name: string;
+      dates: ShowForViewer["show"]["dates"];
+      runOfShow: Record<string, ScheduleDay>;
+      lineDay: string;
+      deviceDay: string;
+    }> = [
+      {
+        name: "travel in missing",
+        dates: { ...DATES, travelIn: null },
+        runOfShow: { [DAY1]: scheduleDay(DAY1_ENTRIES), [DAY2]: scheduleDay(DAY2_ENTRIES) },
+        lineDay: DAY1,
+        deviceDay: DAY2,
+      },
+      {
+        name: "travel out missing",
+        dates: { ...DATES, travelOut: null },
+        runOfShow: { [DAY1]: scheduleDay(DAY1_ENTRIES), [DAY2]: scheduleDay(DAY2_ENTRIES) },
+        lineDay: DAY1,
+        deviceDay: DAY2,
+      },
+      {
+        name: "travel bounds inverted",
+        dates: { ...DATES, travelIn: DATES.travelOut, travelOut: DATES.travelIn },
+        runOfShow: { [DAY1]: scheduleDay(DAY1_ENTRIES), [DAY2]: scheduleDay(DAY2_ENTRIES) },
+        lineDay: DAY1,
+        deviceDay: DAY2,
+      },
+      {
+        name: "no show days, with dated set and travel rows",
+        dates: { ...DATES, showDays: [] },
+        runOfShow: {
+          [DATES.travelIn]: scheduleDay(DAY1_ENTRIES),
+          [DATES.set]: scheduleDay(DAY2_ENTRIES),
+        },
+        lineDay: DATES.travelIn,
+        deviceDay: DATES.set,
+      },
+    ];
+
+    /** The target of `DAY1_ENTRIES[1]` on the line's day, the only day carrying targets. */
+    function lineTarget(run: RunCardProps, iso: string): string {
+      const day = run.days.find((d) => d.iso === iso);
+      premiseHolds("the line's day has a card", day !== undefined);
+      premiseHolds("it carries search targets", day!.targets !== null);
+      premiseHolds(
+        "no other day carries any",
+        run.days.every((d) => d.iso === iso || d.targets === null),
+      );
+      return day!.targets![1]!;
+    }
+
+    it.each(NO_DAY_ROW)(
+      "run card: $name: past midnight, revealing a line opens the same line in Schedule, with nothing announced",
+      async ({ dates, runOfShow, lineDay, deviceDay }) => {
+        const data = showData({ dates, runOfShow });
+        premiseHolds(
+          "the day row is off the page",
+          buildDayRowProps(data.show, resolveViewerContext(crewViewer, data).dateRestriction) ===
+            null,
+        );
+        // The page was served at 11:30 PM on the line's day; the tab is read at 12:30 AM.
+        const run = renderController(at(lineDay, "23:30"), at(deviceDay, "00:30"), data);
+        const target = lineTarget(run, lineDay);
+        expect(line(target), "PREMISE: the card does not show the line").toBeNull();
+
+        act(() => controller.current!.openSectionAndReveal("today", target));
+
+        const sheetBody = await screen.findByTestId("crew-section-sheet-body");
+        expect(screen.getByRole("dialog")).toHaveAttribute("data-section", "schedule");
+        await waitFor(() => expect(sheetBody.querySelector("[data-search-reveal]")).not.toBeNull());
+        const revealed = sheetBody.querySelector<HTMLElement>("[data-search-reveal]")!;
+        expect(revealed.textContent).toContain(DAY1_ENTRIES[1]!.title);
+        // The same line on the line's day, not another day's row with the same text.
+        expect(revealed.closest("[data-day]")?.getAttribute("data-day")).toBe(lineDay);
+        expect(document.activeElement).toBe(revealed);
+        expect(cardSelection(), "the card stays live").toBe("live");
+        // Past the reveal's wait (real timers here): nothing was announced.
+        await new Promise((resolve) => window.setTimeout(resolve, REVEAL_WAIT_MS + 100));
+        expect(status()).toHaveTextContent("");
+      },
+    );
+
+    it("run card: with no day row, a line the card shows today is revealed on the card, not in Schedule", async () => {
+      const data = showData({ dates: NO_DAY_ROW[0]!.dates });
+      const run = renderController(at(DAY1, "12:00"), at(DAY1, "12:00"), data);
+      const target = lineTarget(run, DAY1);
+      expect(line(target), "PREMISE: the card shows the line").not.toBeNull();
+
+      act(() => controller.current!.openSectionAndReveal("today", target));
+
+      await waitFor(() => expect(line(target)).toHaveAttribute("data-search-reveal"));
+      expect(card()!.contains(line(target))).toBe(true);
+      expect(screen.queryByRole("dialog")).toBeNull();
+      expect(status()).toHaveTextContent("");
+    });
+
+    it("run card: an agenda session merged on the line's day, which Schedule shows only in its agenda, is announced as another day's line", async () => {
+      const data = showData({ dates: NO_DAY_ROW[0]!.dates, agendaFor: DAY1 });
+      const run = renderController(at(DAY1, "23:30"), at(DAY2, "00:30"), data);
+      const day = run.days.find((d) => d.iso === DAY1)!;
+      premiseHolds("the line's day merges agenda sessions", day.rows.kind === "timeline");
+      const index =
+        day.rows.kind === "timeline"
+          ? day.rows.items.findIndex((item) => item.source !== "crew")
+          : -1;
+      premiseHolds("one of its rows is an agenda session", index >= 0);
+      const target = day.targets![index]!;
+      expect(line(target), "PREMISE: the card does not show the line").toBeNull();
+
+      act(() => controller.current!.openSectionAndReveal("today", target));
+
+      await waitFor(() => expect(status()).toHaveTextContent(REVEAL_OTHER_DAY), {
+        timeout: 3000,
+      });
+      expect(status()).not.toHaveTextContent(REVEAL_GONE);
+      expect(screen.queryByRole("dialog")).toBeNull();
+      expect(cardSelection()).toBe("live");
+    });
   });
 });
 

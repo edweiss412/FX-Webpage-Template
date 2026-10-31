@@ -335,7 +335,7 @@ Conservative behavior plus a visible fallback, not defects. A review finding tha
 - **L2. Wi-Fi text that `wifiDisplay` cannot split** shows as one block and copies whole. The split heuristic itself is unchanged by this project.
 - **L3. Hotel check-in and check-out are dates.** No clock times on travel days.
 - **L4. No labeled crew call or doors time.** The per-day anchor is labeled "Show" (§9.1).
-- **L5. Day selection resets on reload** (§4.2).
+- **L5. Day selection resets on reload** (§4.2). **Amendment 2026-10-31 (whole-diff review round 2, 2B-1; overridable):** a selection can only choose a day the day row lists, so with no day row (dates it cannot show) a search reveal of a run-of-show line from a day the card is not showing (a page left open past midnight) opens the same line in Schedule, which lists every day, through `scheduleTargets` on the card's indexed day; a merged agenda-session row has no line in Schedule's day cards, so its reveal announces "That line is from another day's run of show." instead of saying the line is gone.
 - **L6. The header search slot renders nothing** until search merges (§1.2).
 - **L7. Schedule rows differ between surfaces.** The crew rows show fields the admin row does not (§6.2). Making the admin popup show them is an admin change outside this project.
 

@@ -192,6 +192,10 @@ const REVEAL_HIGHLIGHT_REDUCED_MS = 2000;
 // changed under it, not an error path and carries no code; the copy is pinned in
 // the search spec §10 and asserted literally in CrewSections.search.test.tsx.
 const REVEAL_GONE_MESSAGE = "That line isn't on the page anymore.";
+// not-subject:M5-D8: the same polite announcement for a run-of-show line from a
+// day the card cannot show, with no Schedule line to open instead (a merged
+// agenda session); no error path and no code (redesign spec L5 amendment).
+const REVEAL_OTHER_DAY_MESSAGE = "That line is from another day's run of show.";
 
 function subscribeMode(onChange: () => void): () => void {
   if (typeof window.matchMedia !== "function") return () => {};
@@ -692,6 +696,8 @@ export function CrewSections({
   );
 
   // ── openSectionAndReveal (search's entry point, search spec §6.6) ──────────
+  // The day row's days: the only days a selection (and so a reveal) can choose.
+  const dayIsos = useMemo(() => dayRow?.days.map((d) => d.iso) ?? [], [dayRow]);
   const revealRun = useRef<RevealRun | null>(null);
   // The day selection's API, from the provider rendered below this component.
   const daySelection = useRef<DaySelectionApi | null>(null);
@@ -723,19 +729,37 @@ export function CrewSections({
   );
 
   const openSectionAndReveal = useCallback(
-    (sectionId: SectionId, targetId: string) => {
+    (requestedSection: SectionId, requestedTarget: string) => {
       stopWaiting();
       setRevealStatus("");
-      const id = toOpen(sectionId);
-      if (sectionId !== "today" && id === null) return;
+      let sectionId = requestedSection;
+      let targetId = requestedTarget;
+      let goneMessage = REVEAL_GONE_MESSAGE;
       // A run-of-show line is indexed for the server's day only: the card carries
       // search targets on that day alone, while it shows the selected day, or in
       // live the device's day. Select the line's day first, so the line is on the
       // page when the look below runs (whole-diff review R1-F1).
-      if (sectionId === "today") {
-        const lineDay = runCard?.days.find((d) => d.targets?.includes(targetId));
-        if (lineDay !== undefined) daySelection.current?.selectDay(lineDay.iso);
+      const lineDay =
+        sectionId === "today"
+          ? runCard?.days.find((d) => d.targets?.includes(targetId))
+          : undefined;
+      if (lineDay !== undefined && dayIsos.includes(lineDay.iso)) {
+        daySelection.current?.selectDay(lineDay.iso);
+      } else if (lineDay !== undefined && findTarget(todayRef.current, targetId) === null) {
+        // No day row offers the line's day (dates it cannot show), and the card
+        // shows another: reveal the same line in Schedule, which lists every
+        // day, or say where the line is rather than that it is gone (whole-diff
+        // review round 2, 2B-1).
+        const inSchedule = lineDay.scheduleTargets?.[lineDay.targets!.indexOf(targetId)];
+        if (inSchedule !== undefined && toOpen("schedule") !== null) {
+          sectionId = "schedule";
+          targetId = inSchedule;
+        } else {
+          goneMessage = REVEAL_OTHER_DAY_MESSAGE;
+        }
       }
+      const id = toOpen(sectionId);
+      if (sectionId !== "today" && id === null) return;
       const wide = mode === "wide";
       const inSheet = !wide && id !== null;
       if (id !== null) {
@@ -816,7 +840,7 @@ export function CrewSections({
       };
       run.deadline = window.setTimeout(() => {
         stopWaiting();
-        setRevealStatus(REVEAL_GONE_MESSAGE);
+        setRevealStatus(goneMessage);
         // The section stays open at its top (search spec §6.6): the sheet opened
         // there; the wide page goes to the section.
         if (wide) scrollWide(id ?? "today", { focus: false });
@@ -828,6 +852,7 @@ export function CrewSections({
     [
       beginSuppressedScroll,
       clearHighlight,
+      dayIsos,
       mode,
       open,
       openSection,
@@ -861,8 +886,6 @@ export function CrewSections({
         : buildSectionHref(pathname, searchParams, id),
     [pathname, searchParams],
   );
-
-  const dayIsos = useMemo(() => dayRow?.days.map((d) => d.iso) ?? [], [dayRow]);
 
   const showCompact = mode !== "wide";
   const showWide = mode !== "compact";

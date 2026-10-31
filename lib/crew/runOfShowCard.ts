@@ -30,6 +30,11 @@
  * entries, so the index and the rendered card describe the same lines. Ids are
  * content-addressed (lib/search/entryId.ts), so the two calls agree.
  *
+ * The same day also carries `scheduleTargets`: each row's line in the Schedule
+ * section, which lists every day. A reveal whose day the card cannot show (no
+ * day row to select it from, and the device clock on another day) opens that
+ * line instead (whole-diff review round 2, 2B-1).
+ *
  * Server-safe (pure; no clock reads, `today` is passed in). The client card
  * imports its types and two runtime constants, `RUN_CARD_ID` and
  * `RUN_CARD_TITLE`, so this module and everything it imports ships in the
@@ -37,7 +42,13 @@
  */
 import { runOfShowEntryLine, runOfShowRows } from "@/components/crew/primitives/RunOfShowList";
 import { agendaSessionRowLine } from "@/components/crew/primitives/ShowDayTimelineList";
-import { addEntry, entrySink } from "@/components/crew/sections/scheduleRows";
+import {
+  addEntry,
+  entrySink,
+  scheduleDayRows,
+  scheduleVisibleDays,
+  type ScheduleDayRow,
+} from "@/components/crew/sections/scheduleRows";
 import { agendaSessionsForToday } from "@/lib/crew/agendaDayForToday";
 import {
   scheduleEntriesForViewer,
@@ -90,7 +101,16 @@ export type RunCardDay = {
    * day the search index describes; null on every other day.
    */
   targets: (string | undefined)[] | null;
+  /**
+   * The same rows' target ids in the Schedule section's day card, aligned with
+   * `targets` and on the same day only (`runCardScheduleTargets`); undefined
+   * for a row Schedule's day card does not list (a merged agenda session).
+   */
+  scheduleTargets: (string | undefined)[] | null;
 };
+
+/** A day as `runCardDay` builds it, before the server's today gets its target ids. */
+type RunCardDayRows = Omit<RunCardDay, "targets" | "scheduleTargets">;
 
 /** The card's header actions, Today's run-of-show card's (spec §6.4). */
 export type RunCardHeader = {
@@ -129,7 +149,7 @@ export function runCardDay(
   data: ShowForViewer,
   day: AggregateDay,
   transportVisible: boolean,
-): Omit<RunCardDay, "targets"> | null {
+): RunCardDayRows | null {
   const scheduleDay = data.runOfShow?.[day.date] ?? null;
   const entries = scheduleEntriesForViewer(scheduleDay?.entries, { transportVisible });
   // The RAW entries decide the synthetic row: a hidden load-out still counts.
@@ -208,6 +228,49 @@ export function runCardSearch(day: Pick<RunCardDay, "rows">): {
 }
 
 /**
+ * Each card row's target id in the Schedule section (spec §4.4: Schedule lists
+ * every day), in render order: the line with the same text in that day's
+ * Schedule day card, taken in order when a day repeats a line. The ids come from
+ * `scheduleDayRows` over the days `ScheduleSection` lists, so they are the ones
+ * Schedule renders. A merged agenda session is not in the day card (Schedule
+ * shows it in its agenda area), and neither is a row of a day whose day cards
+ * failed to derive (Schedule renders its fallback there): those stay undefined.
+ */
+export function runCardScheduleTargets(
+  data: ShowForViewer,
+  ctx: Pick<ViewerContext, "dateRestriction" | "isAdmin">,
+  day: RunCardDayRows,
+  todayIso: string,
+): (string | undefined)[] {
+  const rows = day.rows.kind === "list" ? day.rows.entries.length : day.rows.items.length;
+  let scheduleDay: ScheduleDayRow | undefined;
+  try {
+    scheduleDay = scheduleDayRows({
+      data,
+      visibleDays: scheduleVisibleDays(data, ctx.dateRestriction),
+      todayIso,
+      transportVisible: transportVisibleFor(data, ctx.isAdmin),
+    }).rows.find((row) => row.day.date === day.iso);
+  } catch {
+    return Array.from({ length: rows }, () => undefined);
+  }
+  const lines = scheduleDay?.runOfShow ? runOfShowRows(scheduleDay.runOfShow).shown : [];
+  const keyOf = (entry: AgendaEntry) => JSON.stringify(runOfShowEntryLine(entry));
+  const keys = lines.map(keyOf);
+  const used = new Set<number>();
+  const match = (entry: AgendaEntry): string | undefined => {
+    const key = keyOf(entry);
+    const i = keys.findIndex((k, j) => k === key && !used.has(j));
+    if (i < 0) return undefined;
+    used.add(i);
+    return scheduleDay?.runOfShowTargets[i];
+  };
+  return day.rows.kind === "list"
+    ? day.rows.entries.map(match)
+    : day.rows.items.map((item) => (item.source === "crew" ? match(item.entry) : undefined));
+}
+
+/**
  * The days that get a card: the viewer's own days (`passDaySet`), each with its
  * rows, dropping the days that have none. Empty for a suppressed viewer or a
  * projection too thin to carry dates. `ctx` is the viewer's
@@ -217,7 +280,7 @@ export function runCardSearch(day: Pick<RunCardDay, "rows">): {
 export function runCardDays(
   data: ShowForViewer,
   ctx: Pick<ViewerContext, "dateRestriction" | "isAdmin">,
-): Omit<RunCardDay, "targets">[] {
+): RunCardDayRows[] {
   const dates = data.show?.dates;
   if (!dates || suppressesDates(ctx.dateRestriction)) return [];
   const transportVisible = transportVisibleFor(data, ctx.isAdmin);
@@ -240,15 +303,21 @@ export function buildRunCardProps(input: {
   cardReport: CardReportContext | null;
 }): RunCardProps | null {
   const { data, viewer, today, showId, cardReport } = input;
-  const days = runCardDays(data, resolveViewerContext(viewer, data));
+  const ctx = resolveViewerContext(viewer, data);
+  const days = runCardDays(data, ctx);
   if (days.length === 0) return null;
   const todayIso = todayIsoInShowTimezone(data.show, today);
   return {
     timezone: resolveShowTimezone(data.show.venue),
-    days: days.map((day) => ({
-      ...day,
-      targets: day.iso === todayIso ? runCardSearch(day).targets : null,
-    })),
+    days: days.map((day) =>
+      day.iso === todayIso
+        ? {
+            ...day,
+            targets: runCardSearch(day).targets,
+            scheduleTargets: runCardScheduleTargets(data, ctx, day, todayIso),
+          }
+        : { ...day, targets: null, scheduleTargets: null },
+    ),
     header: {
       driveFileId: data.driveFileId,
       anchor: data.sourceAnchors[CARD_REGION_MAP[RUN_CARD_ID]] ?? null,
