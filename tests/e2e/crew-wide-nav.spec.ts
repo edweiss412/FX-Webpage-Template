@@ -54,7 +54,7 @@ import { join } from "node:path";
 import { test, expect, type Page } from "@playwright/test";
 import { CREW_SECTION_LABELS, type CrewSectionId } from "@/lib/crew/crewSections";
 import { BASE_SECTION_IDS } from "@/lib/crew/resolveActiveSection";
-import { SCROLL_SPY_OFFSET_PX } from "@/lib/ui/scrollSpy";
+import { SCROLL_SPY_OFFSET_PX, activeSectionFor } from "@/lib/ui/scrollSpy";
 import { ADMIN_FIXTURE } from "./helpers/fixtures";
 import { signInAs, signOut } from "./helpers/signInAs";
 import { deleteSeededShow, seedShowWithCrew } from "./helpers/seedShowWithCrew";
@@ -1255,6 +1255,81 @@ test.describe("the composed home, wide (crew page redesign Task 11)", () => {
     await expect(
       page.getByTestId("crew-wide-nav").locator('[aria-current="true"]'),
     ).toHaveAttribute("data-section", "today");
+  });
+
+  // Whole-diff review round 2 (round 3), 3A-2: search hides the page and the
+  // document collapses; the spy used to read the hidden sections and pick the
+  // last one, the nav dropped its bar, and ending search restored neither.
+  test("home: a search started from a scrolled section leaves the nav on the section in view, with its bar, when it ends", async ({
+    page,
+  }) => {
+    await loadWide(page, `/show/${seeded.slug}/${seeded.shareToken}`);
+    const nav = page.getByTestId("crew-wide-nav");
+    const activeItem = nav.locator('[aria-current="true"]');
+    /** The nav's bar sits on the active item, as the page now lies. */
+    const barOnActive = () =>
+      page.evaluate(() => {
+        const bar = document.querySelector('[data-testid="crew-wide-nav-indicator"]');
+        const item = document.querySelector('[data-testid="crew-wide-nav"] [aria-current="true"]');
+        if (bar === null || item === null) return false;
+        const b = bar.getBoundingClientRect();
+        const i = item.getBoundingClientRect();
+        return b.height > 0 && b.top >= i.top - 1 && b.bottom <= i.bottom + 1;
+      });
+
+    await nav.locator('[data-section="venue"]').click();
+    await expect(activeItem, "PREMISE: the jump lands on Venue").toHaveAttribute(
+      "data-section",
+      "venue",
+    );
+    await settleScroll(page);
+    expect(await page.evaluate(() => window.scrollY), "PREMISE: the page scrolled").toBeGreaterThan(
+      0,
+    );
+    await expect.poll(barOnActive).toBe(true);
+
+    const box = page.getByRole("searchbox", { name: "Search this show" });
+    for (const end of ["Cancel", "Escape"] as const) {
+      const before = await activeItem.getAttribute("data-section");
+      await box.fill("freight elevator");
+      await expect(page.getByTestId("page-container")).toBeHidden();
+      await settleScroll(page);
+      // While hidden, the spy chooses nothing: the item is the one search started from.
+      await expect(activeItem, `${end}: the spy read no hidden section`).toHaveAttribute(
+        "data-section",
+        before!,
+      );
+      if (end === "Cancel") await page.getByTestId("crew-search-cancel").click();
+      else {
+        await box.press("Escape"); // clears the query
+        await box.press("Escape"); // ends search
+      }
+      await expect(page.getByTestId("page-container")).toBeVisible();
+      await settleScroll(page);
+      // After: the nav marks the section the page actually shows, by the spy's
+      // own rule over the page as it now lies, with its bar.
+      const lay = await page.evaluate(() => {
+        const doc = document.documentElement;
+        const topOf = (el: Element) =>
+          el.getBoundingClientRect().top +
+          window.scrollY -
+          (parseFloat(getComputedStyle(el).scrollMarginTop) || 0);
+        const tops = [
+          { id: "today", top: topOf(document.querySelector('[data-testid="crew-today-block"]')!) },
+          ...[...document.querySelectorAll('[data-testid="crew-wide-section"]')].map((el) => ({
+            id: el.getAttribute("data-section")!,
+            top: topOf(el),
+          })),
+        ];
+        return { y: window.scrollY, client: doc.clientHeight, height: doc.scrollHeight, tops };
+      });
+      const expected = activeSectionFor(lay.y, lay.client, lay.height, lay.tops);
+      await expect(activeItem, `${end}: the nav marks the section in view`).toHaveAttribute(
+        "data-section",
+        expected,
+      );
+      await expect.poll(barOnActive, { message: `${end}: the bar is back on it` }).toBe(true);
+    }
   });
 
   test("home: the preview banner shows above the wide home on the preview route", async ({
