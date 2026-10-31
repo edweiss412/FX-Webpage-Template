@@ -137,7 +137,7 @@ export default defineConfig({
       use: { ...devices["Desktop Safari"] },
     },
     {
-      // BL-AGENDA-A11Y-WEBKIT-COVERAGE: the fold's a11y proof (h3-inside-summary exposure)
+      // BL-AGENDA-A11Y-WEBKIT-COVERAGE: the fold's a11y proof (h4-inside-summary exposure)
       // is an empirical per-engine claim and Safari is an explicit crew target. Desktop
       // Safari matches the hand-run probe measured during #610 (green in 5.0s).
       //
