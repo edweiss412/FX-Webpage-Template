@@ -60,6 +60,8 @@ import {
   readSavedCopies,
   readSavedCopyHtml,
   waitForCrewHydrated,
+  waitForSavedCopy,
+  waitForWorkerControl,
   type SavedCopyRecord,
 } from "./helpers/savedCopyProbe";
 import {
@@ -705,6 +707,117 @@ test("11b. the agenda opens online after the registrar's prefetch", async ({
   // Online, on the page whose registrar just ran the prefetch. A registrar that
   // imported react-pdf itself reset pdf.js's worker URL for the whole page, and
   // the viewer then failed here as well as offline.
+  await openAgenda(page);
+});
+
+/** The page-side release for `holdWorkerRegistration`, one per document. */
+const RELEASE_REGISTRATION = "__fxavReleaseWorkerRegistration";
+
+/**
+ * Holds `navigator.serviceWorker.register` on every document the page loads
+ * until the case calls the document's release, so a first visit can open the
+ * agenda before any worker controls the page (Codex R3 C). Nothing else about
+ * registration changes: the registrar's own call goes through once released.
+ */
+async function holdWorkerRegistration(page: Page): Promise<void> {
+  await page.addInitScript((releaseName: string) => {
+    const container = navigator.serviceWorker as ServiceWorkerContainer | undefined;
+    if (container === undefined) return;
+    const register = container.register.bind(container);
+    let release: () => void = () => undefined;
+    const released = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    (window as unknown as Record<string, () => void>)[releaseName] = release;
+    container.register = (...args: Parameters<ServiceWorkerContainer["register"]>) =>
+      released.then(() => register(...args));
+  }, RELEASE_REGISTRATION);
+}
+
+// Codex R3 C: the agenda opened during the first visit, while the worker was
+// still installing, so its code loaded outside the worker; the registrar's own
+// import then reused the loaded modules and fetched nothing. Every file the
+// page loaded must reach the worker's static cache once the worker controls it.
+test("11c. an agenda opened before the worker controlled the page opens offline", async ({
+  crewPage: page,
+  origin,
+  crewProxy: proxy,
+}) => {
+  // As agendaShowPrefetched: nothing but the worker can answer offline.
+  proxy.stub("/api/asset/agenda/", AGENDA_PDF, "application/pdf", {
+    "cache-control": "no-store",
+  });
+  proxy.overrideHeaders("/_next/static/", { "cache-control": "no-store" });
+  await holdWorkerRegistration(page);
+  const show = await seedCase({ agendaLinks: [{ label: "AGENDA", fileId: AGENDA_FILE_ID }] });
+  const target = caseTarget(show);
+  const agendaUrl = `/api/asset/agenda/${show.showId}/${AGENDA_FILE_ID}`;
+
+  await page.goto(`${origin}${target.path}?gate=skip`);
+  await expect(page.getByTestId("picker-interstitial-root")).toBeVisible({ timeout: 30_000 });
+  await page
+    .locator(`[data-testid="picker-roster-row"][data-crew-member-id="${target.crewMemberId}"]`)
+    .click();
+  await waitForCrewHydrated(page);
+  premiseHolds(
+    "no worker controls the page while registration is held",
+    await page.evaluate(() => navigator.serviceWorker.controller === null),
+  );
+
+  // The agenda opens online with no worker: every file it needs comes from the
+  // network, and the proxy sees each request (the page's own, in both engines).
+  const mark = proxy.received().length;
+  await openAgenda(page);
+  const loadedBeforeControl = [
+    ...new Set(
+      proxy
+        .received()
+        .slice(mark)
+        .map((request) => request.path)
+        .filter((path) => path.startsWith("/_next/static/")),
+    ),
+  ];
+  premise("the agenda loaded static files before control", loadedBeforeControl.length, 0);
+  premiseHolds(
+    "still no worker controls the page",
+    await page.evaluate(() => navigator.serviceWorker.controller === null),
+  );
+
+  // Now the worker registers, takes control, saves the page, and the registrar's
+  // prefetch runs.
+  await page.evaluate((name) => {
+    (window as unknown as Record<string, () => void>)[name]?.();
+  }, RELEASE_REGISTRATION);
+  await waitForWorkerControl(page);
+  await waitForSavedCopy(page, { showId: show.showId, url: target.path });
+  const html = await readSavedCopyHtml(page, show.showId);
+  const named = new Set(nextStaticUrlsIn(html ?? ""));
+  const lazy = loadedBeforeControl.filter((path) => !named.has(path));
+  premise("the agenda loaded files the stored HTML does not name", lazy.length, 0);
+  premiseHolds("a script the stored HTML does not name is among them", lazy.some(nextStaticScript));
+  await expect
+    .poll(
+      async () => {
+        const state = await readSavedCopies(page);
+        const stored = new Set((state.caches[STATIC_CACHE] ?? []).map(rootRelative));
+        const copy = state.copies.find((c) => c.showId === show.showId);
+        return {
+          agendaListed: copy?.assets.includes(agendaUrl) ?? false,
+          missing: lazy.filter((path) => !stored.has(path)),
+        };
+      },
+      {
+        message: "every file the agenda loaded before control is in the worker's static cache",
+        timeout: 30_000,
+      },
+    )
+    .toEqual({ agendaListed: true, missing: [] });
+
+  // Offline: the reload is the saved copy, and the agenda opens from the worker alone.
+  proxy.setMode("refuse");
+  await page.reload();
+  await waitForCrewHydrated(page);
+  await expect(savedCopyBar(page).bar).toHaveAttribute("data-state", "saved-fresh");
   await openAgenda(page);
 });
 

@@ -788,6 +788,122 @@ describe("agenda viewer code (spec 4.8)", () => {
     expect(fetchMock.mock.calls).toEqual([workerFetch(), workerFetch()]);
   });
 
+  // Codex R3 C: the agenda opened during the first visit, before the worker
+  // controlled the page, so the viewer's chunks and stylesheet loaded outside
+  // it. The registrar's later import reuses those modules and fetches nothing,
+  // so, once a worker controls the page, it fetches every same-origin
+  // /_next/static/ file the page has loaded, through that worker.
+  /** Resource timing entries for `urls`, as the browser lists what the page loaded. */
+  function stubLoadedResources(urls: readonly string[]): void {
+    const entries = urls.map(
+      (name) => ({ name, entryType: "resource" }) as unknown as PerformanceEntry,
+    );
+    vi.spyOn(performance, "getEntriesByType").mockImplementation((type: string) =>
+      type === "resource" ? entries : [],
+    );
+  }
+
+  /** What the page loaded before control: the viewer's files, and some it must leave alone. */
+  function viewerLoadedBeforeControl() {
+    const origin = window.location.origin;
+    const loader = `${origin}/_next/static/chunks/agenda-loader.11aa.js`;
+    const viewer = `${origin}/_next/static/chunks/agenda-viewer.22bb.js`;
+    const stylesheet = `${origin}/_next/static/chunks/agenda-viewer.33cc.css`;
+    const versioned = `${origin}/_next/static/chunks/app.44dd.js?dpl=abc`;
+    stubLoadedResources([
+      loader,
+      viewer,
+      stylesheet,
+      // The same file twice, and once with a fragment: one fetch.
+      viewer,
+      `${viewer}#again`,
+      versioned,
+      // The pdf.js worker the prefetch fetches anyway: not twice.
+      `${origin}${agenda.WORKER_SRC}`,
+      // Another origin, and same-origin files outside /_next/static/: left alone.
+      "https://cdn.example.com/_next/static/chunks/agenda-viewer.22bb.js",
+      `${origin}/api/asset/diagram/demo/rev-1/stage.png`,
+      `${origin}/fonts/inter-var.woff2`,
+      `${origin}/show/demo-show/abc123`,
+    ]);
+    return { loader, viewer, stylesheet, versioned };
+  }
+
+  /** One fetch of a loaded file through the worker, under the prefetch's deadline. */
+  function loadedFetch(url: string): unknown[] {
+    return [url, { signal: expect.any(AbortSignal) }];
+  }
+
+  test("the viewer's files the page loaded before a worker controlled it are fetched through the worker once it does", async () => {
+    const { container } = installServiceWorker({ controlled: false });
+    installStorage();
+    const { loader, viewer, stylesheet, versioned } = viewerLoadedBeforeControl();
+
+    render(<SavedCopyRegistrar {...BASE} hasAgenda />);
+    await settle();
+    // Nothing yet: no worker would store them.
+    expect(fetchMock).not.toHaveBeenCalled();
+
+    takeControl(container);
+    await settle();
+    expect(fetchMock.mock.calls).toEqual([
+      workerFetch(),
+      loadedFetch(loader),
+      loadedFetch(viewer),
+      loadedFetch(stylesheet),
+      loadedFetch(versioned),
+    ]);
+
+    // Done once each arrived whole: a later online event fetches nothing.
+    act(() => {
+      window.dispatchEvent(new Event("online"));
+    });
+    await settle();
+    expect(fetchMock).toHaveBeenCalledTimes(5);
+  });
+
+  test.each([
+    ["answers 404", () => new Response("missing", { status: 404 })],
+    ["has a body that fails mid-stream", () => new Response(failingBody(), { status: 200 })],
+  ] as const)(
+    "the prefetch is not done while a file the page loaded %s: the next online event fetches them all again",
+    async (_label, failing) => {
+      installServiceWorker({ controlled: true });
+      installStorage();
+      const { loader, viewer, stylesheet, versioned } = viewerLoadedBeforeControl();
+      let stylesheetFetches = 0;
+      fetchMock.mockImplementation((url: string) => {
+        if (url !== stylesheet) return Promise.resolve(new Response(""));
+        stylesheetFetches += 1;
+        return Promise.resolve(stylesheetFetches === 1 ? failing() : new Response(""));
+      });
+      const all = [
+        workerFetch(),
+        loadedFetch(loader),
+        loadedFetch(viewer),
+        loadedFetch(stylesheet),
+        loadedFetch(versioned),
+      ];
+
+      render(<SavedCopyRegistrar {...BASE} hasAgenda />);
+      await settle();
+      expect(fetchMock.mock.calls).toEqual(all);
+
+      act(() => {
+        window.dispatchEvent(new Event("online"));
+      });
+      await settle();
+      expect(fetchMock.mock.calls).toEqual([...all, ...all]);
+
+      // All arrived whole the second time: done.
+      act(() => {
+        window.dispatchEvent(new Event("online"));
+      });
+      await settle();
+      expect(fetchMock).toHaveBeenCalledTimes(10);
+    },
+  );
+
   test("a rejected viewer import is tried again on the next online event", async () => {
     vi.resetModules();
     const loads = { loader: 0 };

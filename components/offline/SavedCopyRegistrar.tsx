@@ -27,13 +27,17 @@
  * - When the show has an agenda it loads the agenda viewer's code and the
  *   pdf.js worker that code configures, online, idle and once a worker controls
  *   the page, so both pass through the worker into its static cache and an
- *   agenda nobody opened still opens offline (spec 4.8). The worker stores the
- *   pdf.js file as its body passes through, so the prefetch reads that body to
- *   its end before it counts as done. A prefetch that could not run (offline at
- *   idle) or failed (an import that rejects, a worker fetch that fails or
- *   answers other than ok, a body that fails or has not arrived whole
- *   AGENDA_PREFETCH_TIMEOUT_MS after the fetch was sent) is tried again on the
- *   next `online` event; one that succeeded is not repeated in this page load.
+ *   agenda nobody opened still opens offline (spec 4.8). An agenda opened
+ *   before any worker controlled the page loaded its code outside the worker,
+ *   and importing it again fetches nothing, so the prefetch also fetches every
+ *   same-origin `/_next/static/` file the page has loaded, through the worker
+ *   (Codex R3 C). The worker stores each file as its body passes through, so
+ *   the prefetch reads every body to its end before it counts as done. A
+ *   prefetch that could not run (offline at idle) or failed (an import that
+ *   rejects, a worker fetch that fails or answers other than ok, a body that
+ *   fails or has not arrived whole AGENDA_PREFETCH_TIMEOUT_MS after the fetches
+ *   were sent) is tried again on the next `online` event; one that succeeded is
+ *   not repeated in this page load.
  * - A failed registration and a `save-failed` broadcast from the worker are
  *   logged with source `client.crew` (spec 6), the source crew components use
  *   and the client-error route accepts. Neither is shown: nothing here renders
@@ -60,6 +64,9 @@ export type SavedCopyRegistrarProps = {
 
 const WORKER_URL = "/sw.js";
 
+/** The build's static files, which the worker stores as they pass through it (spec 4.8). */
+const NEXT_STATIC_PREFIX = "/_next/static/";
+
 const REGISTRATION_OPTIONS: RegistrationOptions = { scope: "/", updateViaCache: "none" };
 
 /** At most one `ensure-saved` per this window (spec 4.7.3). */
@@ -74,9 +81,9 @@ const ENSURE_SAVED_THROTTLE_MS = 10_000;
 const ENSURE_SAVED_REPLY_TIMEOUT_MS = 20_000;
 
 /**
- * How long the agenda prefetch waits for the pdf.js worker file, headers and
- * body, before it counts as failed, aborts the fetch and leaves the next
- * `online` event to try again (spec 4.8).
+ * How long the agenda prefetch waits for the pdf.js worker file and the static
+ * files the page loaded, headers and bodies, before it counts as failed, aborts
+ * the fetches and leaves the next `online` event to try again (spec 4.8).
  */
 const AGENDA_PREFETCH_TIMEOUT_MS = 60_000;
 
@@ -168,30 +175,63 @@ function persistStorageOnce(): void {
 }
 
 /**
+ * Every same-origin `/_next/static/` file the page has loaded, without its
+ * fragment, each once, as the browser's resource timing lists them. One loaded
+ * before a worker controlled the page never passed through it.
+ */
+function loadedStaticFiles(): string[] {
+  if (typeof performance.getEntriesByType !== "function") return [];
+  const { origin, href } = window.location;
+  const files = new Set<string>();
+  for (const entry of performance.getEntriesByType("resource")) {
+    let url: URL;
+    try {
+      url = new URL(entry.name, href);
+    } catch {
+      continue;
+    }
+    if (url.origin !== origin || !url.pathname.startsWith(NEXT_STATIC_PREFIX)) continue;
+    url.hash = "";
+    files.add(url.href);
+  }
+  return [...files];
+}
+
+/** Fetches `url` and reads its body to the end; rejects unless both succeed. */
+async function readThrough(url: string, signal: AbortSignal): Promise<void> {
+  const response = await fetch(url, { signal });
+  // A 404 or a 503 put nothing in the worker's static cache.
+  if (!response.ok) throw new Error(`${url} answered ${response.status}`);
+  // Neither does a body that fails or stalls once the headers are in.
+  await response.arrayBuffer();
+}
+
+/**
  * Loads the viewer's code through the loader AgendaEmbed's sheet uses
  * (components/agenda/loadAgendaPdfViewer.ts), so the worker stores the very
  * chunks the sheet asks for, then fetches the pdf.js worker from the URL the
- * viewer assigns (components/agenda/pdfWorkerSrc.ts). No `import()` of the
- * viewer of its own: Turbopack gives each import() site its own loader chunk.
- * And never `import("react-pdf")`: in the production build that loaded a second
+ * viewer assigns (components/agenda/pdfWorkerSrc.ts), and every static file the
+ * page had already loaded: the viewer's chunks and stylesheet when the agenda
+ * was opened before a worker controlled the page, which the import above found
+ * loaded and so did not fetch again (Codex R3 C). No `import()` of the viewer
+ * of its own: Turbopack gives each import() site its own loader chunk. And
+ * never `import("react-pdf")`: in the production build that loaded a second
  * copy of react-pdf's index, which reset pdf.js's worker URL to the relative
  * `pdf.worker.mjs` for the whole page.
  */
 async function prefetchAgendaViewer(): Promise<void> {
   await loadAgendaPdfViewer();
   const { PDF_WORKER_SRC } = await import("@/components/agenda/pdfWorkerSrc");
+  const pdfWorker = new URL(PDF_WORKER_SRC, window.location.href).href;
+  const loaded = loadedStaticFiles().filter((url) => url !== pdfWorker);
   const controller = new AbortController();
-  const read = (async () => {
-    const response = await fetch(PDF_WORKER_SRC, { signal: controller.signal });
-    // A 404 or a 503 put nothing in the worker's static cache.
-    if (!response.ok) throw new Error(`pdf.js worker answered ${response.status}`);
-    // Neither does a body that fails or stalls once the headers are in.
-    await response.arrayBuffer();
-  })();
+  const read = Promise.all(
+    [PDF_WORKER_SRC, ...loaded].map((url) => readThrough(url, controller.signal)),
+  );
   await new Promise<void>((resolve, reject) => {
     const timer = window.setTimeout(() => {
       controller.abort();
-      reject(new Error("pdf.js worker did not arrive in time"));
+      reject(new Error("the agenda viewer's files did not arrive in time"));
     }, AGENDA_PREFETCH_TIMEOUT_MS);
     read.then(
       () => {
