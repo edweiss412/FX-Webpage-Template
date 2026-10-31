@@ -799,4 +799,101 @@ describe("walk mode (walkTabs, the crew section sheet): the hook moves focus on 
     tab();
     expect(active()).toBe("inner-b");
   });
+
+  // Whole-diff review round 2 (second pass), 2A-R2-1. A control removed while it
+  // held focus left focus on <body>, the page behind was inert, and the walk
+  // ignored the next Tab because its target was outside the dialog: the
+  // keyboard user was nowhere. Focus that falls to <body> because its node left
+  // the document goes back to the dialog's title, and a Tab from <body> enters it.
+  test("walk: when the focused control is removed, focus goes back to the dialog's title, not <body>", async () => {
+    const view = (withControl: boolean) => (
+      <Dialog testId="d" walk>
+        {withControl ? (
+          <button type="button" data-testid="doomed">
+            Copy password
+          </button>
+        ) : null}
+        <button type="button" data-testid="stays">
+          Stays
+        </button>
+      </Dialog>
+    );
+    const { rerender } = render(view(true));
+    screen.getByTestId("doomed").focus();
+    expect(active(), "PREMISE: the control holds focus").toBe("doomed");
+    rerender(view(false));
+    // PREMISE: the removal itself leaves focus on <body>, the state repaired.
+    expect(document.activeElement).toBe(document.body);
+    await settle();
+    expect(active()).toBe("d-title");
+  });
+
+  test("walk: a Tab from <body> enters the dialog at its first stop, a Shift+Tab at its last", () => {
+    render(
+      <Dialog testId="d" walk>
+        <button type="button" data-testid="first">
+          First
+        </button>
+        <button type="button" data-testid="last">
+          Last
+        </button>
+      </Dialog>,
+    );
+    for (const [shift, expected] of [
+      [false, "first"],
+      [true, "last"],
+    ] as const) {
+      (document.activeElement as HTMLElement | null)?.blur();
+      expect(document.activeElement, "PREMISE: focus is on <body>").toBe(document.body);
+      expect(tab(shift), "the walk takes a Tab from <body>").toBe(true);
+      expect(active()).toBe(expected);
+    }
+  });
+
+  test("walk: with another modal open outside it, a Tab from <body> and a removal are not the walk's", async () => {
+    const view = (withControl: boolean) => (
+      <>
+        <Dialog testId="d" walk>
+          {withControl ? (
+            <button type="button" data-testid="doomed">
+              Doomed
+            </button>
+          ) : null}
+        </Dialog>
+        <div role="dialog" aria-modal="true" data-testid="other">
+          <button type="button">Other</button>
+        </div>
+      </>
+    );
+    const { rerender } = render(view(true));
+    (document.activeElement as HTMLElement | null)?.blur();
+    expect(tab(), "the other modal's Tab").toBe(false);
+    screen.getByTestId("doomed").focus();
+    rerender(view(false));
+    await settle();
+    expect(document.activeElement).toBe(document.body);
+  });
+});
+
+describe("default mode keeps main's behaviour when focus falls to <body> (round 2, 2A-R2-1)", () => {
+  test("default: a removed focused control leaves focus on <body>, and a Tab from <body> is the browser's", async () => {
+    const view = (withControl: boolean) => (
+      <Dialog testId="d">
+        {withControl ? (
+          <button type="button" data-testid="doomed">
+            Doomed
+          </button>
+        ) : null}
+        <button type="button" data-testid="stays">
+          Stays
+        </button>
+      </Dialog>
+    );
+    const { rerender } = render(view(true));
+    screen.getByTestId("doomed").focus();
+    rerender(view(false));
+    await settle();
+    expect(document.activeElement).toBe(document.body);
+    expect(tab(), "a Tab from <body> is left to the browser").toBe(false);
+  });
 });

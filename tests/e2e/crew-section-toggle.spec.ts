@@ -976,6 +976,16 @@ test.describe("crew compact compound transitions (spec §7, plan Task 12)", () =
       await expect(page.getByTestId("agenda-embed")).toHaveCount(0);
       await expect(page.getByTestId("agenda-sheet")).toHaveCount(0);
       await expect(sheetDialog(page)).toHaveAttribute("data-section", "schedule");
+      // Focus was in the viewer, which left the page: it is back in the sheet,
+      // not on <body> behind an inert page (whole-diff review round 2, 2A-R2-1).
+      await expect
+        .poll(() =>
+          page.evaluate(() => {
+            const sheet = document.querySelector('[data-testid="crew-section-sheet-dialog"]');
+            return sheet !== null && sheet.contains(document.activeElement);
+          }),
+        )
+        .toBe(true);
       expect(
         await page.evaluate(() => document.body.style.overflow),
         "the sheet still holds the scroll lock",

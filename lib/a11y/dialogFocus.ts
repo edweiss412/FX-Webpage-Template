@@ -172,6 +172,19 @@ function isPlayer(el: Element | null): el is HTMLMediaElement {
   return el instanceof HTMLMediaElement && el.controls;
 }
 
+/** Another open modal dialog besides `self`, not one `self` sits inside. */
+function anotherModalOpen(self: HTMLElement): boolean {
+  return Array.from(document.querySelectorAll('[aria-modal="true"]')).some(
+    (el) => el !== self && !el.contains(self),
+  );
+}
+
+/** Focus is nowhere a keyboard user can act from: on <body>, or on nothing. */
+function focusOnBody(): boolean {
+  const active = document.activeElement;
+  return active === null || active === document.body || active === document.documentElement;
+}
+
 /**
  * The stop a Tab (or Shift+Tab) moves to from `active`: the next (previous)
  * stop in document order, wrapping. From an element that is not a stop (a
@@ -230,7 +243,9 @@ export function useDialogFocus(
      * order, wrapping, and hands a Tab to the browser only on (or, going back,
      * onto) a player with native controls, whose controls only the browser can
      * walk, settling focus on its own next stop once it leaves (whole-diff
-     * review round 2, 2A-2). WebKit's default
+     * review round 2, 2A-2). It also keeps focus in the dialog when the focused
+     * node leaves the document (back to the title) and takes a Tab from
+     * <body> into it (round 2, 2A-R2-1). WebKit's default
      * sequential navigation skips buttons and links, so a Tab left to it in a
      * dialog of buttons and links lands on `<body>` (measured under
      * Playwright's mobile-safari). Every other dialog keeps the default: act at
@@ -349,8 +364,27 @@ export function useDialogFocus(
     // (whole-diff review R2-F2). A Tab anything inside already handled, a
     // child or a dialog nested in this one, arrives cancelled and is left
     // alone; one stopped on the way never arrives at all.
+    // Whether the dialog is open and the one in charge: attached, not leaving
+    // (a departing sheet is inert), and no other modal open beside it.
+    const inCharge = () =>
+      (container as HTMLElement).isConnected &&
+      (container as HTMLElement).closest("[inert]") === null &&
+      !anotherModalOpen(container as HTMLElement);
+
     function onWalkKeyDown(event: KeyboardEvent) {
       if (event.key !== "Tab" || event.defaultPrevented) return;
+      // From <body> (focus fell there, below): into the dialog, at its first
+      // stop going forward and its last going back. The page behind is inert, so
+      // nowhere else would take it.
+      if (
+        focusOnBody() &&
+        (event.target === document.body || event.target === document.documentElement)
+      ) {
+        if (!inCharge()) return;
+        event.preventDefault();
+        walkFrom(null, event.shiftKey);
+        return;
+      }
       if (!(event.target instanceof Node) || !(container as HTMLElement).contains(event.target)) {
         return;
       }
@@ -386,10 +420,39 @@ export function useDialogFocus(
       walkFrom(from, backward);
     }
 
+    // Focus kept in the dialog when its node leaves the document (whole-diff
+    // review round 2, 2A-R2-1): a refresh that replaces the focused control, an
+    // in-sheet link that swaps the body, a nested dialog whose owner is removed
+    // with it open. Focus then falls to <body>, the page behind is inert, and a
+    // keyboard user has nowhere to act from. After each change to the document,
+    // if focus is on <body> and the element that last held it is gone, focus
+    // goes to the dialog's title (its first stop without one). A focus that
+    // left for <body> any other way, its element still attached, is left alone.
+    let lastFocused: Element | null = document.activeElement;
+    const onFocusIn = (event: FocusEvent) => {
+      if (event.target instanceof Element) lastFocused = event.target;
+    };
+    const containFocus = () => {
+      if (!focusOnBody() || lastFocused === null || lastFocused.isConnected) return;
+      if (!inCharge()) return;
+      const title = initialFocusRef?.current;
+      const target =
+        title?.isConnected && (container as HTMLElement).contains(title)
+          ? title
+          : (walkStops(container as HTMLElement)[0] ?? (container as HTMLElement));
+      target.focus({ preventScroll: true });
+    };
+
     if (walkTabs) {
       window.addEventListener("keydown", onWalkKeyDown);
+      document.addEventListener("focusin", onFocusIn);
+      const removals =
+        typeof MutationObserver === "function" ? new MutationObserver(containFocus) : null;
+      removals?.observe(document.body, { childList: true, subtree: true });
       return () => {
         window.removeEventListener("keydown", onWalkKeyDown);
+        document.removeEventListener("focusin", onFocusIn);
+        removals?.disconnect();
         if (settleTimer !== null) window.clearTimeout(settleTimer);
       };
     }
