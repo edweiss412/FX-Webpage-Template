@@ -299,6 +299,19 @@ describe("CrewSections, compact: home and sheet (spec §5.2)", () => {
     await waitFor(() => expect(sheet()).toBeNull());
   });
 
+  it("sheet: closing a deep-linked sheet focuses that section's All sections row, never <body> (audit P2-5)", async () => {
+    // A deep link opens the sheet with nothing focused, so there is no opener to
+    // go back to. The row that opens the same section is where a tap would have
+    // started, and it is on the page the close lands on.
+    nav.searchParams = new URLSearchParams("s=venue");
+    setLocation("?s=venue");
+    renderController("venue");
+    expect(sheet()).toHaveAttribute("data-section", "venue");
+    fireEvent.click(closeButton("venue"));
+    await waitFor(() => expect(sheet()).toBeNull());
+    expect(document.activeElement).toBe(row("venue"));
+  });
+
   it("sheet: popstate to an entry without s closes the sheet", async () => {
     nav.searchParams = new URLSearchParams("s=gear");
     setLocation("?s=gear");

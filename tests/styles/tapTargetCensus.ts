@@ -298,8 +298,9 @@ export const TAP_TARGET_CENSUS: readonly TapCensusRow[] = [
     // by reading its className at the new key. 304 -> 316 in plan Task 12: the
     // `presence` prop and its doc sit above it. Same scrim. 316 -> 329 on the
     // invariant-8 fixes (audit P3-5): the inert sweep's exempt set grew a route
-    // announcer row and a doc. Same scrim.
-    line: 329,
+    // announcer row and a doc. Same scrim. 329 -> 361 (audit P2-5): the deep-link
+    // focus fallback's prop, doc and latest-value ref sit above it. Same scrim.
+    line: 361,
     tag: "motion.div",
     category: "full-bleed",
     reason:

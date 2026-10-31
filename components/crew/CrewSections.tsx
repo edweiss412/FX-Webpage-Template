@@ -361,6 +361,7 @@ export function CrewSections({
       : (sections.find((s) => s.id === open) ?? { id: open, label: CREW_SECTION_LABELS[open] });
 
   const sheetBodyRef = useRef<HTMLDivElement | null>(null);
+  const allSectionsRef = useRef<HTMLDivElement | null>(null);
   const todayRef = useRef<HTMLElement | null>(null);
   const todayHeadingRef = useRef<HTMLHeadingElement | null>(null);
   const stackRefs = useRef(new Map<CrewSectionId, HTMLElement>());
@@ -569,6 +570,16 @@ export function CrewSections({
   const requestClose = useCallback(() => {
     if (closeEntry() === "replaced") setOpenId(null);
   }, [closeEntry]);
+
+  // A sheet with no opener to go back to (a deep link) returns focus to the
+  // "All sections" row that opens the same section (audit P2-5).
+  const sheetFallbackFocus = useCallback((id: CrewSectionId): HTMLElement | null => {
+    for (const el of allSectionsRef.current?.querySelectorAll<HTMLElement>("[data-section]") ??
+      []) {
+      if (el.getAttribute("data-section") === id) return el;
+    }
+    return null;
+  }, []);
 
   // A lost entitlement already closed the sheet, during render; its history
   // call follows here, in compact only (wide shows no sheet to close).
@@ -874,7 +885,7 @@ export function CrewSections({
                   {sectionNodes.today}
                 </section>
                 {showCompact && hasSections ? (
-                  <div className="lg:hidden">
+                  <div ref={allSectionsRef} className="lg:hidden">
                     <CrewAllSections sections={sections} hrefFor={hrefFor} />
                   </div>
                 ) : null}
@@ -928,6 +939,7 @@ export function CrewSections({
                 section={openEntry ? { id: openEntry.id, label: openEntry.label } : null}
                 modal={mode === "compact"}
                 onRequestClose={requestClose}
+                fallbackFocus={sheetFallbackFocus}
                 bodyRef={sheetBodyRef}
                 presence={dismissals}
               >

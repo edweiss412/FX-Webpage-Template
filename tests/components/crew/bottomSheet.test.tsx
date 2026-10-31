@@ -21,7 +21,7 @@ import { useState, type ReactNode } from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { CrewSectionSheet } from "@/components/crew/CrewSectionSheet";
 import { DRAG_DISMISS_THRESHOLD_PX, DRAG_SLOP_PX } from "@/components/shared/sheetConstants";
-import { CREW_SECTION_LABELS } from "@/lib/crew/crewSections";
+import { CREW_SECTION_LABELS, type CrewSectionId } from "@/lib/crew/crewSections";
 
 const VENUE = { id: "venue" as const, label: CREW_SECTION_LABELS.venue };
 const CREW = { id: "crew" as const, label: CREW_SECTION_LABELS.crew };
@@ -60,11 +60,13 @@ function Page({
   initial = null,
   modal = true,
   onRequestClose,
+  fallbackFocus,
   children,
 }: {
   initial?: typeof VENUE | null;
   modal?: boolean;
   onRequestClose?: () => void;
+  fallbackFocus?: (id: CrewSectionId) => HTMLElement | null;
   children?: ReactNode;
 }) {
   const [section, setSection] = useState<typeof VENUE | typeof CREW | null>(initial);
@@ -77,10 +79,14 @@ function Page({
         <button type="button" data-testid="opener-crew" onClick={() => setSection(CREW)}>
           Open crew
         </button>
+        <a href="?s=venue" data-testid="row-venue">
+          Venue
+        </a>
       </main>
       <CrewSectionSheet
         section={section}
         modal={modal}
+        fallbackFocus={fallbackFocus}
         onRequestClose={() => {
           onRequestClose?.();
           setSection(null);
@@ -138,6 +144,36 @@ describe("CrewSectionSheet (spec §5.2)", () => {
     // Focus is back before the exit slide finishes: the page is live at once.
     expect(document.activeElement).toBe(opener);
     await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
+    expect(document.activeElement).toBe(opener);
+  });
+
+  it("sheet: with no opener (a deep link), close focuses the owner's fallback for the open section", async () => {
+    const asked: CrewSectionId[] = [];
+    render(
+      <Page
+        initial={VENUE}
+        fallbackFocus={(id) => {
+          asked.push(id);
+          return screen.getByTestId(`row-${id}`);
+        }}
+      />,
+    );
+    fireEvent.click(screen.getByRole("button", { name: `Close ${VENUE.label.toLowerCase()}` }));
+    await act(async () => {});
+    expect(asked).toContain(VENUE.id);
+    expect(document.activeElement).toBe(screen.getByTestId("row-venue"));
+    await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
+    expect(document.activeElement).toBe(screen.getByTestId("row-venue"));
+  });
+
+  it("sheet: an opener that is still on the page wins over the fallback", async () => {
+    const fallback = vi.fn(() => screen.getByTestId("row-venue"));
+    render(<Page fallbackFocus={fallback} />);
+    const opener = screen.getByTestId("opener");
+    opener.focus();
+    fireEvent.click(opener);
+    fireEvent.click(screen.getByRole("button", { name: `Close ${VENUE.label.toLowerCase()}` }));
+    await act(async () => {});
     expect(document.activeElement).toBe(opener);
   });
 

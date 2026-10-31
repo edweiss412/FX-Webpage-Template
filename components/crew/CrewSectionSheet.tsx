@@ -71,6 +71,14 @@ export interface CrewSectionSheetProps {
    * body stays on the page while it slides out.
    */
   presence?: number;
+  /**
+   * Where focus goes on close when there is no opener to go back to: a deep link
+   * opened the sheet with nothing focused, or the control that opened it has
+   * left the page. Called at close time with the section being closed; null
+   * leaves the floor to the browser. The controller answers with that section's
+   * "All sections" row.
+   */
+  fallbackFocus?: ((id: CrewSectionId) => HTMLElement | null) | undefined;
   children?: ReactNode;
 }
 
@@ -115,6 +123,7 @@ export function CrewSectionSheet({
   onRequestClose,
   bodyRef,
   presence = 0,
+  fallbackFocus,
   children,
 }: CrewSectionSheetProps) {
   const reduced = usePrefersReducedMotion() === true;
@@ -127,10 +136,12 @@ export function CrewSectionSheet({
     <div ref={hostRef} data-testid="crew-section-sheet-host">
       {section !== null && modal ? (
         <SheetModalEffects
+          sectionId={section.id}
           hostRef={hostRef}
           dialogRef={dialogRef}
           titleRef={titleRef}
           onRequestClose={onRequestClose}
+          fallbackFocus={fallbackFocus}
         />
       ) : null}
       {/* Keyed by the presence generation: a new key remounts the presence and
@@ -160,16 +171,27 @@ export function CrewSectionSheet({
  * the exit slide.
  */
 function SheetModalEffects({
+  sectionId,
   hostRef,
   dialogRef,
   titleRef,
   onRequestClose,
+  fallbackFocus,
 }: {
+  sectionId: CrewSectionId;
   hostRef: RefObject<HTMLDivElement | null>;
   dialogRef: RefObject<HTMLDivElement | null>;
   titleRef: RefObject<HTMLHeadingElement | null>;
   onRequestClose: () => void;
+  fallbackFocus: ((id: CrewSectionId) => HTMLElement | null) | undefined;
 }) {
+  // The section and fallback as they stand at close, read by the cleanup below:
+  // an in-sheet switch changes the section without re-running the open.
+  const latest = useRef({ sectionId, fallbackFocus });
+  useEffect(() => {
+    latest.current = { sectionId, fallbackFocus };
+  }, [sectionId, fallbackFocus]);
+
   // The page behind goes inert: every sibling along the path from the sheet to
   // <body>. Declared BEFORE useDialogFocus: React runs cleanups in declaration
   // order, and inerting an ancestor blurs the opener, so the opener is read
@@ -198,8 +220,18 @@ function SheetModalEffects({
     titleRef.current?.focus({ preventScroll: true });
     return () => {
       for (const el of inerted) el.removeAttribute("inert");
-      if (opener instanceof HTMLElement && opener !== document.body && opener.isConnected) {
-        opener.focus({ preventScroll: true });
+      // The opener when it is still on the page; otherwise the owner's fallback
+      // for the section being closed. Without one, focus would land on the
+      // departing title and fall to <body> when the frame leaves (audit P2-5).
+      // The fallback also becomes the dialog hook's restore target, so its own
+      // restore (which runs next) lands on the same element.
+      const reachable =
+        opener instanceof HTMLElement && opener !== document.body && opener.isConnected
+          ? opener
+          : (latest.current.fallbackFocus?.(latest.current.sectionId) ?? null);
+      if (reachable?.isConnected) {
+        openerRef.current = reachable;
+        reachable.focus({ preventScroll: true });
       }
     };
   }, [hostRef, titleRef]);
