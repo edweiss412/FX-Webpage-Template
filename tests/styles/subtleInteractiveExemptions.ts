@@ -72,7 +72,24 @@ export const SUBTLE_INTERACTIVE_EXEMPTIONS: readonly SubtleExemption[] = [
     // Then 282 -> 285 when the wizard-ignore arc gave the mount its discriminated
     // `target` prop plus its new-tab-scanner exemption comment. Re-measured on the live
     // tree by identity, not by adding a delta: 285 is that same `<summary>`.
-    line: 285,
+    // 285 -> 294 on feat/warning-card-fixes Task 12 (the record split above it); located by
+    // its own `section-ignored-summary-${id}` testid.
+    // 294 -> 318 on feat/warning-card-fixes Task 15 (SectionWarningItemControls gained the
+    // reading-draft mount above it); located by its own testid.
+    line: 318,
+    tag: "summary",
+    token: "text-text-subtle",
+    family: "summary-disclosure",
+    reason:
+      "Disclosure header over the extra parse-warning detail; the warning card itself carries the emphasis (DESIGN §1.1a Family S)",
+  },
+  {
+    file: "components/admin/showpage/sectionWarningExtras.tsx",
+    // Added on feat/warning-card-fixes Task 12 (spec §6.4, §16.3): the Accepted (N)
+    // disclosure header, the Ignored twin's classes verbatim; located by its own
+    // `section-accepted-summary-${id}` testid. Reason copied from that twin.
+    // 332 -> 356 on feat/warning-card-fixes Task 15, same cause; located by its own testid.
+    line: 356,
     tag: "summary",
     token: "text-text-subtle",
     family: "summary-disclosure",
@@ -115,7 +132,20 @@ export const SUBTLE_INTERACTIVE_EXEMPTIONS: readonly SubtleExemption[] = [
     // 1650 -> 1655 on fix/sheet-warning-links (its header-link guard added five lines above; 073cb8eb3). Then 1655 -> 1662 when the hotel-card date-stub pass rewrote HotelCard and MiniAvatar above it. Located on the merged tree: same element, same text.
     // +30 on fix/section-callout-group-repeats (SectionFlagCallout grew above it); located
     // on the merged tree by its own element, never by composing the deltas: 1692.
-    line: 1692,
+    // 1692 -> 1695 on feat/warning-card-fixes Task 7 (three import lines above it); located
+    // by its own element, the `{hidden.length} more` accordion <summary>.
+    // 1695 -> 1696 on feat/warning-card-fixes Task 8 (the `Circle` import line); the same
+    // `{hidden.length} more` <summary>.
+    // 1696 -> 1698 on feat/warning-card-fixes Task 13 (two import lines above it); the same
+    // `{hidden.length} more` <summary>, located by its own element.
+    // 1698 -> 1699 on feat/warning-card-fixes Task 15 (the useRawDraft import line); the
+    // same `{hidden.length} more` <summary>.
+    // 1699 -> 1713 on feat/warning-card-fixes Task 16 (the reading-display imports and the
+    // callout's reading label above it); the same `{hidden.length} more` <summary>.
+    // 1713 -> 1731 on feat/warning-card-fixes Task 17 (the chrome's jump fields and the
+    // sectionForWarning import above it); the same `{hidden.length} more` <summary>.
+    // 1731 -> 1738 on feat/warning-card-fixes (UI gate P3: jump targets named by their own heading or title); located by its own element (5-line context match).
+    line: 1738,
     tag: "summary",
     token: "text-text-subtle",
     family: "summary-disclosure",
@@ -145,7 +175,43 @@ export const SUBTLE_INTERACTIVE_EXEMPTIONS: readonly SubtleExemption[] = [
     // 3414 -> 3419 on fix/sheet-warning-links (its header-link guard added five lines above; 073cb8eb3). Then 3419 -> 3481 when the hotel-card date-stub pass rewrote HotelCard and MiniAvatar above it. Located on the merged tree: same element, same text.
     // +30 on fix/section-callout-group-repeats (SectionFlagCallout grew above it); located
     // on the merged tree by its own element, never by composing the deltas: 3511.
-    line: 3511,
+    // 3511 -> 3530 on feat/warning-card-fixes Task 7 (the warning title row rebuilt above
+    // it); located by its own unique ignored-summary testid.
+    // 3530 -> 3563 on feat/warning-card-fixes Task 8 (the row-kind maps above it); located
+    // by its own ignored-summary testid.
+    // 3563 -> 3570 on feat/warning-card-fixes Task 12 (the Ignored / Accepted split above
+    // it); located by its own ignored-summary testid.
+    // 3570 -> 3656 on feat/warning-card-fixes Task 13 (the archived card body above it);
+    // located by its own ignored-summary testid.
+    // 3656 -> 3700 on feat/warning-card-fixes Task 15 (the staged reading scope above it);
+    // located by its own ignored-summary testid.
+    // 3700 -> 3787 on feat/warning-card-fixes Task 16 (the Hotels reservation marker above
+    // it); located by its own ignored-summary testid.
+    // 3787 -> 3855 on feat/warning-card-fixes Task 17 (the card section jump above it);
+    // located by its own ignored-summary testid.
+    // 3855 -> 3875 on feat/warning-card-fixes (UI gate P3: jump targets named by their own heading or title); located by its own element (5-line context match).
+    line: 3875,
+    tag: "summary",
+    token: "text-text-subtle",
+    family: "summary-disclosure",
+    reason:
+      "Wizard Ignored (N) disclosure header; a caption-weight fold label over warnings the operator has already dismissed, so the active list above it stays the loudest thing in the panel. Copies the published sectionWarningExtras disclosure verbatim, including this token (DESIGN §1.1a Family S)",
+  },
+  {
+    file: "components/admin/wizard/step3ReviewSections.tsx",
+    // Added on feat/warning-card-fixes Task 12 (spec §6.4, §16.3): the wizard Accepted (N)
+    // disclosure header, the Ignored twin's classes verbatim; located by its own unique
+    // `wizard-step3-card-${dfid}-accepted-summary` testid. Reason copied from that twin.
+    // 3602 -> 3688 on feat/warning-card-fixes Task 13 (the archived card body above it);
+    // located by its own accepted-summary testid.
+    // 3688 -> 3732 on feat/warning-card-fixes Task 15, same cause; located by its own
+    // accepted-summary testid.
+    // 3732 -> 3819 on feat/warning-card-fixes Task 16 (the Hotels reservation marker above
+    // it); located by its own accepted-summary testid.
+    // 3819 -> 3887 on feat/warning-card-fixes Task 17 (the card section jump above it);
+    // located by its own accepted-summary testid.
+    // 3887 -> 3907 on feat/warning-card-fixes (UI gate P3: jump targets named by their own heading or title); located by its own element (5-line context match).
+    line: 3907,
     tag: "summary",
     token: "text-text-subtle",
     family: "summary-disclosure",

@@ -65,6 +65,9 @@ describe("subtle-on-interactive policy (DESIGN §1.1/§1.1a, spec §4)", () => {
     // sectionWarningExtras one — same Family S shape, same token, so it earns a row
     // rather than a new family. The tally moves deliberately; that is what this pin
     // is for.
-    expect(SUBTLE_INTERACTIVE_EXEMPTIONS.length).toBe(15);
+    // 15 -> 17 (feat/warning-card-fixes Task 12, spec §6.4 / §16.3): the Accepted (N)
+    // disclosure, one on the wizard panel and one on the published extras, each the
+    // Ignored twin's Family S shape and token verbatim, so each earns a row.
+    expect(SUBTLE_INTERACTIVE_EXEMPTIONS.length).toBe(17);
   });
 });

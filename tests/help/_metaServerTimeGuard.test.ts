@@ -183,7 +183,7 @@ describe("Server-side time-call grep guard (test #16 — AC-11.38)", () => {
     expect(libFiles.map((f) => relative(process.cwd(), f))).toContain("lib/admin/loadAppEvents.ts");
   });
 
-  it("the derived lib population has exactly 237 members, including both directory-index modules", () => {
+  it("the derived lib population has exactly 240 members, including both directory-index modules", () => {
     // The shipped resolver tried only <base>.ts and <base>.tsx, so five live
     // imports of @/lib/log and @/lib/parser missed and the population was 209.
     // Neither missed module holds a time violation, so the count of 13 was
@@ -307,6 +307,22 @@ describe("Server-side time-call grep guard (test #16 — AC-11.38)", () => {
     // is already a member through travelRows.ts, so nothing joins: 228 -> 228,
     // re-derived by running this guard.
     expect(rel).toContain("lib/search/normalize.ts");
+    // Joined, from feat/warning-card-fixes Task 4: lib/admin/warningReadingDisplay.ts, a new
+    // module holding the reading-display caps and formats and the USE_RAW_CODES set, now
+    // imported directly by components/admin/UseRawControl.tsx. Pure string formatting and
+    // set membership, no clock read. 223 -> 224.
+    expect(rel).toContain("lib/admin/warningReadingDisplay.ts");
+    // Joined, from feat/warning-card-fixes Task 7: lib/messages/collapsedSummary.ts, now
+    // imported directly by components/admin/wizard/step3ReviewSections.tsx for
+    // `stripEmphasis` (the sheet icon's accessible-name subject). Before this only a
+    // comment in components/messages/renderEmphasis.tsx named it. Pure string
+    // formatting with no imports at all, no clock read. 224 -> 225.
+    expect(rel).toContain("lib/messages/collapsedSummary.ts");
+    // Joined, from feat/warning-card-fixes Task 11: lib/parser/ambiguityCodes.ts, now
+    // imported directly by components/admin/BulkIgnoreControls.tsx so a judgment group's
+    // bulk chip reads Accept (spec §6.2). A Set and a membership function with no imports
+    // at all, no clock read. 225 -> 226.
+    expect(rel).toContain("lib/parser/ambiguityCodes.ts");
     // Joined, from feat/crew-offline-saved-copy (Tasks 16 to 20): the eight
     // lib/offline modules that components/offline/SavedCopyMarker.tsx,
     // SavedCopySlot.tsx and SavedCopyBar.tsx import directly. 228 -> 236,
@@ -328,7 +344,9 @@ describe("Server-side time-call grep guard (test #16 — AC-11.38)", () => {
     // registrar it mounts. Its other importer, app/sw.js/route.ts, is no scan root.
     // No clock read. 236 -> 237, re-derived by running this guard.
     expect(rel).toContain("lib/offline/killSwitch.ts");
-    expect(rel.length).toBe(237);
+    // Merged with origin/main 2026-10-30 (crew offline branch): main's 231 plus this
+    // branch's nine lib/offline joiners, re-derived by running this guard on the merged tree.
+    expect(rel.length).toBe(240);
   });
 
   // The twelve waivers this arc added, plus the client effect read that

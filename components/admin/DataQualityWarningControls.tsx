@@ -1,10 +1,12 @@
 "use client";
-import { useContext, useState } from "react";
+import { useContext, useId, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { WarningAnnounceContext } from "@/components/admin/review/warningAnnounceContext";
 import { ReportButton } from "@/components/shared/ReportButton";
 import { setStagedWarningIgnore } from "@/app/admin/onboarding/_actions/stagedWarningIgnore";
 import { hasIgnorableSnippet } from "@/lib/dataQuality/ignorableSnippet";
+import { isJudgmentCall } from "@/lib/admin/warningReadingDisplay";
+import { NOT_SAVED_YET, useUseRawDraft } from "@/components/admin/useRawDraft";
 import type { ParseWarning } from "@/lib/parser/types";
 import { cn } from "@/lib/ui/cn";
 
@@ -60,8 +62,62 @@ type Props = {
    *  background behind the dialog (WCAG 2.4.3 / 2.1.2). The mount that can be
    *  unmounted by its own success is the one that has to hand focus somewhere first. */
   onBeforeRefresh?: () => void;
-};
-type State = { kind: "idle" } | { kind: "running" } | { kind: "error"; copy: string };
+} & DqLockProps;
+/** The archived-tab row lock (warning-card-fixes §7.3, §14.1). Both optional: absent,
+ *  every existing mount is unchanged. `blocked` disables the main button only (Report is
+ *  exempt: it writes nothing the lock protects); `onRunningChange` reports this control's
+ *  own request, `true` at its start and `false` at its end, success or failure. */
+export type DqLockProps = { blocked?: boolean; onRunningChange?: (running: boolean) => void };
+/** `saving` marks a running sequence started from Save (warning-card-fixes §6.3), whose
+ *  label is `Saving…`; a sequence started from the clean button keeps its own word. */
+type State =
+  | { kind: "idle" }
+  | { kind: "running"; saving: boolean }
+  | { kind: "error"; copy: string };
+
+/** warning-card-fixes §6.3 / §11: the deferred reading choice's action-bar copy. */
+const SAVE_WORDS = {
+  idle: "Save",
+  running: "Saving…",
+  cancel: "Cancel",
+  hint: NOT_SAVED_YET,
+  savedAndAccepted: "Reading saved. Judgment call accepted.",
+  saved: "Reading saved.",
+  partial:
+    "Your reading is saved, but we couldn't accept the judgment call. Refresh and try again.",
+} as const;
+
+/** Every string this control says, by row kind and action (warning-card-fixes §6.2). */
+const WORDS = {
+  needsLook: {
+    ignore: {
+      idle: "Ignore",
+      running: "Ignoring…",
+      done: "Warning ignored.",
+      fail: "Couldn't ignore that warning. Refresh and try again.",
+    },
+    unignore: {
+      idle: "Un-ignore",
+      running: "Un-ignoring…",
+      done: "Warning restored.",
+      fail: "Couldn't un-ignore that warning. Refresh and try again.",
+    },
+  },
+  judgment: {
+    ignore: {
+      idle: "Accept",
+      running: "Accepting…",
+      done: "Judgment call accepted.",
+      fail: "Couldn't accept that judgment call. Refresh and try again.",
+    },
+    unignore: {
+      idle: "Undo accept",
+      running: "Undoing…",
+      done: "Judgment call restored.",
+      fail: "Couldn't undo that. Refresh and try again.",
+    },
+  },
+} as const;
 
 // No border COLOR here: it is per-plate, and lives in PLATE below beside the
 // ring offset it has to agree with. `cn` deliberately does not merge Tailwind
@@ -98,6 +154,18 @@ const PLATE: Record<DqControlGround, string> = {
   surface: cn("focus-visible:ring-offset-surface border-text-faint"),
 };
 
+// warning-card-fixes §6.3: the deferred reading choice's Cancel, a ghost button (the
+// archived-tab ghost idiom on this component's `px-3`). Its ring offset follows the same
+// ground as PLATE; it has no outline to colour.
+const CANCEL_BTN = cn(
+  "inline-flex min-h-tap-min items-center justify-center rounded-sm border border-transparent px-3 text-sm font-medium text-text transition-colors duration-fast hover:text-text-strong disabled:cursor-not-allowed disabled:opacity-60 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring focus-visible:ring-offset-2",
+);
+const CANCEL_RING_OFFSET: Record<DqControlGround, string> = {
+  "warning-bg": "focus-visible:ring-offset-warning-bg",
+  "surface-sunken": "focus-visible:ring-offset-surface-sunken",
+  surface: "focus-visible:ring-offset-surface",
+};
+
 export function DataQualityWarningControls({
   target,
   alsoClear,
@@ -108,17 +176,25 @@ export function DataQualityWarningControls({
   reportSurfaceId,
   ground,
   onBeforeRefresh,
+  blocked,
+  onRunningChange,
 }: Props) {
   const plate: DqControlGround = ground ?? (mode === "active" ? "warning-bg" : "surface-sunken");
   const router = useRouter();
   const { announce } = useContext(WarningAnnounceContext);
   const [state, setState] = useState<State>({ kind: "idle" });
+  // warning-card-fixes §6.3: inside a UseRawDraftProvider this bar also saves the row's
+  // reading. Null everywhere else, where it renders exactly as before.
+  const draft = useUseRawDraft();
+  const hintId = useId();
+  const mainRef = useRef<HTMLButtonElement | null>(null);
   const ignorable = hasIgnorableSnippet(warning);
   const action = mode === "active" ? "ignore" : "unignore";
-  const failCopy =
-    action === "ignore"
-      ? "Couldn't ignore that warning. Refresh and try again."
-      : "Couldn't un-ignore that warning. Refresh and try again.";
+  // warning-card-fixes §6.2: a judgment call is ACCEPTED, not ignored. Same mechanism,
+  // endpoints and testids; only the words change.
+  const wordsKind = isJudgmentCall(warning) ? "judgment" : "needsLook";
+  const words = WORDS[wordsKind][action];
+  const failCopy = words.fail;
 
   /** The published route arm — byte-identical to what this component has always sent. */
   async function runShowArm(slug: string): Promise<"ignored" | "unignored" | null> {
@@ -147,8 +223,28 @@ export function DataQualityWarningControls({
     return result.ok ? result.state : null;
   }
 
+  /** The running signal, to the row lock (Task 13) and to the reading draft's busy. */
+  function reportRunning(running: boolean) {
+    onRunningChange?.(running);
+    draft?.setBusy(running);
+  }
+
+  /** Inside a provider the provider holds the error, so it survives the label morph
+   *  and clears on the next select, Save, Accept or Cancel (spec §6.3). */
+  function fail(copy: string) {
+    if (draft) {
+      draft.setError(copy);
+      setState({ kind: "idle" });
+    } else {
+      setState({ kind: "error", copy });
+    }
+  }
+
   async function run() {
-    setState({ kind: "running" });
+    if (blocked === true) return;
+    draft?.setError(null);
+    setState({ kind: "running", saving: false });
+    reportRunning(true);
     try {
       const status =
         target.kind === "show" ? await runShowArm(target.slug) : await runStagedArm(target);
@@ -169,14 +265,16 @@ export function DataQualityWarningControls({
             ? await runShowArm(alsoClear.slug)
             : await runStagedArm(alsoClear);
         if (second === null) {
-          setState({ kind: "error", copy: failCopy });
+          fail(failCopy);
           return;
         }
       }
       if (status !== null) {
         // Announcer spec 2026-07-22 §2.3: completion clause BEFORE the refresh
         // (ordering pinned by the producer tests); failures never announce.
-        announce(status === "ignored" ? "Warning ignored." : "Warning restored.");
+        announce(
+          status === "ignored" ? WORDS[wordsKind].ignore.done : WORDS[wordsKind].unignore.done,
+        );
         // Hand focus somewhere that survives this refresh, BEFORE the refresh: this
         // component is about to be unmounted by its own success.
         onBeforeRefresh?.();
@@ -190,16 +288,63 @@ export function DataQualityWarningControls({
         setState({ kind: "idle" });
         return;
       }
-      setState({ kind: "error", copy: failCopy });
+      fail(failCopy);
     } catch {
-      setState({ kind: "error", copy: failCopy });
+      fail(failCopy);
+    } finally {
+      reportRunning(false);
+    }
+  }
+
+  /** spec §6.3 rules 2-4: send the draft; on success accept an active ignorable row, else
+   *  announce the saved reading. Either way the persisted reading must re-read. */
+  async function saveReading() {
+    if (!draft || blocked === true) return;
+    setState({ kind: "running", saving: true });
+    reportRunning(true);
+    try {
+      if ((await draft.save()) === "failed") return; // rule 3: the provider shows its copy
+      if (mode === "active" && ignorable) {
+        let status: "ignored" | "unignored" | null = null;
+        try {
+          status =
+            target.kind === "show" ? await runShowArm(target.slug) : await runStagedArm(target);
+        } catch {
+          status = null;
+        }
+        if (status !== null) {
+          announce(SAVE_WORDS.savedAndAccepted);
+          onBeforeRefresh?.();
+          router.refresh();
+          return;
+        }
+        // The reading is saved, the card is not accepted: re-read the reading and say so.
+        // The main button then reads Accept, which retries the accept only.
+        router.refresh();
+        draft.setError(SAVE_WORDS.partial);
+        return;
+      }
+      announce(SAVE_WORDS.saved);
+      router.refresh();
+    } finally {
+      setState({ kind: "idle" });
+      reportRunning(false);
     }
   }
 
   const showIgnoreBtn = (mode === "active" && ignorable) || mode === "ignored";
+  const running = state.kind === "running";
+  const saving = state.kind === "running" && state.saving;
+  const dirty = draft?.dirty === true;
+  // spec §6.3 action bar: one main button whose label morphs (focus survives every
+  // change). Save renders for a dirty draft even on a row with no accept.
+  const showMain = showIgnoreBtn || dirty || saving;
+  const showCancel = draft !== null && (dirty || saving);
+  const showHint = dirty && !running;
+  const errorCopy = draft ? draft.error : state.kind === "error" ? state.copy : null;
   return (
     <div className="mt-1 flex flex-col gap-1" data-testid="dq-controls">
-      <div className="flex items-center gap-3">
+      <div className={draft ? "flex flex-wrap items-center gap-3" : "flex items-center gap-3"}>
         <ReportButton
           surface="admin"
           variant="text"
@@ -235,32 +380,54 @@ export function DataQualityWarningControls({
             viewerVisibleSection: "data-quality",
           }}
         />
-        {showIgnoreBtn ? (
+        {showMain ? (
           <button
+            ref={mainRef}
             type="button"
             data-testid={`dq-${action}-${reportSurfaceId}`}
-            onClick={run}
-            disabled={state.kind === "running"}
-            aria-busy={state.kind === "running"}
+            onClick={dirty ? saveReading : run}
+            disabled={running || blocked === true}
+            aria-busy={running}
+            aria-describedby={showHint ? hintId : undefined}
             className={`${NEUTRAL_BTN} ${PLATE[plate]}`}
           >
-            {mode === "active"
-              ? state.kind === "running"
-                ? "Ignoring…"
-                : "Ignore"
-              : state.kind === "running"
-                ? "Un-ignoring…"
-                : "Un-ignore"}
+            {saving
+              ? SAVE_WORDS.running
+              : running
+                ? words.running
+                : dirty
+                  ? SAVE_WORDS.idle
+                  : words.idle}
           </button>
         ) : null}
+        {showCancel ? (
+          <button
+            type="button"
+            data-testid={`dq-cancel-${reportSurfaceId}`}
+            onClick={() => {
+              draft?.cancel();
+              // Cancel unmounts with the draft; the main button stays (rule 6).
+              mainRef.current?.focus();
+            }}
+            disabled={running}
+            className={cn(CANCEL_BTN, CANCEL_RING_OFFSET[plate])}
+          >
+            {SAVE_WORDS.cancel}
+          </button>
+        ) : null}
+        {showHint ? (
+          <span id={hintId} className="text-xs text-text-subtle">
+            {SAVE_WORDS.hint}
+          </span>
+        ) : null}
       </div>
-      {state.kind === "error" ? (
+      {errorCopy !== null ? (
         <p
           role="alert"
           data-testid={`dq-error-${reportSurfaceId}`}
           className="rounded-sm border border-border-strong bg-warning-bg p-2 text-xs text-warning-text"
         >
-          {state.copy}
+          {errorCopy}
         </p>
       ) : null}
     </div>

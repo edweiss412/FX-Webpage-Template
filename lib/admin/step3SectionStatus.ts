@@ -43,6 +43,9 @@ export const KIND_TO_SECTION: Record<string, Exclude<SectionId, "warnings">> = {
   gear_scope: "rooms",
   pull_sheet: "packlist",
   gear_packlist: "packlist",
+  // Sync-emitted (lib/sync/pullSheetOverride.ts): the archived pull sheet tab warnings,
+  // resolved from Pack list's include offer (warning-card-fixes spec §7.2).
+  pull_sheet_archived_tab: "packlist",
   venue: "venue",
   details: "event",
   event_details: "event",

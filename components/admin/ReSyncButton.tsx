@@ -42,6 +42,7 @@ import { createRafCoalescer } from "@/lib/popover/rafCoalescer";
 import { isVisualViewportEngine } from "@/lib/popover/viewport";
 import { requestShowSync } from "@/lib/admin/syncRequest";
 import { cn } from "@/lib/ui/cn";
+import { useUnsavedReadingsGuard } from "@/components/admin/review/unsavedReadings";
 
 export type ReSyncButtonProps = {
   slug: string;
@@ -358,6 +359,9 @@ export function ReSyncButton({ slug, anchorRef }: ReSyncButtonProps) {
   // Shared POST helper. `accept` is set only by the "Apply reduced version" confirm — its presence
   // adds the version-bound acceptShrink body. NB: heldShrink is deliberately NOT cleared at the
   // start so the confirm (which hosts the accept button) stays mounted through the accept re-POST.
+  // warning-card-fixes §6.5 G10: in the review modal a sync waits behind the
+  // unsaved-reading prompt; elsewhere (or with nothing unsaved) it runs at once.
+  const guard = useUnsavedReadingsGuard();
   const post = async (accept?: { expectedModifiedTime: string }) => {
     if (pending) return;
     setErrorCode(null);
@@ -411,7 +415,7 @@ export function ReSyncButton({ slug, anchorRef }: ReSyncButtonProps) {
       <button
         ref={triggerRef}
         type="button"
-        onClick={() => post()}
+        onClick={(event) => guard(() => post(), event.currentTarget)}
         disabled={pending}
         data-testid="admin-resync-button"
         aria-busy={pending}
@@ -536,7 +540,10 @@ export function ReSyncButton({ slug, anchorRef }: ReSyncButtonProps) {
                 C1 fill, plain button (not AccentButton). */}
                 <button
                   type="button"
-                  onClick={() => post({ expectedModifiedTime: heldShrink.heldModifiedTime })}
+                  onClick={(event) => {
+                    const accept = { expectedModifiedTime: heldShrink.heldModifiedTime };
+                    guard(() => post(accept), event.currentTarget);
+                  }}
                   disabled={pending}
                   data-testid="admin-resync-accept"
                   aria-busy={pending}

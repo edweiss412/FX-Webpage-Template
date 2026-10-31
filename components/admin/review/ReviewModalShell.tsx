@@ -38,6 +38,11 @@ import { AdminAnnounceProvider } from "@/components/admin/AdminAnnounceProvider"
 import { PopoverHostContext } from "@/components/admin/HoverHelp";
 import { useDialogFocus } from "@/lib/a11y/dialogFocus";
 import { useHasMounted } from "@/lib/a11y/useHasMounted";
+import {
+  UnsavedReadingsScope,
+  useUnsavedReadingsRegistry,
+  type UnsavedGuard,
+} from "@/components/admin/review/unsavedReadings";
 
 // ── Interaction constants (spec §10; DESIGN.md §5 note) ─────────────────────
 // Behavioral thresholds, not rendered visual values — they never paint a px.
@@ -78,6 +83,13 @@ export type ReviewModalShellProps = {
    *  `?? onClose` fallback: the ref is null only after unmount, i.e. a close
    *  already happened, so a fallback would fire a SECOND close. */
   closeApiRef?: RefObject<(() => void) | null>;
+
+  /** warning-card-fixes §6.5: populated with this surface's unsaved-reading `guard` in
+   *  the same layout effect as `closeApiRef`, and cleared on unmount. For the same
+   *  reason `closeApiRef` exists: Step3's Publish / Approve / Ignore handlers are
+   *  closures ABOVE this shell's providers, so they reach the guard through this ref.
+   *  Null (no shell) means no drafts: run the action. */
+  guardApiRef?: RefObject<UnsavedGuard | null>;
 
   /** Fires exactly once per open shell instance, at the moment a dismiss
    *  COMMITS (`beginDismiss`) — after the subtree is inerted, before exit
@@ -139,6 +151,7 @@ function OpenReviewModalShell({
   onEscapeCapture,
   onDismissStart,
   closeApiRef,
+  guardApiRef,
   labelledBy,
   dataAttrPrefix,
   testIdBase,
@@ -165,6 +178,15 @@ function OpenReviewModalShell({
   // transformed ancestor (PageTransition) that would confine `position: fixed`.
   // Server/hydration render in place first (identical markup), portal after mount.
   const mounted = useHasMounted();
+  // warning-card-fixes §6.5: one unsaved-reading registry per review surface. Every
+  // close path below runs through `guardedClose`, which passes straight through when no
+  // reading is unsaved (byte-identical to the unguarded close).
+  const unsaved = useUnsavedReadingsRegistry();
+  /** The latest `requestClose`, so a close the prompt held runs the current closure. */
+  const requestCloseRef = useRef<() => void>(() => {});
+  function guardedClose(trigger: HTMLElement | null) {
+    unsaved.registry.guard(() => requestCloseRef.current(), trigger);
+  }
 
   // §S3C-2: while open, mark the admin shell `inert` + `aria-hidden` so a
   // virtual-cursor SR user cannot browse behind the dialog (belt-and-suspenders
@@ -259,15 +281,17 @@ function OpenReviewModalShell({
         // listener is not yet live, which swallows the operator's key silently.
         // Absent the prop, behaviour is exactly as before.
         if (onEscapeCapture?.() === true) return;
-        requestClose();
+        // §6.5 G2: the trigger is whatever held focus when the key was pressed.
+        const active = document.activeElement;
+        guardedClose(active instanceof HTMLElement ? active : null);
       }
     }
     document.addEventListener("keydown", onKeyDown);
     return () => document.removeEventListener("keydown", onKeyDown);
-    // `requestClose` is redefined every render, so this re-subscribes every
+    // `guardedClose` is redefined every render, so this re-subscribes every
     // render — cheap for one document listener, and it keeps the handler bound
-    // to the CURRENT closure (which reads `onClose` and the drag refs).
-  }, [requestClose, onEscapeCapture]);
+    // to the CURRENT closure (which reaches `requestClose` through its ref).
+  }, [guardedClose, onEscapeCapture]);
 
   // ── Sheet drag-to-dismiss (spec §10; §11 T3–T5, C1, C2, C5, C6) ────────────
   // All drag state lives in refs (no re-renders while the pointer moves); the
@@ -297,10 +321,11 @@ function OpenReviewModalShell({
   // (spec §3.1a). No dependency array: `requestClose` is redefined every render
   // and the ref must always hold the current closure.
   useLayoutEffect(() => {
-    if (!closeApiRef) return;
-    closeApiRef.current = requestClose;
+    if (closeApiRef) closeApiRef.current = requestClose;
+    if (guardApiRef) guardApiRef.current = unsaved.registry.guard;
     return () => {
-      closeApiRef.current = null;
+      if (closeApiRef) closeApiRef.current = null;
+      if (guardApiRef) guardApiRef.current = null;
     };
   });
 
@@ -433,6 +458,12 @@ function OpenReviewModalShell({
     dismissTimerRef.current = setTimeout(finish, fallbackMs + EXIT_FALLBACK_BUFFER_MS);
   }
 
+  // §6.5: the latest `requestClose` for a close the unsaved-reading prompt held, so
+  // "Discard and continue" runs the current closure. Same no-deps contract as above.
+  useLayoutEffect(() => {
+    requestCloseRef.current = requestClose;
+  });
+
   function handleGrabPointerDown(event: ReactPointerEvent<HTMLButtonElement>) {
     if (dismissingRef.current) return;
     // A new drag takes over from a still-settling spring-back.
@@ -493,7 +524,10 @@ function OpenReviewModalShell({
     }
     const panel = panelRef.current;
     if (!panel) return;
-    if (dy > DRAG_DISMISS_THRESHOLD_PX) {
+    // §6.5 G5: a past-threshold release with an unsaved reading springs back (the
+    // below-threshold branch) and opens the prompt instead of dismissing.
+    const heldByUnsaved = dy > DRAG_DISMISS_THRESHOLD_PX && unsaved.registry.hasUnsaved();
+    if (dy > DRAG_DISMISS_THRESHOLD_PX && !heldByUnsaved) {
       // T5: transition off-screen, close on transitionend — with a setTimeout
       // fallback matched to the `--duration-normal` token (220ms) in case the
       // transitionend never fires (display:none ancestors, reduced motion
@@ -540,6 +574,7 @@ function OpenReviewModalShell({
       };
       panel.addEventListener("transitionend", onTransitionEnd);
       settleTimerRef.current = setTimeout(settle, DURATION_FAST_FALLBACK_MS);
+      if (heldByUnsaved) guardedClose(event.currentTarget);
     } else {
       // Tap (dy ≤ slop): restore stylesheet control immediately; the
       // synthesized click that follows closes the modal (§10).
@@ -591,34 +626,47 @@ function OpenReviewModalShell({
     // clearPanelDragStyles touches refs only — safe to omit from deps.
   }, []);
 
+  /** §6.5 G1: the header close button calls this with its click event, so the clicked
+   *  button is the prompt's trigger. Typed as the context's `() => void`. */
+  function closeFromHeader(event?: unknown) {
+    const target =
+      typeof event === "object" && event !== null && "currentTarget" in event
+        ? (event as { currentTarget: unknown }).currentTarget
+        : null;
+    guardedClose(target instanceof HTMLElement ? target : null);
+  }
+
   const tree = (
-    <ReviewModalCloseContext.Provider value={requestClose}>
-      <div
-        ref={dialogRef}
-        data-testid={`${testIdBase}-modal`}
-        role="dialog"
-        aria-modal="true"
-        aria-labelledby={labelledBy}
-        className="fixed inset-0 z-overlay flex items-end justify-center sm:items-center sm:p-6"
-      >
-        {/* Scrim — tap-out closes. A labelled close button kept OUT of the tab
+    <UnsavedReadingsScope registry={unsaved.registry} locked={unsaved.locked}>
+      <ReviewModalCloseContext.Provider value={closeFromHeader}>
+        <div
+          ref={dialogRef}
+          data-testid={`${testIdBase}-modal`}
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby={labelledBy}
+          className="fixed inset-0 z-overlay flex items-end justify-center sm:items-center sm:p-6"
+        >
+          {/* Scrim — tap-out closes. A labelled close button kept OUT of the tab
           order (tabIndex -1) so the focus trap never lands on it; Escape + the
           visible close button are the keyboard/AT exits. Deliberately NOT
           aria-hidden — aria-hidden on an interactive control is an a11y
           footgun. (Pattern carried from Step3DetailsDialog / ReportModal.) */}
-        <button
-          ref={scrimRef}
-          type="button"
-          data-testid={`${testIdBase}-backdrop`}
-          {...{ [`data-${dataAttrPrefix}-scrim`]: "" }}
-          {...entranceAttr}
-          aria-label="Close"
-          tabIndex={-1}
-          onClick={requestClose}
-          className="absolute inset-0 bg-overlay-scrim"
-        />
+          <button
+            ref={scrimRef}
+            type="button"
+            data-testid={`${testIdBase}-backdrop`}
+            {...{ [`data-${dataAttrPrefix}-scrim`]: "" }}
+            {...entranceAttr}
+            aria-label="Close"
+            tabIndex={-1}
+            // §6.5 G3: the scrim is out of the tab order, so focus returns to the close
+            // button (the initial-focus target) when the prompt is dismissed.
+            onClick={() => guardedClose(initialFocusRef.current)}
+            className="absolute inset-0 bg-overlay-scrim"
+          />
 
-        {/* Panel — `items-stretch` stated explicitly: this repo's Tailwind v4
+          {/* Panel — `items-stretch` stated explicitly: this repo's Tailwind v4
           does NOT default `.flex` to align-items:stretch (DESIGN.md §7).
           Header/footer/grab are shrink-0; the body region is min-h-0 flex-1.
 
@@ -631,64 +679,64 @@ function OpenReviewModalShell({
           positioned inside the panel box by construction (see the band comment
           below). Pinned by T-CORNER in
           tests/e2e/published-review-modal.layout.spec.ts. */}
-        <div
-          ref={panelRef}
-          {...{ [`data-${dataAttrPrefix}-panel`]: "" }}
-          {...entranceAttr}
-          className="relative flex max-h-[85vh] w-full flex-col items-stretch overflow-clip rounded-t-md bg-bg text-text shadow-tile sm:max-h-[80vh] sm:max-w-5xl sm:rounded-md"
-        >
-          {/* §3.5.2: the dialog's own undo channel. Content OUTSIDE an
+          <div
+            ref={panelRef}
+            {...{ [`data-${dataAttrPrefix}-panel`]: "" }}
+            {...entranceAttr}
+            className="relative flex max-h-[85vh] w-full flex-col items-stretch overflow-clip rounded-t-md bg-bg text-text shadow-tile sm:max-h-[80vh] sm:max-w-5xl sm:rounded-md"
+          >
+            {/* §3.5.2: the dialog's own undo channel. Content OUTSIDE an
           aria-modal dialog is excluded from the accessibility tree, and the
           admin shell is additionally inerted while this modal is open (:180),
           so the layout channel cannot be relied on to announce from in here.
           Placement mirrors PopoverHostContext directly below: the shell is the
           ONE provider site wrapping the entire panel interior. Identifiers are
           derived from testIdBase because this shell has THREE render sites. */}
-          <AdminAnnounceProvider
-            testId={`${testIdBase}-undo-status`}
-            // Constant, unlike testId, which IS derived. Deriving the label too
-            // would put internal ids (a drive-file id, for Step-3 cards) into a
-            // name a screen reader speaks aloud — worse for the user than the
-            // duplicate it would prevent. The duplicate needs two shells attached
-            // at once, which only Step-3's per-card state allows. Tracked as
-            // DEFERRED (impeccable critique P3).
-            label="Status updates in this dialog"
-          >
-            <PopoverHostContext.Provider value={panelRef}>
-              {/* Grab strip — sheet mode only (§9.4). Full-width 44px button; the
+            <AdminAnnounceProvider
+              testId={`${testIdBase}-undo-status`}
+              // Constant, unlike testId, which IS derived. Deriving the label too
+              // would put internal ids (a drive-file id, for Step-3 cards) into a
+              // name a screen reader speaks aloud — worse for the user than the
+              // duplicate it would prevent. The duplicate needs two shells attached
+              // at once, which only Step-3's per-card state allows. Tracked as
+              // DEFERRED (impeccable critique P3).
+              label="Status updates in this dialog"
+            >
+              <PopoverHostContext.Provider value={panelRef}>
+                {/* Grab strip — sheet mode only (§9.4). Full-width 44px button; the
             visual affordance is the small inner pill. A plain tap (travel ≤
             DRAG_SLOP_PX) closes via the click; a real drag consumes the
             synthesized click (§10). `touch-none` keeps the browser from
             claiming the gesture for scrolling (§11 C5). */}
-              <button
-                ref={grabRef}
-                type="button"
-                data-testid={`${testIdBase}-grab`}
-                aria-label="Drag down or tap to close"
-                onClick={() => {
-                  if (dragConsumedClickRef.current) return; // the drag ate this click
-                  requestClose();
-                }}
-                onPointerDown={handleGrabPointerDown}
-                onPointerMove={handleGrabPointerMove}
-                onPointerUp={handleGrabPointerEnd}
-                onPointerCancel={handleGrabPointerEnd}
-                className="flex min-h-tap-min w-full shrink-0 touch-none items-center justify-center sm:hidden"
-              >
-                <span aria-hidden="true" className="h-1 w-10 rounded-pill bg-border-strong" />
-              </button>
+                <button
+                  ref={grabRef}
+                  type="button"
+                  data-testid={`${testIdBase}-grab`}
+                  aria-label="Drag down or tap to close"
+                  onClick={(event) => {
+                    if (dragConsumedClickRef.current) return; // the drag ate this click
+                    guardedClose(event.currentTarget);
+                  }}
+                  onPointerDown={handleGrabPointerDown}
+                  onPointerMove={handleGrabPointerMove}
+                  onPointerUp={handleGrabPointerEnd}
+                  onPointerCancel={handleGrabPointerEnd}
+                  className="flex min-h-tap-min w-full shrink-0 touch-none items-center justify-center sm:hidden"
+                >
+                  <span aria-hidden="true" className="h-1 w-10 rounded-pill bg-border-strong" />
+                </button>
 
-              {/* Header wrapper (consumer content: min-w-0 flex-1 text block +
+                {/* Header wrapper (consumer content: min-w-0 flex-1 text block +
             shrink-0 actions, so a long unbroken title wraps and never pushes
             the chip/close off-screen). */}
-              <header
-                data-testid={`${testIdBase}-header`}
-                className="flex shrink-0 items-start gap-3 border-b border-border bg-surface px-tile-pad py-3 sm:py-4"
-              >
-                {header}
-              </header>
+                <header
+                  data-testid={`${testIdBase}-header`}
+                  className="flex shrink-0 items-start gap-3 border-b border-border bg-surface px-tile-pad py-3 sm:py-4"
+                >
+                  {header}
+                </header>
 
-              {/* Optional sub-header band (modal-header-reconciliation §6.1): a
+                {/* Optional sub-header band (modal-header-reconciliation §6.1): a
             separate control strip below the identity header, with its own
             bottom seam.
 
@@ -708,16 +756,16 @@ function OpenReviewModalShell({
             Omitting it does not fail loudly — `absolute inset-x-0 top-full`
             would silently resolve against the panel (itself `relative`) and
             the overlay would land below the entire modal. */}
-              {subHeader ? (
-                <div
-                  data-testid={`${testIdBase}-subheader`}
-                  className="relative w-full shrink-0 border-b border-border bg-surface px-tile-pad py-2"
-                >
-                  {subHeader}
-                </div>
-              ) : null}
+                {subHeader ? (
+                  <div
+                    data-testid={`${testIdBase}-subheader`}
+                    className="relative w-full shrink-0 border-b border-border bg-surface px-tile-pad py-2"
+                  >
+                    {subHeader}
+                  </div>
+                ) : null}
 
-              {/* Body: `children` mount DIRECTLY in the panel flex column — no shell
+                {/* Body: `children` mount DIRECTLY in the panel flex column — no shell
             wrapper (spec §5). The consumer's surface root IS the body element.
             PopoverHostContext (hoverhelp-smart-position §4.1): the shell is the
             ONE provider site, wrapping the ENTIRE panel interior (grab strip
@@ -725,9 +773,9 @@ function OpenReviewModalShell({
             popovers anywhere in the panel portal into the PANEL, staying
             inside the focus trap / aria-modal / inert subtree while escaping
             the inner scroll pane's clipping. */}
-              {children}
+                {children}
 
-              {/* Footer wrapper — only when the consumer provides one. Sheet-mode
+                {/* Footer wrapper — only when the consumer provides one. Sheet-mode
             bottom padding adds the device safe area so the controls are never
             covered by the iOS home indicator; ≥sm restores the plain token
             padding. `relative` is load-bearing: below sm the RescanSheetButton
@@ -735,19 +783,21 @@ function OpenReviewModalShell({
             `sm:relative` only) so a coded result spans from the footer's left
             edge instead of clipping off-screen at 390px (impeccable audit P1 —
             see RescanSheetButton.tsx). */}
-              {footer != null ? (
-                <footer
-                  data-testid={`${testIdBase}-footer`}
-                  className="relative flex shrink-0 flex-wrap items-center gap-3 border-t border-border bg-surface px-tile-pad pt-3 pb-[calc(--spacing(3)+env(safe-area-inset-bottom,0))] sm:pb-3"
-                >
-                  {footer}
-                </footer>
-              ) : null}
-            </PopoverHostContext.Provider>
-          </AdminAnnounceProvider>
+                {footer != null ? (
+                  <footer
+                    data-testid={`${testIdBase}-footer`}
+                    className="relative flex shrink-0 flex-wrap items-center gap-3 border-t border-border bg-surface px-tile-pad pt-3 pb-[calc(--spacing(3)+env(safe-area-inset-bottom,0))] sm:pb-3"
+                  >
+                    {footer}
+                  </footer>
+                ) : null}
+              </PopoverHostContext.Provider>
+            </AdminAnnounceProvider>
+          </div>
         </div>
-      </div>
-    </ReviewModalCloseContext.Provider>
+        {unsaved.prompt}
+      </ReviewModalCloseContext.Provider>
+    </UnsavedReadingsScope>
   );
 
   // §S3C-2: portal to body once mounted (client). Pre-mount (SSR/hydration)

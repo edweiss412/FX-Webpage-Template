@@ -45,8 +45,9 @@ describe("hotel-ambiguity catalog copy — byte-for-byte", () => {
     );
     expect(row.title).toBe("A hotel line may be read wrong");
     expect(row.triggerContext).toBe("Appears when a hotel line could be read more than one way.");
+    // warning-card-fixes spec §5.7: the help says what to do if the split is wrong.
     expect(row.helpfulContext).toBe(
-      "A hotel line could be read more than one way, so we made a judgment call. Check who is on the reservation in case two people were merged, one was split, part of the hotel name was read as a person, or someone was left out.",
+      "If we split it wrong, fix the names in the sheet. Two people may have been merged, one split, part of the hotel name read as a person, or someone left out.",
     );
     expect(row.longExplanation).toBe(
       "A hotel line could be read more than one way, so we made a judgment call about where each part starts and ends. Spot-check who is on the reservation in case two people were merged, one was split, part of the hotel name was read as a person, or someone was left out.",

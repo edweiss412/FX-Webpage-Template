@@ -104,6 +104,86 @@ function FooterLeft({ label, testId }: { label: string; testId: string }) {
   );
 }
 
+/**
+ * warning-card-fixes spec §13.2 (plan Task 9): the `di-c` section. A
+ * `CompactAlertCard` with a `sheetLink` in every tone, with and without a help
+ * trigger, at a 120-character PROSE message and a one-word message, in fixed
+ * columns at 320, 375, 430 and 1280px; plus a condensed `PerShowActionableWarnings`
+ * card inside the crew under-row's `pl-6` wrapper at each width. Testids are
+ * `dic-<width>-<tone>-<help|nohelp>-<long|short>` (the link and help trigger
+ * suffix that root), and `dic-<width>-condensed` for the condensed card's wrapper.
+ * The long message is prose because the condensed card titles itself from the
+ * message, and an all-caps string would read as a code (plan Task 7, Probe P-T7).
+ */
+const DIC_WIDTHS = [320, 375, 430, 1280] as const;
+const DIC_TONES = ["warning", "muted", "neutral"] as const;
+const DIC_LONG = "A long warning title that wraps ".repeat(4).slice(0, 120);
+const DIC_MESSAGES = { long: DIC_LONG, short: "Stage" } as const;
+// Not a sheet URL: geometry does not depend on the destination, and a literal sheet
+// URL would join the sheet-destination census (sheetIconLinkContainment) for nothing.
+const DIC_HREF = "https://example.test/sheet#range=A5";
+
+function DiCSection() {
+  const condensedItem: ParseWarning = {
+    severity: "warn",
+    code: "HARNESS_LONG_TITLE",
+    message: DIC_LONG,
+    sourceCell: { title: "INFO", gid: 0, a1: "A5", scope: "cell" },
+  };
+  return (
+    <div data-testid="di-c" className="flex flex-col gap-8">
+      {DIC_WIDTHS.map((width) => (
+        <div
+          key={width}
+          data-testid={`dic-col-${width}`}
+          style={{ width }}
+          className="flex flex-col gap-4"
+        >
+          {DIC_TONES.flatMap((tone) =>
+            (["help", "nohelp"] as const).flatMap((help) =>
+              (["long", "short"] as const).map((msg) => {
+                const id = `dic-${width}-${tone}-${help}-${msg}`;
+                return (
+                  <div key={id} data-testid={id}>
+                    <CompactAlertCard
+                      tone={tone}
+                      stripe="none"
+                      message={DIC_MESSAGES[msg]}
+                      helpTrigger={
+                        help === "help" ? (
+                          <CompactAlertHelp
+                            subject={DIC_MESSAGES[msg]}
+                            popoverCopy="Context for this card."
+                            helpHref={null}
+                            route="/admin"
+                            testId={`${id}-help`}
+                          />
+                        ) : null
+                      }
+                      sheetLink={{
+                        href: DIC_HREF,
+                        subjectLabel: DIC_MESSAGES[msg],
+                        testId: `${id}-link`,
+                      }}
+                    />
+                  </div>
+                );
+              }),
+            ),
+          )}
+          <div data-testid={`dic-${width}-condensed`} className="pl-6">
+            <PerShowActionableWarnings
+              items={[condensedItem]}
+              driveFileId="drive-harness"
+              condensed
+            />
+          </div>
+        </div>
+      ))}
+    </div>
+  );
+}
+
 function LiveHarness() {
   // Readiness marker for specs that navigate between renders and compare
   // geometry across the two: waiting on load alone can measure a pre-mount
@@ -230,6 +310,8 @@ function LiveHarness() {
           />
         </div>
       </div>
+
+      <DiCSection />
     </div>
   );
 }

@@ -82,6 +82,13 @@ test.beforeAll(async () => {
       `@source "${join(REPO_ROOT, "components", "admin", "PerShowActionableWarnings.tsx")}";`,
       `@source "${join(REPO_ROOT, "components", "admin", "review", "AttentionBanner.tsx")}";`,
       `@source "${join(REPO_ROOT, "components", "admin", "PerShowAlertResolveButton.tsx")}";`,
+      // warning-card-fixes Task 9: the sheet icon the shell now renders, the tag the
+      // condensed card carries for judgment codes, the mark builder behind the tag's
+      // ring, and the note card that also passes a sheetLink.
+      `@source "${join(REPO_ROOT, "components", "admin", "SheetIconLink.tsx")}";`,
+      `@source "${join(REPO_ROOT, "components", "admin", "JudgmentCallTag.tsx")}";`,
+      `@source "${join(REPO_ROOT, "components", "admin", "review", "attentionMark.ts")}";`,
+      `@source "${join(REPO_ROOT, "components", "admin", "NoteWarningCard.tsx")}";`,
       globals,
     ].join("\n"),
   );
@@ -340,4 +347,184 @@ test.describe("compact trigger geometry (warning-card-copy-restore)", () => {
     const title = (await scope.getByTestId("per-show-actionable-title").boundingBox())!;
     expect(Math.abs(btn.y - title.y)).toBeLessThanOrEqual(4);
   });
+});
+
+// ── warning-card-fixes spec §13.2: the sheet icon in the message row (plan Task 9) ──
+//
+// DI-C1 to DI-C9 on every tone x help-presence x message cell of the entry's `di-c`
+// section, in its 320 / 375 / 430 / 1280px columns, and on a condensed
+// PerShowActionableWarnings card inside the crew under-row's `pl-6` wrapper. The
+// anchor's 44px hit area is an out-of-flow ::before overlay, so overlay claims are the
+// anchor rect plus its resolved insets (12 / 10 / 14 px) or a hit test, never a rect
+// the overlay would have to report. Before measuring, each card proves its tone skin
+// and that its help trigger is present or absent as the cell says.
+const DIC_WIDTHS = [320, 375, 430, 1280] as const;
+const DIC_TONE_SKIN = {
+  warning: "bg-warning-bg",
+  muted: "bg-surface-sunken",
+  neutral: "bg-surface",
+} as const;
+const DIC_MESSAGE_ROW_LITERAL = "flex gap-2.5 p-3 pb-2.5";
+
+type DicGeometry = {
+  skin: string;
+  row: { top: number; bottom: number; right: number; height: number };
+  link: { top: number; bottom: number; left: number; right: number; width: number; height: number };
+  message: { right: number; height: number; lineHeight: number };
+  help: { right: number; top: number } | null;
+  hitLeading: boolean;
+  hitTrailing: boolean;
+  hitHelp: boolean | null;
+};
+
+/** Scroll the card into view, then read every box in one evaluate with explicit
+ *  null checks (detach safety: never a locator on a node a step could unmount). */
+async function dicGeometry(page: Page, scopeId: string): Promise<DicGeometry> {
+  await page.evaluate((id) => {
+    const el = document.querySelector(`[data-testid="${id}"]`);
+    if (!el) throw new Error(`missing ${id}`);
+    el.scrollIntoView({ block: "center", inline: "nearest", behavior: "instant" });
+  }, scopeId);
+  return page.evaluate((id) => {
+    const scope = document.querySelector(`[data-testid="${id}"]`);
+    if (!scope) throw new Error(`missing ${id}`);
+    const card = scope.querySelector('[data-testid="compact-alert-card"]');
+    if (!card) throw new Error(`${id}: no compact card`);
+    const row = card.querySelector('[data-testid="compact-alert-message"]');
+    if (!row) throw new Error(`${id}: no message row`);
+    const link = row.querySelector("a");
+    if (!link) throw new Error(`${id}: no anchor in the message row`);
+    if (row.lastElementChild !== link)
+      throw new Error(`${id}: the anchor is not the row's last box`);
+    const message = row.querySelector(":scope > div.flex-1");
+    if (!message) throw new Error(`${id}: no message box`);
+    const helpBtn = row.querySelector('[data-testid$="-trigger"]');
+    const r = row.getBoundingClientRect();
+    const l = link.getBoundingClientRect();
+    const m = message.getBoundingClientRect();
+    const hits = (target: Element, x: number, y: number) => {
+      const hit = document.elementFromPoint(x, y);
+      return hit !== null && (hit === target || target.contains(hit));
+    };
+    const h = helpBtn ? helpBtn.getBoundingClientRect() : null;
+    return {
+      skin: card.className,
+      row: { top: r.top, bottom: r.bottom, right: r.right, height: r.height },
+      link: {
+        top: l.top,
+        bottom: l.bottom,
+        left: l.left,
+        right: l.right,
+        width: l.width,
+        height: l.height,
+      },
+      message: {
+        right: m.right,
+        height: m.height,
+        lineHeight: parseFloat(getComputedStyle(message).lineHeight),
+      },
+      help: h ? { right: h.right, top: h.top } : null,
+      hitLeading: hits(link, l.left - 9, l.top + 10),
+      hitTrailing: hits(link, l.right + 13, l.top + 10),
+      hitHelp: h && helpBtn ? hits(helpBtn, h.right + 10, h.top + 11) : null,
+    };
+  }, scopeId);
+}
+
+function assertDiC(g: DicGeometry, at: string, opts: { help: boolean; longAtNarrow: boolean }) {
+  const { row, link } = g;
+  // DI-C1
+  expect(row.height, `${at} DI-C1`).toBeGreaterThanOrEqual(44 - TOL);
+  // DI-C3
+  expect(Math.abs(link.width - 20) <= TOL && Math.abs(link.height - 20) <= TOL, `${at} DI-C3`).toBe(
+    true,
+  );
+  // DI-C4
+  expect(
+    Math.abs(link.top - row.top - 12),
+    `${at} DI-C4 ${link.top - row.top}`,
+  ).toBeLessThanOrEqual(TOL);
+  // DI-C5
+  expect(link.bottom + 12, `${at} DI-C5`).toBeLessThanOrEqual(row.bottom + TOL);
+  if (opts.help) {
+    // DI-C6
+    expect(g.help, `${at}: premise, help trigger present`).not.toBeNull();
+    expect(link.left - g.help!.right, `${at} DI-C6 gap`).toBeGreaterThanOrEqual(22 - TOL);
+    expect(g.hitHelp, `${at} DI-C6 help hit area`).toBe(true);
+  } else {
+    // DI-C7
+    expect(g.help, `${at}: premise, no help trigger`).toBeNull();
+    expect(link.left - g.message.right, `${at} DI-C7`).toBeGreaterThanOrEqual(22 - TOL);
+  }
+  expect(g.hitLeading, `${at} DI-C6/C7 heading-side overlay`).toBe(true);
+  // DI-C8
+  expect(
+    Math.abs(row.right - link.right - 14),
+    `${at} DI-C8 ${row.right - link.right}`,
+  ).toBeLessThanOrEqual(TOL);
+  expect(g.hitTrailing, `${at} DI-C8 trailing overlay`).toBe(true);
+  if (opts.longAtNarrow) {
+    // DI-C9, with the premise that the 120-character message really wrapped.
+    expect(g.message.height, `${at}: premise, the long message wraps`).toBeGreaterThan(
+      g.message.lineHeight * 1.5,
+    );
+    expect(g.message.right, `${at} DI-C9`).toBeLessThanOrEqual(link.left - 22 + TOL);
+  }
+}
+
+test.describe("compact card sheet icon (warning-card-fixes spec §13.2)", () => {
+  test.setTimeout(180_000);
+
+  test.beforeEach(async ({ page }) => {
+    // Wide enough for the 1280px column plus the harness's p-6 padding.
+    await page.setViewportSize({ width: 1400, height: 900 });
+    await page.goto(baseUrl + "live.html");
+    await page.evaluate(() => document.fonts.ready);
+    await expect(page.getByTestId("di-c")).toBeVisible();
+    // Premise: the entry built exactly the spec's columns, so no width is skipped.
+    const widths = await page.evaluate(() =>
+      Array.from(document.querySelectorAll('[data-testid^="dic-col-"]')).map(
+        (el) => (el as HTMLElement).getBoundingClientRect().width,
+      ),
+    );
+    expect(widths).toEqual([...DIC_WIDTHS]);
+  });
+
+  test("DI-C2: a card with no sheetLink keeps the pre-icon message row class", async ({ page }) => {
+    const cls = await page.evaluate(() => {
+      const row = document.querySelector(
+        '[data-testid="mount-attention-banner"] [data-testid="compact-alert-message"]',
+      );
+      if (!row) throw new Error("no attention-banner message row");
+      return row.className;
+    });
+    expect(cls).toBe(DIC_MESSAGE_ROW_LITERAL);
+  });
+
+  for (const width of DIC_WIDTHS) {
+    test(`DI-C1 and DI-C3 to DI-C9 on every tone, help and message cell at ${width}px`, async ({
+      page,
+    }) => {
+      for (const tone of Object.keys(DIC_TONE_SKIN) as (keyof typeof DIC_TONE_SKIN)[]) {
+        for (const help of [true, false]) {
+          for (const msg of ["long", "short"] as const) {
+            const id = `dic-${width}-${tone}-${help ? "help" : "nohelp"}-${msg}`;
+            const g = await dicGeometry(page, id);
+            // Premise: the card carries its own tone's skin.
+            expect(g.skin.split(/\s+/), `${id}: tone skin`).toContain(DIC_TONE_SKIN[tone]);
+            assertDiC(g, id, { help, longAtNarrow: msg === "long" && width <= 375 });
+          }
+        }
+      }
+    });
+
+    test(`DI-C1 and DI-C3 to DI-C9 on a condensed crew under-row card at ${width}px`, async ({
+      page,
+    }) => {
+      const id = `dic-${width}-condensed`;
+      const g = await dicGeometry(page, id);
+      expect(g.skin.split(/\s+/), `${id}: tone skin`).toContain(DIC_TONE_SKIN.warning);
+      assertDiC(g, id, { help: g.help !== null, longAtNarrow: width <= 375 });
+    });
+  }
 });

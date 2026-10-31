@@ -356,4 +356,18 @@ describe("HealthAlertRowItem — compact card skin and footer (spec §4.3, A5)",
       "Degraded",
     );
   });
+
+  // warning-card-fixes spec §13.2 DI-C2: health rows pass no sheetLink, so the shell's
+  // message row keeps the exact class string it had before the icon existed.
+  test("the message row's className is unchanged by the sheet icon (DI-C2)", async () => {
+    impl.fn = async ({ weight }) => ({
+      kind: "ok",
+      rows: weight === "degraded" ? [row({ id: "r1", code: "DRIVE_FETCH_FAILED" })] : [],
+      hasMore: false,
+    });
+    await renderPanel();
+    const message = document.querySelector('[data-testid="compact-alert-message"]');
+    expect(message, "the row rendered a compact card").not.toBeNull();
+    expect(message!.className).toBe("flex gap-2.5 p-3 pb-2.5");
+  });
 });

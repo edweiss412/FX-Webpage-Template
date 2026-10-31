@@ -24,7 +24,9 @@ describe("ArchivedTabOffer showDismiss", () => {
   it("omits 'Keep skipped' when showDismiss=false", () => {
     render(<ArchivedTabOffer dfid="d1" wizardSessionId="s1" tab={tab} showDismiss={false} />);
     // getByRole throws if absent → presence assertion.
-    expect(screen.getByRole("button", { name: "Use this show’s gear" })).toBeTruthy();
+    expect(
+      screen.getByRole("button", { name: `Use this pull sheet from tab ${tab.tabName}` }),
+    ).toBeTruthy();
     expect(screen.queryByRole("button", { name: "Keep skipped" })).toBeNull();
   });
 

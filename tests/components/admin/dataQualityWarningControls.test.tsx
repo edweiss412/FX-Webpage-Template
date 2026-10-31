@@ -387,3 +387,142 @@ describe("DataQualityWarningControls — report identity travels (§2.3)", () =>
     expect((body.fieldRef as Record<string, unknown>).driveFileId).toBe(base.driveFileId);
   });
 });
+
+// ── warning-card-fixes §6.2: Accept wording on judgment calls ─────────────────
+//
+// A judgment call reads Accept, never Ignore. Every case renders a needs-look control
+// row BESIDE the judgment row in the same test, so a component that relabels every row
+// (or no row) fails here: only a branch on the row's own kind passes. Mechanism and
+// testids are unchanged for both kinds. Copy is compared apostrophe-agnostic.
+describe("DataQualityWarningControls — Accept wording on judgment calls (§6.2)", () => {
+  const judgmentRow: ParseWarning = {
+    severity: "warn",
+    code: "ROOM_HEADER_SPLIT_AMBIGUOUS",
+    message: "m",
+    rawSnippet: "Ballroom A / B",
+  };
+  const needsLookRow = w("Storage | x");
+  const apos = (s: string | null | undefined) => (s ?? "").replace(/[’']/g, "'");
+
+  const EXPECTED = {
+    active: {
+      testid: "ignore",
+      state: "ignored",
+      judgment: {
+        idle: "Accept",
+        running: "Accepting…",
+        announce: "Judgment call accepted.",
+        error: "Couldn't accept that judgment call. Refresh and try again.",
+      },
+      needsLook: {
+        idle: "Ignore",
+        running: "Ignoring…",
+        announce: "Warning ignored.",
+        error: "Couldn't ignore that warning. Refresh and try again.",
+      },
+    },
+    ignored: {
+      testid: "unignore",
+      state: "unignored",
+      judgment: {
+        idle: "Undo accept",
+        running: "Undoing…",
+        announce: "Judgment call restored.",
+        error: "Couldn't undo that. Refresh and try again.",
+      },
+      needsLook: {
+        idle: "Un-ignore",
+        running: "Un-ignoring…",
+        announce: "Warning restored.",
+        error: "Couldn't un-ignore that warning. Refresh and try again.",
+      },
+    },
+  } as const;
+
+  beforeEach(() => {
+    stagedActionMock.mockReset();
+    refresh.mockReset();
+  });
+
+  function renderPair(mode: "active" | "ignored") {
+    const announce = vi.fn();
+    render(
+      <WarningAnnounceContext.Provider value={{ announce }}>
+        <DataQualityWarningControls
+          {...stagedBase}
+          reportSurfaceId="sid-j"
+          warning={judgmentRow}
+          mode={mode}
+        />
+        <DataQualityWarningControls
+          {...stagedBase}
+          reportSurfaceId="sid-n"
+          warning={needsLookRow}
+          mode={mode}
+        />
+      </WarningAnnounceContext.Provider>,
+    );
+    return announce;
+  }
+
+  test.each(["active", "ignored"] as const)(
+    "%s: labels per kind while idle and running, and the success announcement per kind",
+    async (mode) => {
+      const e = EXPECTED[mode];
+      // One held promise per row, keyed by the row's own snippet.
+      const resolvers = new Map<string, (v: unknown) => void>();
+      stagedActionMock.mockImplementation(
+        (args) =>
+          new Promise((resolve) => {
+            resolvers.set(args.rawSnippet, resolve);
+          }),
+      );
+      const announce = renderPair(mode);
+      const jBtn = screen.getByTestId(`dq-${e.testid}-sid-j`);
+      const nBtn = screen.getByTestId(`dq-${e.testid}-sid-n`);
+      expect(jBtn.textContent).toBe(e.judgment.idle);
+      expect(nBtn.textContent).toBe(e.needsLook.idle);
+
+      fireEvent.click(jBtn);
+      await waitFor(() => expect(jBtn.textContent).toBe(e.judgment.running));
+      expect(nBtn.textContent).toBe(e.needsLook.idle);
+      fireEvent.click(nBtn);
+      await waitFor(() => expect(nBtn.textContent).toBe(e.needsLook.running));
+
+      resolvers.get(judgmentRow.rawSnippet!)!({ ok: true, state: e.state });
+      await waitFor(() => expect(announce).toHaveBeenCalledTimes(1));
+      expect(announce).toHaveBeenLastCalledWith(e.judgment.announce);
+      resolvers.get(needsLookRow.rawSnippet!)!({ ok: true, state: e.state });
+      await waitFor(() => expect(announce).toHaveBeenCalledTimes(2));
+      expect(announce).toHaveBeenLastCalledWith(e.needsLook.announce);
+    },
+  );
+
+  test.each(["active", "ignored"] as const)(
+    "%s: the error copy per kind, and no announcement",
+    async (mode) => {
+      const e = EXPECTED[mode];
+      stagedActionMock.mockResolvedValue({ ok: false, code: "staged_row_not_found" });
+      const announce = renderPair(mode);
+      fireEvent.click(screen.getByTestId(`dq-${e.testid}-sid-j`));
+      fireEvent.click(screen.getByTestId(`dq-${e.testid}-sid-n`));
+      await waitFor(() => expect(screen.getByTestId("dq-error-sid-j")).toBeTruthy());
+      await waitFor(() => expect(screen.getByTestId("dq-error-sid-n")).toBeTruthy());
+      expect(apos(screen.getByTestId("dq-error-sid-j").textContent)).toBe(apos(e.judgment.error));
+      expect(apos(screen.getByTestId("dq-error-sid-n").textContent)).toBe(apos(e.needsLook.error));
+      expect(announce).not.toHaveBeenCalled();
+    },
+  );
+
+  test("an info-severity ambiguity code is not a judgment call: it keeps Ignore", () => {
+    render(
+      <DataQualityWarningControls
+        {...stagedBase}
+        reportSurfaceId="sid-i"
+        warning={{ ...judgmentRow, severity: "info" }}
+        mode="active"
+      />,
+    );
+    expect(screen.getByTestId("dq-ignore-sid-i").textContent).toBe("Ignore");
+  });
+});

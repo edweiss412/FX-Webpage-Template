@@ -447,9 +447,13 @@ describe("forced-colors state collapse (Arm 1)", () => {
     ).toEqual([]);
   });
 
-  it("holds exactly 42 collapse rows, each disposed once", () => {
+  it("holds exactly 41 collapse rows, each disposed once", () => {
     // The anti-vacuity literal. A subset assertion passes while the census grows
     // silently, and the family sum is what stops a new site landing in no family.
+    // 42 -> 41 on feat/warning-card-fixes Task 9: the PerShowActionableWarnings
+    // "Open in Sheet" text link (a deliberate-flatten row) left with its element.
+    // 41 -> 42 on feat/warning-card-fixes Task 13: the shared archived-tab include button
+    // (a not-a-state row: one button, two placement plates).
     expect(COLLAPSE_CENSUS).toHaveLength(42);
     expect(new Set(COLLAPSE_CENSUS.map((r) => r.site)).size).toBe(42);
     const repaired = COLLAPSE_CENSUS.filter((r) => r.disposition === "repaired");
@@ -647,7 +651,11 @@ describe("forced-colors state collapse (Arm 1)", () => {
     expect(
       undecidable.length,
       "the cannot-decide set moved; read the new rows and either resolve them or re-pin",
-    ).toBe(127);
+      // 127 -> 129 on feat/warning-card-fixes Task 12: the two Accepted (N) disclosure
+      // chevrons (sectionWarningExtras.tsx, step3ReviewSections.tsx), each the same
+      // `<ChevronRight>` shape as its Ignored twin, which is already in this set. Read on the
+      // tree by listing the set's rows in those two files.
+    ).toBe(129);
     expect(
       undecidable.every((row) => /:\d+ </.test(row) || row.includes("single-path-state-variant")),
       "every cannot-decide row names a site",

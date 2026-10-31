@@ -531,7 +531,13 @@ export const DISPOSITION_RULES: DispositionRule[] = [
     // serves the hotel card harness from a mkdtemp workdir and navigates to it at
     // `baseUrl` before measuring the date stub. 95 -> 96, re-derived from the
     // failure's own count (96 candidates).
-    expectedCount: 96,
+    //
+    // feat/warning-card-fixes Task 9 adds one: `tests/e2e/compact-alert-card-layout.spec.ts`
+    // gains a describe for the sheet icon's DI-C invariants whose beforeEach navigates the
+    // same mkdtemp harness at `baseUrl + "live.html"` at a wider viewport. A harness
+    // navigation, never the /admin loader. 96 -> 97, re-derived from the failure's own
+    // count (97 candidates).
+    expectedCount: 97,
     match: (c) => isHarnessNavigation(c.matchLineText),
   },
   {
