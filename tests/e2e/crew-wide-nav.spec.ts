@@ -1218,6 +1218,45 @@ test.describe("the composed home, wide (crew page redesign Task 11)", () => {
     });
   }
 
+  // Whole-diff review round 2, 2A-3: in the wide layout a Today reveal wrote no
+  // history, so the section a nav jump had put in the URL stayed there and a
+  // reload went back to it instead of the revealed line's home.
+  test("home: after a nav jump to Venue, a Today search reveal leaves the URL at home, so a reload stays home", async ({
+    page,
+  }) => {
+    await loadWide(page, `/show/${seeded.slug}/${seeded.shareToken}`);
+    await page.getByTestId("crew-wide-nav").locator('[data-section="venue"]').click();
+    await expect(
+      page.locator('[data-testid="crew-wide-section"][data-section="venue"] h2'),
+    ).toBeFocused();
+    // PREMISE: the jump put Venue in the URL, so there is an `s` to leave.
+    expect(new URL(page.url()).searchParams.get("s")).toBe("venue");
+
+    await page.getByRole("searchbox", { name: "Search this show" }).fill("freight elevator");
+    const row = page
+      .getByTestId("crew-search-row")
+      .and(page.locator('[data-entry-id^="today:"]'))
+      .filter({ hasText: VENUE.notes });
+    await expect(row).toHaveCount(1);
+    const entryId = (await row.getAttribute("data-entry-id"))!;
+    await row.getByTestId("crew-search-row-open").click();
+    await expect(
+      page.getByTestId("crew-today-block").locator(`[data-search-target="${entryId}"]`),
+    ).toHaveAttribute("data-search-reveal", "");
+    expect(new URL(page.url()).searchParams.has("s"), page.url()).toBe(false);
+
+    // A reload lands on the home: the nav marks Today, not Venue.
+    await page.reload({ waitUntil: "domcontentloaded" });
+    await expect(page.getByTestId("crew-shell-sections")).toHaveAttribute(
+      "data-crew-controller-ready",
+      "true",
+      { timeout: 30_000 },
+    );
+    await expect(
+      page.getByTestId("crew-wide-nav").locator('[aria-current="true"]'),
+    ).toHaveAttribute("data-section", "today");
+  });
+
   test("home: the preview banner shows above the wide home on the preview route", async ({
     page,
   }) => {
