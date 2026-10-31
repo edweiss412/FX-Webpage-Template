@@ -60,18 +60,37 @@ const WALK_SELECTOR = [
   '[tabindex]:not([tabindex="-1"])',
 ].join(",");
 
+/** A details element's own summary: the first summary child, the one the browser renders. */
+function ownSummary(details: HTMLDetailsElement): Element | null {
+  return details.querySelector(":scope > summary");
+}
+
+/**
+ * Inside a closed <details> and not in its own summary: not rendered. Both
+ * engines still report an offsetParent and tabIndex 0 for such a control, but
+ * focus() on it does nothing, so a walk that counted it would stay where it was
+ * on every Tab (whole-diff review R2-F1).
+ */
+function inClosedDisclosure(el: HTMLElement): boolean {
+  let child: Element = el;
+  for (let parent = el.parentElement; parent; child = parent, parent = parent.parentElement) {
+    if (parent instanceof HTMLDetailsElement && !parent.open && child !== ownSummary(parent)) {
+      return true;
+    }
+  }
+  return false;
+}
+
 /** Whether the browser's own sequential navigation would stop on `el`. */
 function isTabStop(el: HTMLElement): boolean {
   if (el.tagName === "SUMMARY") {
     const details = el.parentElement;
-    if (
-      !(details instanceof HTMLDetailsElement) ||
-      details.querySelector(":scope > summary") !== el
-    ) {
+    if (!(details instanceof HTMLDetailsElement) || ownSummary(details) !== el) {
       return false;
     }
   }
   return (
+    !inClosedDisclosure(el) &&
     el.offsetParent !== null &&
     // tabIndex >= 0 mirrors native sequential order: `a[href]` (etc.) with an
     // explicit tabindex="-1" is click/programmatically focusable but NOT

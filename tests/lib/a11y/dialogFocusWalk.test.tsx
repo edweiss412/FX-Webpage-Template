@@ -340,6 +340,64 @@ describe("walk mode (walkTabs, the crew section sheet): the hook moves focus on 
     expect(active()).toBe("last");
   });
 
+  test("walk: a closed disclosure is one stop, its summary; its contents become stops when it opens (R2-F1)", () => {
+    render(
+      <Dialog testId="d" walk>
+        <button type="button" data-testid="close">
+          Close
+        </button>
+        <details data-testid="fold">
+          <summary data-testid="summary">Ignored (1)</summary>
+          <button type="button" data-testid="un-ignore">
+            Un-ignore
+          </button>
+          <a href="#x" data-testid="in-link">
+            Open in sheet
+          </a>
+        </details>
+        {/* A closed disclosure hides a nested one whole, summary included. */}
+        <details>
+          <summary data-testid="outer-summary">2 more</summary>
+          <details open>
+            <summary data-testid="nested-summary">Nested</summary>
+            <button type="button" data-testid="nested-button">
+              Nested
+            </button>
+          </details>
+        </details>
+        <button type="button" data-testid="next">
+          Next card
+        </button>
+      </Dialog>,
+    );
+    // PREMISE: the model hides the closed disclosure's contents from focus.
+    screen.getByTestId("un-ignore").focus();
+    expect(active(), "focus() inside a closed disclosure does nothing").toBe("d-title");
+
+    screen.getByTestId("close").focus();
+    const forward: (string | null)[] = [];
+    for (let i = 0; i < 4; i++) {
+      tab();
+      forward.push(active());
+    }
+    expect(forward).toEqual(["summary", "outer-summary", "next", "close"]);
+    const back: (string | null)[] = [];
+    for (let i = 0; i < 4; i++) {
+      tab(true);
+      back.push(active());
+    }
+    expect(back).toEqual(["next", "outer-summary", "summary", "close"]);
+
+    (screen.getByTestId("fold") as HTMLDetailsElement).open = true;
+    screen.getByTestId("summary").focus();
+    const opened: (string | null)[] = [];
+    for (let i = 0; i < 3; i++) {
+      tab();
+      opened.push(active());
+    }
+    expect(opened).toEqual(["un-ignore", "in-link", "outer-summary"]);
+  });
+
   test("walk: a dialog nested inside the sheet keeps its own ends, and the walk carries the Tabs between them", () => {
     render(
       <Dialog testId="outer" walk>
