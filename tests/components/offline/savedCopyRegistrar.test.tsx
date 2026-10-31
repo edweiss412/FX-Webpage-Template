@@ -836,7 +836,9 @@ describe("agenda viewer code (spec 4.8)", () => {
       installStorage();
 
       render(<fresh.SavedCopyRegistrar {...BASE} hasAgenda />);
-      await vi.waitFor(() => expect(fetchMock).toHaveBeenCalled());
+      // The first import of the real viewer module after a cold start can take
+      // over a second (CI always starts cold), past vi.waitFor's 1 s default.
+      await vi.waitFor(() => expect(fetchMock).toHaveBeenCalled(), { timeout: 10_000 });
       const { pdfjs } = await import("react-pdf");
       const assigned = pdfjs.GlobalWorkerOptions.workerSrc;
       // Premise: the real viewer module loaded and replaced react-pdf's default
