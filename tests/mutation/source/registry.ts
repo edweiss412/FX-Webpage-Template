@@ -2629,9 +2629,10 @@ export const GUARD_SURFACES: GuardSurface[] = [
     // `logical-connector:&&>||` reported as an unaccepted survivor on main's
     // nightly (run 31933821808). Re-derived 2026-10-30 after the not-saved
     // page's EXPLICIT_INCLUDES row (feat/crew-offline-saved-copy) added eight
-    // lines above every site: 368/736/759/894/909 -> 376/744/767/902/917, same
-    // columns, same operators, same reasons, checked with enumerateSites on
-    // both trees.
+    // lines above every site, all seventeen rows below: 368/736/759/809/820/
+    // 824/828/879/885/894/909 -> 376/744/767/817/828/832/836/887/893/902/917,
+    // same columns, same operators, same reasons, checked with enumerateSites
+    // on both trees and by a scoped gate run.
     accepted: [
       // The JSX initializer narrowing is NOT equivalent, and the argument that
       // said it was rested on a false claim about the TypeScript API: probed,
@@ -2705,37 +2706,37 @@ export const GUARD_SURFACES: GuardSurface[] = [
           "same shape one level down — the parse cache is re-populated per lookup instead of once, and ts.createSourceFile is a pure function of (name, text), so every consumer sees an identical tree",
       },
       {
-        siteId: "logical-connector:809:32:||>&&",
+        siteId: "logical-connector:817:32:||>&&",
         kind: "equivalent",
         reason:
           "the bounds test only PRUNES the walk; with `&&` fewer subtrees are skipped and more are descended, but the identifier is accepted on the exact-offset test below it, so a wider walk finds the same node",
       },
       {
-        siteId: "relational-boundary:809:39:>=>>",
+        siteId: "relational-boundary:817:39:>=>>",
         kind: "equivalent",
         reason:
           "same pruning test at its upper bound: `pos === n.getEnd()` is the only input the flip changes, and descending into a node whose end equals pos finds no identifier STARTING at pos either",
       },
       {
-        siteId: "integer-literal:828:51:0>1",
+        siteId: "integer-literal:836:51:0>1",
         kind: "equivalent",
         reason:
           "ts.SymbolFlags.Alias is 2097152, so `flags & Alias` is 0 or 2097152 and can never be 1 (probed); `!== 1` is therefore always true, and calling getAliasedSymbol on a non-alias is already handled — the catch keeps the original symbol",
       },
       {
-        siteId: "logical-connector:879:50:&&>||",
+        siteId: "logical-connector:887:50:&&>||",
         kind: "equivalent",
         reason:
           "declPos is written on named-constant sites and on no other kind, so the right operand IMPLIES the left and `A || B` selects exactly the rows `A && B` did",
       },
       {
-        siteId: "logical-connector:885:35:||>&&",
+        siteId: "logical-connector:893:35:||>&&",
         kind: "equivalent",
         reason:
           "narrowing the early return sends non-resolvable sites into resolveBinding instead of past it; with refPos undefined the walk matches nothing, the key list is empty, and the site is kept exactly as the early return would have kept it",
       },
       {
-        siteId: "logical-connector:885:61:||>&&",
+        siteId: "logical-connector:893:61:||>&&",
         kind: "equivalent",
         reason:
           "same early return, the name leg: a site with a null name reaches the resolver, whose anchor check requires found.text === name and rejects it, so the site is kept either way",
@@ -2751,13 +2752,13 @@ export const GUARD_SURFACES: GuardSurface[] = [
       // is an argument for keeping them, not for filing a queue entry whose
       // worst case today is unreachable.
       {
-        siteId: "logical-connector:820:29:||>&&",
+        siteId: "logical-connector:828:29:||>&&",
         kind: "equivalent",
         reason:
           "the mis-anchored-token guard: under `&&` a refPos landing on a non-identifier would resolve whatever symbol it hit instead of reporting. Every refPos this module writes is taken from an identifier node, so no emit path produces the input that distinguishes them",
       },
       {
-        siteId: "logical-connector:824:72:&&>||",
+        siteId: "logical-connector:832:72:&&>||",
         kind: "equivalent",
         reason:
           "the shorthand discriminator: under `||` a non-shorthand parent whose NAME node is the anchor would take the shorthand branch. Property emits anchor refPos at the VALUE and shorthand emits at the name, so parent.name === found holds only where the branch is already correct",
