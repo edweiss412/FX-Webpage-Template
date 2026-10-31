@@ -50,13 +50,21 @@
  * it has an entry; (2) every named case exists, verbatim, in its file, so a
  * renamed or deleted case fails here; (3) every source pin holds.
  *
- * CONDITIONAL RENDERS. `CONDITIONAL_RENDERS` lists every conditional render
- * (`cond ? <A> : …`, `cond && <A>`, `cond ? null : <A>`, a JSX child `{cond ? x : y}`,
- * an `if` returning JSX) and every `AnimatePresence` in the crew components this
- * redesign added, each with the §7 treatment that governs it. The scan derives
- * them from each file's TypeScript AST, wherever they sit (whole-diff review
- * round 2, second pass, 2C-R2-3: a line-shape scan missed `const x = cond && <p/>`
- * rendered later); a new one fails here until it is registered.
+ * CONDITIONAL RENDERS. `CONDITIONAL_RENDERS` lists every conditional render and
+ * every `AnimatePresence` in the crew components this redesign added, each with
+ * the §7 treatment that governs it; a new one fails here until it is registered.
+ * The census claims exactly this CLOSED DEFINITION, derived from each file's
+ * TypeScript AST (`conditionalRenders` below), by control flow rather than by
+ * the shape of a line or what a branch returns (whole-diff review round 2: the
+ * line shapes missed `const x = cond && <p/>`, 2C-R2-3; counting only branches
+ * returning JSX missed `if (cond) return null;`, 3C-1):
+ *   1. every `?:`, `&&`, `||` or `??` with a JSX operand, wherever it sits;
+ *   2. every `?:` or logical expression that is itself a JSX child, whatever its
+ *      operands;
+ *   3. in every rendering function (a PascalCase name, or a `return` of its own
+ *      holding JSX) with more than one exit (its own `return`s, plus a
+ *      fall-through end), every `return` but a final top-level one, whatever it
+ *      returns, `null` included, from `if`, `switch`, a loop or a block.
  */
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
@@ -660,6 +668,10 @@ const T = {
   toast: "L359 inside the toast, which fades and rises; reduced motion instant",
   search: "instant: search results replace the page (crew show search spec §6.2), outside §7",
   hydration: "instant: the server render leaves the open body to the sheet; filled after hydration",
+  cardPresence:
+    "L353/L361 instant: the run card appears or leaves with the selected day's rows (CrewRunOfShowCard: a day without rows has no card)",
+  liveState:
+    "L354 the pass body per live state: the existing 66-pair transitionTreatment table, unchanged",
   sheetBody:
     "L353 the open section's body crossfades inside the sheet (CrewSectionTransition), reduced motion one commit; empty while closed (L348/L349)",
 } as const;
@@ -708,7 +720,11 @@ const CONDITIONAL_RENDERS: Record<string, { presences: number; renders: Conditio
   },
   [ALL_SECTIONS]: {
     presences: 0,
-    renders: [{ match: "{section.peek !== null ? (", treatment: T.serverPresence }],
+    renders: [
+      { match: "{section.peek !== null ? (", treatment: T.serverPresence },
+      // Found by the control-flow definition (3C-1): a viewer with no sections has no list.
+      { match: "if (sections.length === 0) return null;", treatment: T.serverPresence },
+    ],
   },
   [DAY_ROW]: {
     presences: 0,
@@ -735,6 +751,16 @@ const CONDITIONAL_RENDERS: Record<string, { presences: number; renders: Conditio
       { match: "{body.strike ? (", treatment: T.inBody },
       { match: "{body.progress ? (", treatment: T.inBody },
       { match: "{body.facts.length > 0 ? (", treatment: T.inBody },
+      // Found by the control-flow definition (round 2, round 3, 3C-1): which
+      // body the pass shows for each live state, one `return` per case.
+      {
+        match: "return dayState(`Show day ${state.n} of ${state.total}`);",
+        treatment: T.liveState,
+      },
+      { match: 'return dayState("Travel in");', treatment: T.liveState },
+      { match: 'return dayState("Load in");', treatment: T.liveState },
+      { match: 'return dayState("Travel out");', treatment: T.liveState },
+      { match: "return {", count: 8, treatment: T.liveState },
     ],
   },
   [RUN_CARD]: {
@@ -742,6 +768,8 @@ const CONDITIONAL_RENDERS: Record<string, { presences: number; renders: Conditio
     renders: [
       { match: 'return day.rows.kind === "timeline" ? (', treatment: T.inBody },
       { match: "{day.more ? (", treatment: T.inBody },
+      // Found by the control-flow definition (3C-1): a selected day without rows.
+      { match: "if (day === null) return null;", treatment: T.cardPresence },
     ],
   },
   [QUICK_FACTS]: {
@@ -756,6 +784,8 @@ const CONDITIONAL_RENDERS: Record<string, { presences: number; renders: Conditio
       { match: "{directions ? (", treatment: T.serverPresence },
       // The copy row's label and the plain line's label: the same render twice.
       { match: "{line.label !== undefined ? (", count: 2, treatment: T.serverPresence },
+      // Found by the control-flow definition (3C-1): zero tiles, no block (spec §4.5).
+      { match: "if (facts.length === 0) return null;", treatment: T.serverPresence },
     ],
   },
   [HOME]: {
@@ -802,33 +832,76 @@ function isJsx(node: ts.Node | undefined): boolean {
   );
 }
 
-/** A branch of an `if` that returns JSX: a `return <X/>`, directly or as a block's statement. */
-function returnsJsx(stmt: ts.Statement | undefined): boolean {
-  if (stmt === undefined) return false;
-  if (ts.isReturnStatement(stmt)) return isJsx(stmt.expression);
-  return (
-    ts.isBlock(stmt) && stmt.statements.some((s) => ts.isReturnStatement(s) && isJsx(s.expression))
-  );
-}
-
 const LOGICAL = new Set([
   ts.SyntaxKind.AmpersandAmpersandToken,
   ts.SyntaxKind.BarBarToken,
   ts.SyntaxKind.QuestionQuestionToken,
 ]);
 
+type FunctionLike =
+  | ts.FunctionDeclaration
+  | ts.FunctionExpression
+  | ts.ArrowFunction
+  | ts.MethodDeclaration;
+
+function isFunctionLike(node: ts.Node): node is FunctionLike {
+  return (
+    ts.isFunctionDeclaration(node) ||
+    ts.isFunctionExpression(node) ||
+    ts.isArrowFunction(node) ||
+    ts.isMethodDeclaration(node)
+  );
+}
+
+/** Whether `node` holds JSX anywhere, nested functions aside. */
+function containsJsx(node: ts.Node | undefined): boolean {
+  if (node === undefined) return false;
+  if (isJsx(node)) return true;
+  let found = false;
+  ts.forEachChild(node, (child) => {
+    if (!found && !isFunctionLike(child)) found = containsJsx(child);
+  });
+  return found;
+}
+
+/** A function's own `return` statements, its nested functions' left out. */
+function ownReturns(fn: FunctionLike): ts.ReturnStatement[] {
+  const out: ts.ReturnStatement[] = [];
+  const walk = (node: ts.Node) => {
+    if (ts.isReturnStatement(node)) out.push(node);
+    if (!isFunctionLike(node)) ts.forEachChild(node, walk);
+  };
+  if (fn.body !== undefined) ts.forEachChild(fn.body, walk);
+  return out;
+}
+
+/** The function's name: its declaration's, or the variable it is assigned to. */
+function nameOf(fn: FunctionLike): string | null {
+  if ((ts.isFunctionDeclaration(fn) || ts.isMethodDeclaration(fn)) && fn.name) {
+    return fn.name.getText();
+  }
+  return ts.isVariableDeclaration(fn.parent) ? fn.parent.name.getText() : null;
+}
+
 /**
- * Conditional renders, by DERIVATION from the TypeScript AST rather than by line
- * shape (whole-diff review round 2, second pass, 2C-R2-3: the shape scan missed
- * `const label = cond && <p/>` rendered later as `{label}`). A conditional render
- * is any of, wherever it appears:
- *   - a `?:`, `&&`, `||` or `??` with a JSX operand (`cond && <X/>`, `cond ? <X/> : null`);
- *   - a `?:` or logical expression that IS a JSX child (`{cond ? null : body}`):
- *     whatever its operands are, they render;
- *   - an `if` whose branch returns JSX (a conditional return).
+ * Conditional renders, DERIVED from the TypeScript AST of each audited file.
+ * THE CLOSED DEFINITION this census claims (whole-diff review round 2: the line
+ * shapes missed `const x = cond && <p/>` (2C-R2-3), and counting only branches
+ * that return JSX missed `if (cond) return null;` (3C-1), so the definition is
+ * by control flow, not by what a branch returns):
+ *   1. every `?:`, `&&`, `||` or `??` with a JSX operand, wherever it sits;
+ *   2. every `?:` or logical expression that IS a JSX child (`{cond ? null : body}`),
+ *      whatever its operands are;
+ *   3. in every RENDERING function (a PascalCase name, or any of its own
+ *      `return`s holding JSX) with more than one exit (its own `return`s, plus
+ *      the fall-through end when its body does not end in a `return` or
+ *      `throw`): every one of those `return`s except a final top-level one,
+ *      whatever it returns (`null` included), in `if`, `switch`, loops or blocks.
  * Comments are not syntax, so they never count. Each hit is its node's first
  * line, trimmed, then the next line, so two renders on one condition are told
- * apart by what they render.
+ * apart by what they render. Outside the definition, by statement: a render
+ * decided by a value the component reads without branching (an index into a
+ * map of elements, a `throw`), and anything in a file the census does not list.
  */
 function conditionalRenders(src: string, file: string): string[] {
   const sf = ts.createSourceFile(
@@ -847,13 +920,27 @@ function conditionalRenders(src: string, file: string): string[] {
   const jsxChild = (node: ts.Node) =>
     ts.isJsxExpression(node.parent) &&
     (ts.isJsxElement(node.parent.parent) || ts.isJsxFragment(node.parent.parent));
+  const conditionalReturns = (fn: FunctionLike) => {
+    const body = fn.body;
+    if (body === undefined || !ts.isBlock(body)) return;
+    const returns = ownReturns(fn);
+    const name = nameOf(fn);
+    const rendering =
+      (name !== null && /^[A-Z]/.test(name)) || returns.some((r) => containsJsx(r.expression));
+    if (!rendering) return;
+    const last = body.statements.at(-1);
+    const fallsThrough =
+      last === undefined || !(ts.isReturnStatement(last) || ts.isThrowStatement(last));
+    if (returns.length + (fallsThrough ? 1 : 0) <= 1) return;
+    for (const r of returns) if (r !== last) record(r);
+  };
   const visit = (node: ts.Node) => {
     if (ts.isConditionalExpression(node)) {
       if (isJsx(node.whenTrue) || isJsx(node.whenFalse) || jsxChild(node)) record(node);
     } else if (ts.isBinaryExpression(node) && LOGICAL.has(node.operatorToken.kind)) {
       if (isJsx(node.right) || jsxChild(node)) record(node);
-    } else if (ts.isIfStatement(node)) {
-      if (returnsJsx(node.thenStatement) || returnsJsx(node.elseStatement)) record(node);
+    } else if (isFunctionLike(node)) {
+      conditionalReturns(node);
     }
     ts.forEachChild(node, visit);
   };
@@ -881,14 +968,30 @@ describe("§7 transition inventory: every conditional render in the redesign's c
     // The reviewer's probe: bound to a name, rendered later.
     expect(count("const label = a && <p>Notes</p>;\nreturn <div>{label}</div>;")).toBe(1);
     expect(count("const x = a ? <X/> : b ? <Y/> : null;\nreturn x;")).toBe(2);
-    // A conditional return.
+    // A conditional return, whatever it returns (3C-1): JSX, null, from a
+    // block, a switch, or a loop; and a fall-through end is an exit too.
     expect(count("if (a) return <X/>;\nreturn null;")).toBe(1);
     expect(count("if (a) {\n  return (\n<X/>\n);\n}\nreturn null;")).toBe(1);
-    // Not renders: comments, value ternaries, attribute values, an `if` returning a value.
+    expect(count("if (a) return null;\nreturn <X/>;")).toBe(1);
+    expect(count("if (a) return null;\nif (b) return null;\nreturn <X/>;")).toBe(2);
+    expect(
+      count("switch (n) {\n  case 1:\n    return null;\n  default:\n    return <X/>;\n}"),
+    ).toBe(2);
+    expect(count("for (const x of n) {\n  if (x) return null;\n}\nreturn <X/>;")).toBe(1);
+    expect(count("if (a) return <X/>;")).toBe(1);
+    // A rendering helper inside a component counts too (a `.map` callback).
+    expect(
+      count("return <ul>{n.map((x) => {\n  if (!x) return null;\n  return <li/>;\n})}</ul>;"),
+    ).toBe(1);
+    // Not renders: comments, value ternaries, attribute values, a single exit,
+    // and a non-rendering helper's early return.
     expect(count("// return <div>{a ? <X/> : null}</div>;\nreturn null;")).toBe(0);
     expect(count("const x = a ? (b ?? n) : null;\nreturn null;")).toBe(0);
     expect(count('return <div className={a ? "on" : "off"} />;')).toBe(0);
-    expect(count("if (a) return null;\nreturn <X/>;")).toBe(0);
+    expect(count("return <X/>;")).toBe(0);
+    expect(
+      count("const f = (x: number) => {\n  if (x) return 1;\n  return 2;\n};\nreturn <X/>;"),
+    ).toBe(0);
   });
 
   for (const [rel, entry] of Object.entries(CONDITIONAL_RENDERS)) {
