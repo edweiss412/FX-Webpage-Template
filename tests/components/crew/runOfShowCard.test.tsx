@@ -493,6 +493,44 @@ describe('run card: the "Next" marker (spec §4.4, §6A L1, §9.2)', () => {
     expect(marked()).toHaveLength(0);
   });
 
+  it('run card: "Next" reaches the strike and load-out rows, which render after the agenda rows, and marks one row only', () => {
+    // The list renders the agenda group first and the synthetic strike and
+    // load-out rows after it, so a synthetic row's render index is offset by the
+    // agenda rows shown above it. An admin, so the transport gate shows the load-out.
+    const STRIKE: AgendaEntry = { start: "6:00 PM", title: "Strike the ballroom", kind: "strike" };
+    const entries = [...DAY1_ENTRIES, STRIKE, LOADOUT];
+    premiseHolds(
+      "every row fits under the card's cap, so none is cut",
+      entries.length <= RUN_CARD_ROW_CAP,
+    );
+    const lastAgenda = Math.max(...DAY1_ENTRIES.map((e) => clockToMinutes(e.start)!));
+    premiseHolds(
+      "the synthetic rows start after the last agenda row, strike before load-out",
+      clockToMinutes(STRIKE.start)! > lastAgenda &&
+        clockToMinutes(LOADOUT.start)! > clockToMinutes(STRIKE.start)!,
+    );
+    const data = showData({ runOfShow: { [DAY1]: scheduleDay(entries) }, transport: true });
+    const markedRow = () => {
+      expect(marked(), "exactly one row carries Next").toHaveLength(1);
+      return marked()[0]!.closest('[data-testid="agenda-entry"]')!.textContent ?? "";
+    };
+
+    // Past the last agenda row, before strike: the strike row is next.
+    renderHome(data, adminViewer, at(DAY1, "17:00"));
+    expect(rowTitles(), "PREMISE: every row renders").toHaveLength(entries.length);
+    expect(markedRow()).toContain(STRIKE.title);
+    cleanup();
+
+    // Past strike, before load-out: the load-out row is next.
+    renderHome(data, adminViewer, at(DAY1, "19:00"));
+    expect(markedRow()).toContain(LOADOUT.title);
+    cleanup();
+
+    // Before the first agenda row: that row is next, and no synthetic row joins it.
+    renderHome(data, adminViewer, at(DAY1, "06:00"));
+    expect(markedRow()).toContain(DAY1_ENTRIES[0]!.title);
+  });
+
   it('run card: "Next" marks a merged agenda session when it is the first row at or after now', () => {
     // Crew rows at 7:00 and 9:00; the 8:00 session sits between them.
     renderHome(showData({ agendaFor: DAY1 }), crewViewer, at(DAY1, "07:30"));
