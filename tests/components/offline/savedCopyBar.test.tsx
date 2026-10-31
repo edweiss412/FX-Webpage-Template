@@ -167,6 +167,54 @@ function contentText(): string {
   return screen.getByTestId("saved-copy-bar-content").textContent ?? "";
 }
 
+function classesOf(element: Element): string[] {
+  return (element.getAttribute("class") ?? "").split(/\s+/);
+}
+
+/** Viewport bottoms of the region and the detail, in px; jsdom lays nothing out. */
+type Layout = { regionBottom: number; detailBottom: number };
+/** Under a 60 px header: a 40 px pinned line, then its 40 px detail. */
+const AT_REST: Layout = { regionBottom: 100, detailBottom: 140 };
+/** Scrolled 80 px: the region pinned at the top, half the detail still below it. */
+const PARTLY_UNDER: Layout = { regionBottom: 40, detailBottom: 60 };
+/** Scrolled 140 px: the region pinned, the detail entirely under it. */
+const UNDER: Layout = { regionBottom: 40, detailBottom: 0 };
+
+/** Gives the region and the detail the rects `layout` names. */
+function layOut({ regionBottom, detailBottom }: Layout): void {
+  vi.spyOn(HTMLElement.prototype, "getBoundingClientRect").mockImplementation(function (
+    this: HTMLElement,
+  ) {
+    const testId = this.getAttribute("data-testid");
+    const bottom =
+      testId === "saved-copy-bar-region"
+        ? regionBottom
+        : testId === "saved-copy-bar-detail"
+          ? detailBottom
+          : 0;
+    const height = bottom === 0 ? 0 : 40;
+    return {
+      x: 0,
+      y: bottom - height,
+      top: bottom - height,
+      bottom,
+      left: 0,
+      right: 390,
+      width: 390,
+      height,
+      toJSON: () => ({}),
+    };
+  });
+}
+
+/** Lays the page out as `layout` says, then fires the scroll that brought it there. */
+function placeDetail(layout: Layout): void {
+  layOut(layout);
+  act(() => {
+    window.dispatchEvent(new Event("scroll"));
+  });
+}
+
 /**
  * The text a screen reader can reach inside `region`: every text node outside
  * an inaccessible subtree, by Testing Library's own definition of inaccessible
@@ -376,16 +424,57 @@ describe("SavedCopyBar: one case per visible state", () => {
   });
 
   test.each(Object.entries(STATE_CASES))(
-    "%s: the bar, not the region, draws the bottom edge",
+    "%s: one bottom edge, the bar's, or the detail's while a detail shows below the pinned line",
     (_state, testCase) => {
       renderBar(testCase.arrange());
-      const classes = (bar().getAttribute("class") ?? "").split(/\s+/);
+      placeDetail(AT_REST);
+      const classes = classesOf(bar());
+      // The bar always has its border, so its height never changes with the edge.
       expect(classes).toContain("border-b");
-      expect(classes).toContain("border-border");
+      if (testCase.detail === null) {
+        expect(classes).toContain("border-border");
+        expect(classes).not.toContain("border-transparent");
+      } else {
+        // Before scrolling, the detail draws the edge (UI gate re-check E4), so
+        // no line splits the pinned line from its own detail.
+        expect(classes).toContain("border-transparent");
+        expect(classes).not.toContain("border-border");
+        expect(classesOf(screen.getByTestId("saved-copy-bar-detail"))).toContain("border-border");
+      }
       // The region keeps its layout-only set, so it still has no height while hidden.
       expect([...region().classList].sort()).toEqual(REGION_LAYOUT_CLASSES);
     },
   );
+
+  test("once the detail has scrolled under the pinned line, the bar draws the edge, and gives it back when the detail returns", () => {
+    setServedMeta("offline", FRESH_SAVED_AT);
+    renderBar();
+    const edgeOnBar = (): boolean => classesOf(bar()).includes("border-border");
+    premiseHolds(
+      "saved-fresh has a detail",
+      screen.queryByTestId("saved-copy-bar-detail") !== null,
+    );
+
+    placeDetail(AT_REST);
+    expect(edgeOnBar()).toBe(false);
+    // Part of the detail still shows below the pinned line, with its own edge.
+    placeDetail(PARTLY_UNDER);
+    expect(edgeOnBar()).toBe(false);
+    placeDetail(UNDER);
+    expect(edgeOnBar()).toBe(true);
+    expect(classesOf(bar())).not.toContain("border-transparent");
+    placeDetail(AT_REST);
+    expect(edgeOnBar()).toBe(false);
+  });
+
+  test("a page that opens already scrolled past the detail draws the edge on the bar without a scroll event", async () => {
+    setServedMeta("offline", FRESH_SAVED_AT);
+    layOut(UNDER);
+    renderBar();
+    await act(() => new Promise<void>((resolve) => window.requestAnimationFrame(() => resolve())));
+    await act(() => new Promise<void>((resolve) => window.requestAnimationFrame(() => resolve())));
+    expect(classesOf(bar())).toContain("border-border");
+  });
 
   test.each(Object.entries(STATE_CASES))(
     "%s: the detail shows once in the page flow, after the region, and is hidden from assistive tech",
@@ -734,6 +823,77 @@ describe("SavedCopyBar: hydration", () => {
       expect(visible?.getAttribute("data-state")).toBe("saved-fresh");
       expect(visible?.querySelector("strong")?.textContent).toBe(
         `Saved ${at(RENDERED_AT)}, 1 min ago.`,
+      );
+    } finally {
+      act(() => root.unmount());
+      container.remove();
+    }
+  });
+
+  // UI gate re-check E1: the server knows `sheet-gone` from the prop alone, so it
+  // renders it, and nothing shifts the page when the bar would have arrived.
+  test("a live page whose sheet is gone server-renders sheet-gone, and hydrates it unchanged", async () => {
+    let serverRegion: Element | null = null;
+    let serverDetail: Element | null = null;
+    const { container, consoleError, recovered, root } = await serverRenderThenHydrate(
+      <SavedCopyBar {...props({ sheetUnavailable: true })} />,
+      (_markup, filled) => {
+        premiseHolds(
+          "no fxav-served meta, so this is a live page",
+          document.head.querySelector('meta[name="fxav-served"]') === null,
+        );
+        serverRegion = filled.querySelector('[data-testid="saved-copy-bar-region"]');
+        serverDetail = filled.querySelector('[data-testid="saved-copy-bar-detail"]');
+        const serverBar = serverRegion?.querySelector('[data-testid="saved-copy-bar"]');
+        expect(serverBar?.getAttribute("data-state")).toBe("sheet-gone");
+        expect(serverBar?.querySelector("strong")?.textContent).toBe(SHEET_LEAD);
+        expect(serverDetail?.textContent).toBe(SHEET_DETAIL);
+        premiseHolds(
+          "html is not marked before hydration",
+          !document.documentElement.hasAttribute(MOUNTED_ATTRIBUTE),
+        );
+      },
+    );
+    try {
+      expect(recovered).toEqual([]);
+      expect(consoleError).not.toHaveBeenCalled();
+      // Hydration adopted the server's nodes, and the readings changed nothing.
+      const live = container.querySelector('[data-testid="saved-copy-bar-region"]');
+      expect(live).toBe(serverRegion);
+      expect(container.querySelector('[data-testid="saved-copy-bar-detail"]')).toBe(serverDetail);
+      expect(
+        live?.querySelector('[data-testid="saved-copy-bar"]')?.getAttribute("data-state"),
+      ).toBe("sheet-gone");
+      expect(container.querySelector('[data-testid="saved-copy-bar-detail"]')?.textContent).toBe(
+        SHEET_DETAIL,
+      );
+      expect(document.documentElement.getAttribute(MOUNTED_ATTRIBUTE)).toBe("mounted");
+    } finally {
+      act(() => root.unmount());
+      container.remove();
+    }
+  });
+
+  test("a saved copy whose sheet is gone server-renders sheet-gone, then moves to sheet-gone-saved", async () => {
+    const { container, consoleError, recovered, root } = await serverRenderThenHydrate(
+      <SavedCopyBar {...props({ sheetUnavailable: true })} />,
+      (_markup, filled) => {
+        expect(
+          filled.querySelector('[data-testid="saved-copy-bar"]')?.getAttribute("data-state"),
+        ).toBe("sheet-gone");
+        // The worker served this markup as a saved copy.
+        setServedMeta("offline", FRESH_SAVED_AT);
+      },
+    );
+    try {
+      expect(recovered).toEqual([]);
+      expect(consoleError).not.toHaveBeenCalled();
+      const visible = container.querySelector('[data-testid="saved-copy-bar"]');
+      expect(visible?.getAttribute("data-state")).toBe("sheet-gone-saved");
+      // The pinned line is the same; the detail now names the saved time.
+      expect(visible?.querySelector("strong")?.textContent).toBe(SHEET_LEAD);
+      expect(container.querySelector('[data-testid="saved-copy-bar-detail"]')?.textContent).toBe(
+        SHEET_SAVED_DETAIL,
       );
     } finally {
       act(() => root.unmount());

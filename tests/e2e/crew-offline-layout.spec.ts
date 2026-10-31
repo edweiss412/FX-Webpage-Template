@@ -22,7 +22,9 @@
  * under the sticky bar, because the bar keeps the page's `scroll-padding-top` at
  * its own height (WCAG 2.4.11). Case 8 is the in-flow detail the owner's
  * one-line bar adds (2026-10-30): it sits right under the region, spans the
- * shell, and scrolls away while the region stays pinned.
+ * shell, and scrolls away while the region stays pinned. Case 9 is the bar's one
+ * bottom edge (UI gate re-check E4): the detail draws it at rest, the pinned
+ * line once the detail has scrolled under it, at an unchanged height.
  *
  * Run it with the command crew-offline.spec.ts gives, naming this file instead.
  *
@@ -613,4 +615,68 @@ test("8. the detail sits right under the region, spans the shell, and scrolls aw
   expectNear(regionAfter.top, 0, "the region's top after scrolling past the header");
   expect(detailAfter.top, "the detail's top has scrolled above the viewport").toBeLessThan(0);
   expect(detailAfter.bottom, "and so has the rest of it").toBeLessThanOrEqual(TOLERANCE_PX);
+});
+
+/** The bottom border's computed width and colour, read from the element with `testId`. */
+async function bottomEdgeOf(page: Page, testId: string): Promise<{ width: number; color: string }> {
+  return page.getByTestId(testId).evaluate((node) => {
+    const style = getComputedStyle(node);
+    return { width: parseFloat(style.borderBottomWidth), color: style.borderBottomColor };
+  });
+}
+
+/** A computed colour's alpha: 0 for `transparent`, 1 for an opaque `rgb()`. */
+function alphaOf(color: string): number {
+  const rgba = /^rgba\(\s*\d+,\s*\d+,\s*\d+,\s*([\d.]+)\s*\)$/.exec(color);
+  if (rgba !== null) return Number(rgba[1]);
+  if (/^rgb\(/.test(color)) return 1;
+  throw new Error(`not an rgb() or rgba() colour: ${color}`);
+}
+
+test("9. one bottom edge: under the detail at rest, under the pinned line once the detail has scrolled away", async ({
+  crewPage: page,
+  origin,
+  crewProxy: proxy,
+}) => {
+  // UI gate re-check E4: the edge never splits the pinned line from its detail.
+  await openSavedCopy(page, origin, proxy);
+  await showSchedule(page);
+  await page.evaluate(() => window.scrollTo(0, 0));
+  await expect(savedCopyBar(page).detail).toHaveText("Showing your saved copy.");
+
+  const barAtRest = await bottomEdgeOf(page, "saved-copy-bar");
+  const detailAtRest = await bottomEdgeOf(page, "saved-copy-bar-detail");
+  const heightAtRest = (await boxOf(page, "saved-copy-bar")).height;
+  premise("the detail draws a visible edge at rest", alphaOf(detailAtRest.color), 0);
+  expect(barAtRest.color, "at rest the pinned line's edge is transparent").toBe("rgba(0, 0, 0, 0)");
+  expect(barAtRest.width, "the pinned line keeps its border at rest").toBeGreaterThan(0);
+
+  // Scrolled until the detail is entirely under the pinned line.
+  const header = await boxOf(page, "page-header");
+  const target = Math.round(header.bottom + SCROLL_PAST_HEADER_PX);
+  await page.evaluate((y) => window.scrollTo(0, y), target);
+  const detailAfter = await boxOf(page, "saved-copy-bar-detail");
+  const regionAfter = await boxOf(page, "saved-copy-bar-region");
+  premiseHolds(
+    `the detail is under the pinned line (detail bottom ${detailAfter.bottom}, region bottom ${regionAfter.bottom})`,
+    detailAfter.bottom <= regionAfter.bottom + TOLERANCE_PX,
+  );
+  await expect
+    .poll(async () => (await bottomEdgeOf(page, "saved-copy-bar")).color, {
+      message: "the pinned line draws the edge once the detail has gone",
+    })
+    .toBe(detailAtRest.color);
+  const barAfter = await bottomEdgeOf(page, "saved-copy-bar");
+  expectNear(barAfter.width, barAtRest.width, "the pinned line's border width, scrolled");
+  expectNear(
+    (await boxOf(page, "saved-copy-bar")).height,
+    heightAtRest,
+    "the pinned line's height, scrolled",
+  );
+
+  // Back to the top: the detail draws it again.
+  await page.evaluate(() => window.scrollTo(0, 0));
+  await expect
+    .poll(async () => (await bottomEdgeOf(page, "saved-copy-bar")).color)
+    .toBe("rgba(0, 0, 0, 0)");
 });

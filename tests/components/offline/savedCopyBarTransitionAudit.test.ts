@@ -230,6 +230,20 @@ const DECLARED = [
     marker: /^view !== null && view\.detail !== null\u0000/,
     treatment: "not a render branch itself; the conjunction inside V12",
   },
+  {
+    id: "V13",
+    what: "the bar's bottom edge: transparent while a detail shows below it, which draws the edge instead",
+    marker:
+      /^view\.detail !== null && !detailScrolledAway \? "border-transparent" : "border-border"\u0000/,
+    treatment:
+      "instant: a colour on a border that is always there, so the bar's height never moves; it follows the scroll, not a state pair",
+  },
+  {
+    id: "V13a",
+    what: "a detail AND it has not scrolled under the pinned line",
+    marker: /^view\.detail !== null && !detailScrolledAway\u0000/,
+    treatment: "not a render branch itself; the conjunction inside V13",
+  },
   // ── SavedCopyBar: the container ──
   {
     id: "C1",

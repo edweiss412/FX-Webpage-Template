@@ -121,6 +121,34 @@ function readSavedCopyTime(
   return { time, ago, ageMs: nowMs - Date.parse(savedAt) };
 }
 
+const SHEET_GONE_PINNED = {
+  tone: WARNING_TONE,
+  icon: "alert",
+  lead: copyOf(SHEET_GONE_LEAD),
+  body: copyOf(SHEET_GONE_BODY),
+} as const;
+
+/** `sheet-gone`: a live page whose sheet is unavailable. It reads neither the clock nor a time. */
+const SHEET_GONE_VIEW: BarView = {
+  state: "sheet-gone",
+  ...SHEET_GONE_PINNED,
+  detail: copyOf(`${SHEET_GONE} You're seeing the last version we have. ${CHECK_WITH_DOUG}`),
+};
+
+/**
+ * The view the server render and the hydrating render paint, before any reading
+ * of the meta, the clock or the connection (spec 4.7.1, 4.7.2). Only the
+ * `sheetUnavailable` prop is known then, and it is enough for one state: a live
+ * page whose sheet is gone shows `sheet-gone` (UI gate re-check E1), so the bar
+ * is in the page from the first paint instead of arriving after mount. A saved
+ * copy of such a page moves to `sheet-gone-saved`, which pins the same line,
+ * once the mount effect has its reading. Null otherwise: every other state needs
+ * a reading the server cannot have.
+ */
+export function viewBeforeReadings(sheetUnavailable: boolean): BarView | null {
+  return sheetUnavailable ? SHEET_GONE_VIEW : null;
+}
+
 export function deriveBarView(inputs: BarInputs, timeZone?: string): BarView {
   const { mode, online, savedAt, nowMs, sheetUnavailable, updating, justUpdated } = inputs;
 
@@ -151,20 +179,11 @@ export function deriveBarView(inputs: BarInputs, timeZone?: string): BarView {
   }
 
   if (sheetUnavailable) {
-    const pinned = { tone: WARNING_TONE, icon: "alert", lead: copyOf(SHEET_GONE_LEAD) } as const;
-    if (mode === "live") {
-      return {
-        state: "sheet-gone",
-        ...pinned,
-        body: copyOf(SHEET_GONE_BODY),
-        detail: copyOf(`${SHEET_GONE} You're seeing the last version we have. ${CHECK_WITH_DOUG}`),
-      };
-    }
+    if (mode === "live") return SHEET_GONE_VIEW;
     const saved = readSavedCopyTime(savedAt, nowMs, timeZone);
     return {
       state: "sheet-gone-saved",
-      ...pinned,
-      body: copyOf(SHEET_GONE_BODY),
+      ...SHEET_GONE_PINNED,
       detail:
         saved === null
           ? copyOf(`${SHEET_GONE} This is the last version we have. ${CHECK_WITH_DOUG}`)

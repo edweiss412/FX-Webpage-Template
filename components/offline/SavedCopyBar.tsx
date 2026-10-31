@@ -8,15 +8,19 @@
  * nothing else: the state, the tone, the icon and every word of the copy come
  * from there.
  *
- * It hydrates in exactly the state the server rendered, which is always
- * `hidden`. The server never sees the `fxav-served` meta (the worker injects it
- * into the stored HTML, spec 4.7.1) and cannot know the phone's connection or
- * clock, so the first client render reads none of them: the meta and the clock
- * are read in a mount effect (lib/offline/client/servedCopy.ts), and again on
- * each age tick, and the connection through `useOnlineStatus`,
- * whose hydrating snapshot is online. The saved state therefore appears on the
- * first commit after hydration, and until then the worker's injected CSS notice
- * is what the person sees.
+ * It hydrates in exactly the state the server rendered. The server never sees
+ * the `fxav-served` meta (the worker injects it into the stored HTML, spec
+ * 4.7.1) and cannot know the phone's connection or clock, so the first client
+ * render reads none of them: the meta and the clock are read in a mount effect
+ * (lib/offline/client/servedCopy.ts), and again on each age tick, and the
+ * connection through `useOnlineStatus`, whose hydrating snapshot is online. The
+ * one state the props alone decide is `sheet-gone`: with `sheetUnavailable` the
+ * server and the hydrating render paint it (`viewBeforeReadings`), so a live
+ * page whose sheet is gone does not shift when the bar would have arrived, and
+ * on a saved copy the mount effect moves it to `sheet-gone-saved`, which pins
+ * the same line. Every other state appears on the first commit after
+ * hydration, and until then the worker's injected CSS notice is what the person
+ * sees.
  *
  * Once the bar has its readings it sets `data-fxav-bar="mounted"` on `<html>`,
  * which hides that CSS notice, and from then on the bar owns the notice. The
@@ -31,6 +35,13 @@
  * state change fills it. While the bar is hidden the region is empty: it
  * carries only layout classes (no padding, border or background), so it paints
  * nothing and has no height.
+ *
+ * One bottom edge closes the bar (UI gate re-check E4). While a detail shows
+ * below the pinned line, the detail draws it and the bar's own border is
+ * transparent, so no line splits the pinned line from its detail; once the
+ * detail has scrolled up under the pinned line (`useScrolledUnder`), the bar
+ * draws it. The bar keeps its border either way, so its height never changes
+ * with the edge, and forced colors still has a border to paint.
  *
  * The region, not the bar, is the crew shell's flex child, so it carries the
  * spec's Dimensional Invariants (4.7.2): `self-stretch` and `flex-none` against
@@ -82,6 +93,7 @@ import { useEffect, useLayoutEffect, useRef, useState, type Ref } from "react";
 import { usePrefersReducedMotion } from "@/lib/a11y/usePrefersReducedMotion";
 import {
   deriveBarView,
+  viewBeforeReadings,
   type BarInputs,
   type BarMode,
   type BarView,
@@ -92,6 +104,7 @@ import { postToWorker, serviceWorkerContainer } from "@/lib/offline/client/messa
 import { useOnlineStatus } from "@/lib/offline/client/online";
 import { reloadPage } from "@/lib/offline/client/reload";
 import { useScrollPaddingTop } from "@/lib/offline/client/scrollPadding";
+import { useScrolledUnder } from "@/lib/offline/client/scrolledUnder";
 import { readServedCopy, type ServedCopyReading } from "@/lib/offline/client/servedCopy";
 import { cn } from "@/lib/ui/cn";
 
@@ -247,6 +260,7 @@ export function SavedCopyBar({ renderedAt, sheetUnavailable }: SavedCopyBarProps
   // The last committed inputs' key, which the 4-second timer hands the fade.
   const committedInputs = useRef<string | null>(null);
   const regionRef = useRef<HTMLDivElement | null>(null);
+  const detailRef = useRef<HTMLDivElement | null>(null);
 
   useEffect(() => {
     const first = readServedCopy();
@@ -389,18 +403,24 @@ export function SavedCopyBar({ renderedAt, sheetUnavailable }: SavedCopyBarProps
         fading = true;
       }
     }
+  } else {
+    // Before the readings: the one state the server can already know.
+    view = viewBeforeReadings(sheetUnavailable);
   }
 
   // The bar is sticky, so while it shows the page's scroll padding reserves its
   // height: a control focused from the keyboard then scrolls out from under it.
   const barShown = view !== null && view.state !== "hidden";
   useScrollPaddingTop(regionRef, barShown);
+  const detailScrolledAway = useScrolledUnder(detailRef, regionRef, view?.detail?.text ?? null);
 
   return (
     <SavedCopyBarView
       ref={regionRef}
+      detailRef={detailRef}
       view={view}
       fading={fading}
+      detailScrolledAway={detailScrolledAway}
       onFadeEnd={() => setFadeUnder(null)}
     />
   );
@@ -413,8 +433,15 @@ export type SavedCopyBarViewProps = {
   fading: boolean;
   /** The bar's own `transitionend`, which ends the fade. */
   onFadeEnd: () => void;
+  /**
+   * The detail has scrolled up under the pinned line, so the bar draws the
+   * bottom edge instead of the detail. False at rest, and when there is no detail.
+   */
+  detailScrolledAway?: boolean;
   /** The live region, which the container measures for the page's scroll padding. */
   ref?: Ref<HTMLDivElement>;
+  /** The in-flow detail, which the container measures against the region. */
+  detailRef?: Ref<HTMLDivElement>;
 };
 
 /**
@@ -430,7 +457,14 @@ export type SavedCopyBarViewProps = {
  * whole meaning once; the visible block is `aria-hidden`, so browsing does not
  * read it a second time.
  */
-export function SavedCopyBarView({ view, fading, onFadeEnd, ref }: SavedCopyBarViewProps) {
+export function SavedCopyBarView({
+  view,
+  fading,
+  detailScrolledAway = false,
+  onFadeEnd,
+  ref,
+  detailRef,
+}: SavedCopyBarViewProps) {
   // `hidden` is the one state with no icon, and it shows nothing.
   const Icon = view === null || view.icon === null ? null : ICONS[view.icon];
 
@@ -450,8 +484,10 @@ export function SavedCopyBarView({ view, fading, onFadeEnd, ref }: SavedCopyBarV
             className={cn(
               // The bottom edge is on the bar, never the region: the hidden
               // region must stay at zero height. It also survives forced colors,
-              // where every tone fill flattens to Canvas.
-              "flex items-start gap-2 border-b border-border px-4 py-2 text-sm",
+              // where every tone fill flattens to Canvas. While a detail shows
+              // below, the detail draws the edge and this border is transparent.
+              "flex items-start gap-2 border-b px-4 py-2 text-sm",
+              view.detail !== null && !detailScrolledAway ? "border-transparent" : "border-border",
               view.tone,
               fading && "opacity-0 transition-opacity duration-normal",
             )}
@@ -484,6 +520,7 @@ export function SavedCopyBarView({ view, fading, onFadeEnd, ref }: SavedCopyBarV
       {view !== null && view.detail !== null && (
         <div
           data-testid="saved-copy-bar-detail"
+          ref={detailRef}
           aria-hidden="true"
           // In normal flow under the region, aligned with the pinned line's text
           // (px-4 + the icon + gap-2), in the bar's tone and with its edge.

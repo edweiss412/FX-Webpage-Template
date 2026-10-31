@@ -183,7 +183,7 @@ describe("Server-side time-call grep guard (test #16 — AC-11.38)", () => {
     expect(libFiles.map((f) => relative(process.cwd(), f))).toContain("lib/admin/loadAppEvents.ts");
   });
 
-  it("the derived lib population has exactly 241 members, including both directory-index modules", () => {
+  it("the derived lib population has exactly 242 members, including both directory-index modules", () => {
     // The shipped resolver tried only <base>.ts and <base>.tsx, so five live
     // imports of @/lib/log and @/lib/parser missed and the population was 209.
     // Neither missed module holds a time violation, so the count of 13 was
@@ -351,7 +351,12 @@ describe("Server-side time-call grep guard (test #16 — AC-11.38)", () => {
     // scroll padding at the bar's height. It reads layout, never the clock.
     // 240 -> 241, re-derived by running this guard.
     expect(rel).toContain("lib/offline/client/scrollPadding.ts");
-    expect(rel.length).toBe(241);
+    // Joined, from the same branch's Codex R1 fix round (UI gate re-check E4):
+    // lib/offline/client/scrolledUnder.ts, which SavedCopyBar.tsx imports directly
+    // to tell when the in-flow detail has scrolled under the pinned line. It reads
+    // layout, never the clock. 241 -> 242, re-derived by running this guard.
+    expect(rel).toContain("lib/offline/client/scrolledUnder.ts");
+    expect(rel.length).toBe(242);
   });
 
   // The twelve waivers this arc added, plus the client effect read that
