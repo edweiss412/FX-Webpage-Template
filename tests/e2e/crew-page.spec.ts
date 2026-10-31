@@ -68,6 +68,7 @@ import { signInAs, signOut } from "./helpers/signInAs";
 import { deleteSeededShow, seedShowWithCrew } from "./helpers/seedShowWithCrew";
 import { admin } from "./helpers/supabaseAdmin";
 import { TEST_AUTH_SECRET } from "./helpers/testAuthConfig";
+import { renderFresh } from "./helpers/crewRefresh";
 import {
   CREW_SPLIT_PX,
   expectColumnsFollowSplit,
@@ -3458,6 +3459,13 @@ test.describe("quick facts and card titles on the seeded show (moved from crew-l
       .eq("id", room.id);
     if (setError)
       throw new Error(`card titles setup: room A/V override FAILED: ${setError.message}`);
+    // A direct write does not bust the show's cache on a production build
+    // (tests/e2e/helpers/crewRefresh.ts): every render below reads fresh data.
+    const headers = {
+      "X-Screenshot-Frozen-Now": SHOW_DAY_N_INSTANT,
+      Authorization: `Bearer ${TEST_AUTH_SECRET}`,
+    };
+    await renderFresh(page, headers);
     try {
       let seen = 0;
       const gearAt320: string[] = [];
@@ -3494,6 +3502,8 @@ test.describe("quick facts and card titles on the seeded show (moved from crew-l
             `re-run \`pnpm db:seed\`: ${restoreError.message}`,
         );
       }
+      // One more fresh render, so the cache holds the restored rooms, not the override.
+      await gotoSection(page, "gear");
     }
   });
 });
