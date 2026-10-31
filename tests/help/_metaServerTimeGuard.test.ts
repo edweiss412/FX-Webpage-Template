@@ -183,7 +183,13 @@ describe("Server-side time-call grep guard (test #16 — AC-11.38)", () => {
     expect(libFiles.map((f) => relative(process.cwd(), f))).toContain("lib/admin/loadAppEvents.ts");
   });
 
-  it("the derived lib population has exactly 233 members, including both directory-index modules", () => {
+  // The population's size, pinned once: the case title and its assertion both read
+  // it, so the title cannot drift from the number the guard asserts (it read 233 over
+  // an assertion of 236 until whole-diff review R4-F5). Re-derive by running this
+  // guard, never by adding up the members named below.
+  const DERIVED_LIB_POPULATION = 236;
+
+  it(`the derived lib population has exactly ${DERIVED_LIB_POPULATION} members, including both directory-index modules`, () => {
     // The shipped resolver tried only <base>.ts and <base>.tsx, so five live
     // imports of @/lib/log and @/lib/parser missed and the population was 209.
     // Neither missed module holds a time violation, so the count of 13 was
@@ -325,9 +331,9 @@ describe("Server-side time-call grep guard (test #16 — AC-11.38)", () => {
     //   components/admin/FinalizeButton.tsx and
     //   components/admin/review/ReviewModalShell.tsx in place of each one's own
     //   save-and-restore of body overflow.
-    // The arc's other new lib modules (quickFacts, sectionPeek) are ABSENT: only
-    // other lib modules import them, so they sit at depth 2. That is the depth-1
-    // rule, not an omission. (passModel joined in Task 9, below.)
+    // The arc's other new lib modules were ABSENT at this point: only other lib
+    // modules imported them, so they sat at depth 2. sectionPeek still does (asserted
+    // below); quickFacts joined in Task 11 and passModel in Task 9 (both below).
     expect(rel).toContain("lib/crew/generalSessionRoom.ts");
     expect(rel).toContain("lib/crew/transportLegs.ts");
     expect(rel).toContain("lib/ui/scrollLock.ts");
@@ -363,6 +369,19 @@ describe("Server-side time-call grep guard (test #16 — AC-11.38)", () => {
     expect(rel).toContain("lib/crew/runOfShowCard.ts");
     expect(rel).not.toContain("lib/crew/agendaDayForToday.ts");
     expect(rel).not.toContain("lib/crew/showDayTimeline.ts");
+    // 233 -> 233 (crew page redesign plan Task 11, the composed home retiring
+    // TodaySection): one joins and one leaves, which is why both are named. JOINED:
+    // lib/crew/quickFacts.ts, which components/crew/sections/HomeSection.tsx calls
+    // (`buildQuickFacts`) at runtime; pure, the builder takes `today`. LEFT:
+    // lib/crew/selectPrimaryContact.ts, whose only depth-1 runtime importer was
+    // todayRows.ts (the retired Need something card); quickFacts.ts imports it now,
+    // so it sits at depth 2 and is not retired. lib/crew/sectionPeek.ts stays ABSENT:
+    // its only importer is lib/crew/crewSections.ts. Re-derived with this guard's
+    // derivation on 1a5efd617 and 9462c6f78; whole-diff review R4-F5 found the move
+    // unrecorded, its net zero hiding it from the count.
+    expect(rel).toContain("lib/crew/quickFacts.ts");
+    expect(rel).not.toContain("lib/crew/selectPrimaryContact.ts");
+    expect(rel).not.toContain("lib/crew/sectionPeek.ts");
     // Joined, from feat/warning-card-fixes Task 4: lib/admin/warningReadingDisplay.ts, a new
     // module holding the reading-display caps and formats and the USE_RAW_CODES set, now
     // imported directly by components/admin/UseRawControl.tsx. Pure string formatting and
@@ -387,7 +406,7 @@ describe("Server-side time-call grep guard (test #16 — AC-11.38)", () => {
     // feat/crew-page-redesign. Both sides start from 228; this branch's members above and
     // that arc's three are all present and nothing left. Re-derived by running this guard
     // on the merged tree, not by adding the two sides up.
-    expect(rel.length).toBe(236);
+    expect(rel.length).toBe(DERIVED_LIB_POPULATION);
   });
 
   // The twelve waivers this arc added, bound to their SITE and their REASON

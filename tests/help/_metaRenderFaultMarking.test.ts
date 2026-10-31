@@ -297,7 +297,10 @@ describe("the ConditionalExpression arm's decline is pinned, not just written do
 });
 
 describe("the scanner's population is pinned against resolver drift", () => {
-  it("scanCandidates reports exactly 35 candidates", () => {
+  // The candidate count, pinned once so the case title cannot drift from the
+  // assertion (it read 35 over an assertion of 34, whole-diff review R4-F5).
+  const SCAN_CANDIDATES = 34;
+  it(`scanCandidates reports exactly ${SCAN_CANDIDATES} candidates`, () => {
     // Pinned HERE rather than in the server-time guard's suite, which needs the
     // same fact but would pay a second full project scan for it (measured: the
     // duplicate scan blew a 30s test timeout). CANDIDATES is already computed
@@ -312,7 +315,7 @@ describe("the scanner's population is pinned against resolver drift", () => {
     // step3ReviewSections.tsx:4152 became a three-state union, so that site is no
     // longer an unrecognized candidate. Probed rather than inferred — origin/main
     // reports 35 with that row present, this tree 34 with it absent.
-    expect(CANDIDATES.length).toBe(34);
+    expect(CANDIDATES.length).toBe(SCAN_CANDIDATES);
   });
 
   it("scanCandidates reports exactly the same file:line:form:marked SET", () => {

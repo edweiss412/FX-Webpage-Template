@@ -37,7 +37,7 @@ export type SubtleExemption = {
 };
 
 export const SUBTLE_INTERACTIVE_EXEMPTIONS: readonly SubtleExemption[] = [
-  // ---- Family S: <summary> disclosure headers (8) -------------------------
+  // ---- Family S: <summary> disclosure headers (10) ------------------------
   // Half caption, half control: the text names the CONTENT it folds, and the
   // fold affordance is carried by the marker/chevron and the interaction, not
   // by label weight.

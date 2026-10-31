@@ -109,6 +109,19 @@ describe("DESIGN.md §1.1a tallies match this registry", () => {
     });
   }
 
+  // The registry's own section banners carry the same tallies, and drifted the
+  // same way: Family S's banner read (8) while the registry held 10 rows and
+  // DESIGN.md already said 10 (whole-diff review R4-F5). Read, not retyped.
+  const registrySource = readFileSync("tests/styles/subtleInteractiveExemptions.ts", "utf8");
+  for (const family of Object.keys(HEADINGS) as SubtleFamily[]) {
+    it(`the registry's ${HEADINGS[family]} section banner counts its ${family} rows`, () => {
+      const banner = new RegExp(`// ---- ${HEADINGS[family]}: [^\\n]*\\((\\d+)\\)`, "g");
+      const banners = [...registrySource.matchAll(banner)];
+      expect(banners, `exactly one ${HEADINGS[family]} banner with a "(N)" count`).toHaveLength(1);
+      expect(Number(banners[0]![1])).toBe(rowsOf(family));
+    });
+  }
+
   it("the Family D table has one row per state-dim site, a row marked (xN) counting N", () => {
     const start = section.indexOf("| Dim member |");
     premiseHolds("DESIGN.md §1.1a has the Family D table", start >= 0);

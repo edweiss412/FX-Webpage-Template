@@ -451,7 +451,10 @@ describe("forced-colors state collapse (Arm 1)", () => {
     ).toEqual([]);
   });
 
-  it("holds exactly 41 collapse rows, each disposed once", () => {
+  // The census size, pinned once so the case title cannot drift from the assertion
+  // (it read 41 over an assertion of 42 on main and 45 here, whole-diff review R4-F5).
+  const COLLAPSE_ROWS = 45;
+  it(`holds exactly ${COLLAPSE_ROWS} collapse rows, each disposed once`, () => {
     // The anti-vacuity literal. A subset assertion passes while the census grows
     // silently, and the family sum is what stops a new site landing in no family.
     // 42 -> 41 on feat/crew-page-redesign: the crew sub-nav tab and its icon left,
@@ -465,8 +468,8 @@ describe("forced-colors state collapse (Arm 1)", () => {
     // 45 on the merge of origin/main (feat/warning-card-fixes) into
     // feat/crew-page-redesign, re-derived by running this guard: that arc's two moves
     // net to zero, and the sub-nav tab row it still carried left with the sub-nav.
-    expect(COLLAPSE_CENSUS).toHaveLength(45);
-    expect(new Set(COLLAPSE_CENSUS.map((r) => r.site)).size).toBe(45);
+    expect(COLLAPSE_CENSUS).toHaveLength(COLLAPSE_ROWS);
+    expect(new Set(COLLAPSE_CENSUS.map((r) => r.site)).size).toBe(COLLAPSE_ROWS);
     const repaired = COLLAPSE_CENSUS.filter((r) => r.disposition === "repaired");
     // 12 -> 11 with the crew sub-nav tab: the wide nav item that replaced it keeps
     // a weight delta, so it never collapsed and needs no repair row. 11 -> 13 with
