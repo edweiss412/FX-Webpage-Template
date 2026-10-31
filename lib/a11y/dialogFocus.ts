@@ -119,10 +119,15 @@ function isTabStop(el: HTMLElement): boolean {
   );
 }
 
-/** A named radio group, keyed within its form (or the document). */
-function radioGroup(el: HTMLElement): string | null {
+/**
+ * A named radio's group: its form element (null for a radio no form owns) and
+ * its name, as the browser groups them. Keyed by the element, never its id: two
+ * forms without one, or such a form and the document, are different groups
+ * (whole-diff review round 2, 2B-3).
+ */
+function radioGroup(el: HTMLElement): { form: HTMLFormElement | null; name: string } | null {
   return el instanceof HTMLInputElement && el.type === "radio" && el.name !== ""
-    ? `${el.form?.id ?? ""}\u0000${el.name}`
+    ? { form: el.form, name: el.name }
     : null;
 }
 
@@ -133,20 +138,26 @@ function walkStops(container: HTMLElement): HTMLElement[] {
   );
   // A radio group is ONE stop, as it is natively: the radio holding focus,
   // else the checked one, else the group's first. Arrow keys move within it.
-  const stopFor = new Map<string, HTMLElement>();
+  const groups = new Map<HTMLFormElement | null, Map<string, HTMLElement>>();
+  const stopFor = (group: { form: HTMLFormElement | null; name: string }) => {
+    let byName = groups.get(group.form);
+    if (byName === undefined) groups.set(group.form, (byName = new Map()));
+    return byName;
+  };
   for (const el of stops) {
     const group = radioGroup(el);
     if (group === null) continue;
-    const held = stopFor.get(group);
+    const byName = stopFor(group);
+    const held = byName.get(group.name);
     const better =
       held === undefined ||
       el === active ||
       (held !== active && (el as HTMLInputElement).checked && !(held as HTMLInputElement).checked);
-    if (better) stopFor.set(group, el);
+    if (better) byName.set(group.name, el);
   }
   return stops.filter((el) => {
     const group = radioGroup(el);
-    return group === null || stopFor.get(group) === el;
+    return group === null || stopFor(group).get(group.name) === el;
   });
 }
 

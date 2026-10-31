@@ -695,6 +695,46 @@ describe("walk mode (walkTabs, the crew section sheet): the hook moves focus on 
     expect(["radio-c", "radio-d"]).toContain(back[1]);
   });
 
+  // Whole-diff review round 2, 2B-3. A group was keyed by its form's id, "" for
+  // a form without one and for no form at all, so same-named radios in two
+  // id-less forms, or in such a form and outside every form, were one group and
+  // all but one lost their stop. A group is its form element and its name.
+  test("walk: same-named radios in different forms, and outside every form, are separate groups, each one stop", () => {
+    render(
+      <Dialog testId="d" walk>
+        <button type="button" data-testid="first">
+          First
+        </button>
+        <form>
+          <input type="radio" name="pick" value="a" data-testid="form1-a" />
+          <input type="radio" name="pick" value="b" defaultChecked data-testid="form1-b" />
+        </form>
+        <form>
+          <input type="radio" name="pick" value="a" defaultChecked data-testid="form2-a" />
+          <input type="radio" name="pick" value="b" data-testid="form2-b" />
+        </form>
+        <input type="radio" name="pick" value="a" data-testid="loose-a" />
+        <input type="radio" name="pick" value="b" defaultChecked data-testid="loose-b" />
+        <button type="button" data-testid="last">
+          Last
+        </button>
+      </Dialog>,
+    );
+    // PREMISE: each form owns its radios, and the loose ones have no form.
+    const owner = (id: string) => (screen.getByTestId(id) as HTMLInputElement).form;
+    expect(owner("form1-a")).not.toBeNull();
+    expect(owner("form1-a")).not.toBe(owner("form2-a"));
+    expect(owner("loose-a")).toBeNull();
+
+    screen.getByTestId("first").focus();
+    const forward: (string | null)[] = [];
+    for (let i = 0; i < 5; i++) {
+      tab();
+      forward.push(active());
+    }
+    expect(forward).toEqual(["form1-b", "form2-a", "loose-b", "last", "first"]);
+  });
+
   // The walk listens on `window`, so it hears Tabs from anywhere on the page. A
   // dialog opened from the sheet but portaled outside it (as the admin review
   // modal's unsaved-readings prompt is portaled) owns its own Tabs.
