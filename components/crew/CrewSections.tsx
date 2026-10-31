@@ -281,6 +281,37 @@ function focusBodyIfFocusFell(body: HTMLElement | null): void {
   body.focus({ preventScroll: true });
 }
 
+/**
+ * The wide Today block when the viewer has no run of show (critique F7, spec
+ * §3.2 amendment 2026-10-30). Two columns otherwise put the day row and pass
+ * beside the whole home body, and with no run card under the pass the lead
+ * column ended there while the quick facts and the show notes ran on beside
+ * it: a blank quadrant next to the page's most important card. Here the block
+ * is a two-column grid instead, the home body's root `display: contents` so its
+ * cards are grid items: the quick facts sit beside the pass, and the show notes,
+ * the Dress code card and an admin fetch-failure block each span both columns
+ * under that row. Moving the notes under the pass alone only moved the hole
+ * under the quick facts (measured at 1280: a 533px column of air beside the
+ * notes); spanning leaves no column of air at all. Dense flow keeps the pass and
+ * the quick facts on the first row whatever renders after them. Only while the
+ * block holds quick facts: without them the notes are the right column's only
+ * content and the two-column flex layout below already places them there. Every
+ * rule reads the server render's own nodes, so nothing a body holds changes.
+ */
+const TODAY_PACKED = cn(
+  "lg:has-data-[testid=crew-quick-facts]:grid",
+  "lg:has-data-[testid=crew-quick-facts]:grid-cols-2",
+  "lg:has-data-[testid=crew-quick-facts]:grid-flow-row-dense",
+  "lg:has-data-[testid=crew-quick-facts]:gap-y-4",
+  "lg:has-data-[testid=crew-quick-facts]:*:data-[testid=section-today]:contents",
+  "lg:has-data-[testid=crew-quick-facts]:*:data-[testid=crew-today-lead]:col-start-1",
+  // The lead's last margin spaced it from the home body; the row gap does here.
+  "lg:has-data-[testid=crew-quick-facts]:[&>[data-testid=crew-today-lead]>:last-child]:mb-0",
+  "lg:has-data-[testid=crew-quick-facts]:[&>[data-testid=section-today]>[data-testid=crew-quick-facts]]:col-start-2",
+  "lg:has-data-[testid=crew-quick-facts]:[&>[data-testid=section-today]>[data-card-id]]:col-span-2",
+  "lg:has-data-[testid=crew-quick-facts]:[&>[data-testid=section-today]>[data-testid^=section-tile-error]]:col-span-2",
+);
+
 type RevealRun = { frame: number; deadline: number };
 
 /** A viewport crossing the controller still has to act on (spec §7 compound rows). */
@@ -864,10 +895,14 @@ export function CrewSections({
                   // Wide: two columns, the day row, pass and run card beside the
                   // home body (quick facts, show notes, Dress code card), each
                   // `flex-1` so a column that renders nothing (`empty:hidden`)
-                  // leaves the other the full width. Not a size container: the
-                  // home body reads no container query, and containment would
+                  // leaves the other the full width; with no run of show, the
+                  // packed grid of `TODAY_PACKED` instead. Not a size container:
+                  // the home body reads no container query, and containment would
                   // make this block the containing block of the fixed copy toast.
-                  className="flex flex-col lg:flex-row lg:items-start lg:gap-6"
+                  className={cn(
+                    "flex flex-col lg:flex-row lg:items-start lg:gap-6",
+                    runCard === null && TODAY_PACKED,
+                  )}
                 >
                   <h2 id="crew-today-heading" className="sr-only">
                     {CREW_TODAY_LABEL}

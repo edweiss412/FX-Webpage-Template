@@ -222,6 +222,44 @@ test.describe("crew wide nav (spec §5.3)", () => {
     expect(outline.problems).toEqual([]);
   });
 
+  test("home: with no run of show, the wide Today block puts the quick facts beside the pass and the show notes across both under them", async ({
+    page,
+  }) => {
+    // Critique F7: with no run-of-show card (every seeded show), the lead column
+    // ended at the pass while the quick facts and show notes ran on in the other
+    // column, leaving a blank quadrant beside the page's most important card.
+    // The seed fixture has no run of show, so this is that page.
+    await load(page, "?s=today");
+    await expect(page.getByTestId("today-run-of-show")).toHaveCount(0);
+    const r = await page.evaluate(() => {
+      const box = (sel: string) => {
+        const b = document.querySelector(sel)!.getBoundingClientRect();
+        return { top: b.top, bottom: b.bottom, left: b.left, right: b.right };
+      };
+      return {
+        lead: box('[data-testid="crew-today-lead"]'),
+        pass: box('[data-testid="crew-pass"]'),
+        facts: box('[data-testid="crew-quick-facts"]'),
+        notes: box('[data-testid="today-notes"]'),
+        block: box('[data-testid="crew-today-block"]'),
+      };
+    });
+    const at = JSON.stringify(r);
+    const TOL = 0.5;
+    // The quick facts sit beside the pass; the notes run under both, across
+    // both columns, so neither column is left holding air beside the other.
+    expect(r.facts.left, at).toBeGreaterThanOrEqual(r.pass.right - TOL);
+    expect(r.facts.top, at).toBeLessThan(r.pass.bottom);
+    expect(Math.abs(r.notes.left - r.pass.left), at).toBeLessThanOrEqual(TOL);
+    expect(Math.abs(r.notes.right - r.facts.right), at).toBeLessThanOrEqual(TOL);
+    expect(r.notes.top, at).toBeGreaterThanOrEqual(Math.max(r.pass.bottom, r.facts.bottom) - TOL);
+    // No void: the notes start one row gap under whichever top-row item is
+    // taller, the lead or the quick facts.
+    expect(r.notes.top - Math.max(r.lead.bottom, r.facts.bottom), at).toBeLessThanOrEqual(24 + TOL);
+    // The block ends with the notes, not with a column of air.
+    expect(r.block.bottom - r.notes.bottom, at).toBeLessThanOrEqual(TOL + 1);
+  });
+
   test("wide nav: ?s=today loads at the top of the page", async ({ page }) => {
     await load(page, "?s=today");
     await expect.poll(() => page.evaluate(() => window.scrollY)).toBe(0);

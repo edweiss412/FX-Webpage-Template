@@ -129,7 +129,7 @@ The admin popup keeps its own shell and rail. It changes only in that its sectio
 | Pass (§4.3) | ✓ | ✓ | ✗ |
 | Run of show card (§4.4) | ✓ | ✓ | ✗ (its Agenda section shows the full agenda) |
 | Quick facts (§4.5) | ✓ | ✓, beside the run of show | ✗ |
-| Show notes card (§6.2) | ✓, below quick facts | ✓, in the Today block | ✗ |
+| Show notes card (§6.2) | ✓, below quick facts | ✓, in the Today block. **Amendment 2026-10-30 (invariant-8 gate, critique F7; overridable):** when the viewer has no run of show, the Today block is a two-column grid: the quick facts beside the pass, and the show notes, the Dress code card and any admin fetch-failure block spanning both columns under them, so no column holds air beside the pass. With a run of show, unchanged. | ✗ |
 | Dress code card (§6.2, PR A and PR B only) | ✓, beside show notes | ✓, in the Today block | ✗ |
 | "All sections" list (§4.6) | ✓ | ✗ | ✗ |
 | Left nav (§5.3) | ✗ | ✓ | ✗ (its own rail, unchanged) |
