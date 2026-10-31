@@ -215,6 +215,8 @@ type StateCase = {
    * visual only (spec 4.7.2 Accessibility), so the minute tick announces nothing.
    */
   announced?: string;
+  /** The text of each run set in tabular figures, in order: the saved time and the age. */
+  figures: readonly string[];
 };
 
 /** Forces one input only later tasks wire up, through the real derivation. */
@@ -235,6 +237,7 @@ const STATE_CASES = {
     lead: "No signal.",
     text: `No signal. Showing your saved copy from ${at(FRESH_SAVED_AT)} (30 min ago).`,
     announced: `No signal. Showing your saved copy from ${at(FRESH_SAVED_AT)}.`,
+    figures: [at(FRESH_SAVED_AT), " (30 min ago)"],
   },
   "saved-old": {
     arrange: () => {
@@ -250,6 +253,7 @@ const STATE_CASES = {
     announced:
       `Slow connection. Your saved copy is from ${at(OLD_SAVED_AT)}. ` +
       "Things may have changed since then.",
+    figures: [at(OLD_SAVED_AT), " (7 hr ago)"],
   },
   ended: {
     arrange: () => {
@@ -260,6 +264,7 @@ const STATE_CASES = {
     icon: "lucide-clock",
     lead: "This show has ended.",
     text: `This show has ended. You're seeing the last version, from ${at(FRESH_SAVED_AT)}.`,
+    figures: [at(FRESH_SAVED_AT)],
   },
   "sheet-gone": {
     arrange: () => ({ sheetUnavailable: true }),
@@ -269,6 +274,7 @@ const STATE_CASES = {
     text:
       `${SHEET_LEAD} You're seeing the last version we have. ` +
       "Check with Doug before relying on it.",
+    figures: [],
   },
   "sheet-gone-saved": {
     arrange: () => {
@@ -281,6 +287,7 @@ const STATE_CASES = {
     text:
       `${SHEET_LEAD} This is the last version we have, from ${at(FRESH_SAVED_AT)}. ` +
       "Check with Doug before relying on it.",
+    figures: [at(FRESH_SAVED_AT)],
   },
   updating: {
     arrange: () => {
@@ -291,6 +298,7 @@ const STATE_CASES = {
     icon: "lucide-refresh-cw",
     lead: "Signal's back.",
     text: "Signal's back. Loading the latest version.",
+    figures: [],
   },
   updated: {
     arrange: () => {
@@ -301,6 +309,7 @@ const STATE_CASES = {
     icon: "lucide-check",
     lead: null,
     text: "Updated. You're on the latest version.",
+    figures: [],
   },
 } satisfies Record<Exclude<BarState, "hidden">, StateCase>;
 
@@ -344,6 +353,32 @@ describe("SavedCopyBar: one case per visible state", () => {
 
     expect(document.documentElement.getAttribute(MOUNTED_ATTRIBUTE)).toBe("mounted");
   });
+
+  test.each(Object.entries(STATE_CASES))(
+    "%s: the bar, not the region, draws the bottom edge",
+    (_state, testCase) => {
+      renderBar(testCase.arrange());
+      const classes = (bar().getAttribute("class") ?? "").split(/\s+/);
+      expect(classes).toContain("border-b");
+      expect(classes).toContain("border-border");
+      // The region keeps its layout-only set, so it still has no height while hidden.
+      expect([...region().classList].sort()).toEqual(REGION_LAYOUT_CLASSES);
+    },
+  );
+
+  test.each(Object.entries(STATE_CASES))(
+    "%s: every figure in the copy is set in tabular figures, and nothing else is",
+    (_state, testCase) => {
+      renderBar(testCase.arrange());
+      const content = screen.getByTestId("saved-copy-bar-content");
+      const figures = [...content.querySelectorAll(".tabular-nums")].map((el) => el.textContent);
+      expect(figures).toEqual(testCase.figures);
+      // No digit outside them: the time and age are the only figures the copy holds.
+      const prose = content.cloneNode(true) as HTMLElement;
+      for (const figure of prose.querySelectorAll(".tabular-nums")) figure.remove();
+      expect(prose.textContent ?? "").not.toMatch(/\d/);
+    },
+  );
 
   test("only the updating icon animates: it spins, and holds still under reduced motion", () => {
     for (const [state, testCase] of Object.entries(STATE_CASES)) {

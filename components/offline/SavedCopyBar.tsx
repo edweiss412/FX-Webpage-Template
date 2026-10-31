@@ -161,12 +161,14 @@ const ICONS: Record<NonNullable<BarView["icon"]>, LucideIcon> = {
  * re-reads its whole text whenever that text changes, so without this the bar
  * would be announced again about once a minute for the first hour. The saved
  * time stays announced, so assistive tech still hears how old the copy is
- * (spec 4.7.2 Accessibility).
+ * (spec 4.7.2 Accessibility). Both figures are set in tabular figures
+ * (DESIGN.md 2.4), so "9 min ago" turning into "10 min ago" does not shift the
+ * line, or the bar's height near a wrap.
  */
-const PART_ATTRIBUTES: Record<BodyPart["kind"], { "aria-hidden"?: "true" }> = {
+const PART_ATTRIBUTES: Record<BodyPart["kind"], { className?: string; "aria-hidden"?: "true" }> = {
   text: {},
-  time: {},
-  age: { "aria-hidden": "true" },
+  time: { className: "tabular-nums" },
+  age: { className: "tabular-nums", "aria-hidden": "true" },
 };
 
 function isFreshReadyFor(data: unknown, path: string): boolean {
@@ -426,7 +428,10 @@ export function SavedCopyBarView({ view, fading, onFadeEnd, ref }: SavedCopyBarV
           data-testid="saved-copy-bar"
           data-state={view.state}
           className={cn(
-            "flex items-start gap-2 px-4 py-2 text-sm",
+            // The bottom edge is on the bar, never the region: the hidden
+            // region must stay at zero height. It also survives forced colors,
+            // where every tone fill flattens to Canvas.
+            "flex items-start gap-2 border-b border-border px-4 py-2 text-sm",
             view.tone,
             fading && "opacity-0 transition-opacity duration-normal",
           )}
