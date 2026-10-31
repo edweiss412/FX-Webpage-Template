@@ -33,7 +33,7 @@ import type { AgendaDay, AgendaExtraction } from "@/lib/agenda/types";
 import { DEFAULT_CARD_REPORT } from "@/lib/crew/cardReportContext";
 import { CREW_SECTION_LABELS, type CrewSectionEntry } from "@/lib/crew/crewSections";
 import { buildDayRowProps } from "@/lib/crew/passModel";
-import { buildRunCardProps, RUN_CARD_ROW_CAP, type RunCardProps } from "@/lib/crew/runOfShowCard";
+import { buildRunCardProps, type RunCardProps } from "@/lib/crew/runOfShowCard";
 import { buildSectionHref } from "@/lib/crew/sectionHref";
 import type { ShowForViewer, Viewer } from "@/lib/data/getShowForViewer";
 import { resolveViewerContext } from "@/lib/data/viewerContext";
@@ -73,6 +73,14 @@ vi.mock("next/navigation", () => ({
 }));
 
 // ---- Fixture ----------------------------------------------------------------
+
+/**
+ * Spec §4.4 "Cap": 6 rows on the home screen. Typed here from the spec, never
+ * read from `RUN_CARD_ROW_CAP`, so a cap that drifts from the spec fails the
+ * cap cases instead of moving their fixtures and expectations with it
+ * (whole-diff review round 2, 2B-4).
+ */
+const SPEC_ROW_CAP = 6;
 
 const DATES = {
   travelIn: "2026-04-20",
@@ -405,13 +413,13 @@ describe("run card: cap and Full schedule (spec §4.4, §9.1)", () => {
     );
   }
 
-  it(`run card: more than ${RUN_CARD_ROW_CAP} rows renders ${RUN_CARD_ROW_CAP} and a Full schedule link that opens Schedule through the controller`, () => {
-    const entries = many(RUN_CARD_ROW_CAP + 2);
+  it(`run card: more than ${SPEC_ROW_CAP} rows renders ${SPEC_ROW_CAP} and a Full schedule link that opens Schedule through the controller`, () => {
+    const entries = many(SPEC_ROW_CAP + 2);
     const pushSpy = vi.spyOn(window.history, "pushState");
     renderController(showData({ runOfShow: { [DAY1]: scheduleDay(entries) } }));
     const rows = rowTitles();
-    expect(rows).toHaveLength(RUN_CARD_ROW_CAP);
-    entries.slice(0, RUN_CARD_ROW_CAP).forEach((e, i) => expect(rows[i]).toContain(e.title));
+    expect(rows).toHaveLength(SPEC_ROW_CAP);
+    entries.slice(0, SPEC_ROW_CAP).forEach((e, i) => expect(rows[i]).toContain(e.title));
     const link = within(card()!).getByRole("link", { name: "Full schedule" });
     // A real href (a pre-hydration tap or "open in new tab" lands on the sheet).
     expect(link.getAttribute("href")).toBe(
@@ -434,7 +442,7 @@ describe("run card: cap and Full schedule (spec §4.4, §9.1)", () => {
   // the card's foot, after the rows it continues. The real-browser half (the
   // title never cut) is crew-layout-dimensions.spec.ts "today Mode A".
   it("run card: Full schedule sits at the card's foot, after the rows, never in the header", () => {
-    renderController(showData({ runOfShow: { [DAY1]: scheduleDay(many(RUN_CARD_ROW_CAP + 2)) } }));
+    renderController(showData({ runOfShow: { [DAY1]: scheduleDay(many(SPEC_ROW_CAP + 2)) } }));
     const link = within(card()!).getByRole("link", { name: "Full schedule" });
     const header = card()!.querySelector("header")!;
     // PREMISE: the header exists and still carries the card header actions.
@@ -444,9 +452,9 @@ describe("run card: cap and Full schedule (spec §4.4, §9.1)", () => {
     expect(lastRow.compareDocumentPosition(link) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
   });
 
-  it(`run card: exactly ${RUN_CARD_ROW_CAP} rows render with no Full schedule link`, () => {
-    renderController(showData({ runOfShow: { [DAY1]: scheduleDay(many(RUN_CARD_ROW_CAP)) } }));
-    expect(rowTitles()).toHaveLength(RUN_CARD_ROW_CAP);
+  it(`run card: exactly ${SPEC_ROW_CAP} rows render with no Full schedule link`, () => {
+    renderController(showData({ runOfShow: { [DAY1]: scheduleDay(many(SPEC_ROW_CAP)) } }));
+    expect(rowTitles()).toHaveLength(SPEC_ROW_CAP);
     expect(within(card()!).queryByRole("link", { name: "Full schedule" })).toBeNull();
   });
 });
@@ -526,7 +534,7 @@ describe('run card: the "Next" marker (spec §4.4, §6A L1, §9.2)', () => {
     const entries = [...DAY1_ENTRIES, STRIKE, LOADOUT];
     premiseHolds(
       "every row fits under the card's cap, so none is cut",
-      entries.length <= RUN_CARD_ROW_CAP,
+      entries.length <= SPEC_ROW_CAP,
     );
     const lastAgenda = Math.max(...DAY1_ENTRIES.map((e) => clockToMinutes(e.start)!));
     premiseHolds(
