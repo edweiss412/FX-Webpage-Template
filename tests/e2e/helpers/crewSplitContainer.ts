@@ -3,12 +3,12 @@
  * rule, for real-browser layout specs.
  *
  * A crew section body's one-to-two-column switches read the width of the
- * element that bounds the body (`@container`: the sheet body, each wide stacked
- * section, the Today block), never the viewport (DESIGN.md §6). The rule a spec
- * asserts is therefore "two columns exactly when that container's content box
- * is at least the threshold", and both sides of it are measured here: the
- * threshold from its one definition in app/globals.css, the width from the live
- * container.
+ * element that bounds the body (`@container`: the sheet body and each wide
+ * stacked section; the Today block is not one), never the viewport (DESIGN.md
+ * §6). The rule a spec asserts is therefore "two columns exactly when that
+ * container's content box is at least the threshold", and both sides of it are
+ * measured here: the threshold from its one definition in app/globals.css, the
+ * width from the live container.
  */
 import { readFileSync } from "node:fs";
 import { join } from "node:path";

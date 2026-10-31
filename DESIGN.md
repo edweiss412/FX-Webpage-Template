@@ -857,16 +857,15 @@ Match spec §8.4 grid contract exactly.
 
 Tailwind v4 maps these to `sm:`, `lg:`, `xl:` utility prefixes via `@theme` `--breakpoint-*` tokens.
 
-**Crew section grids are container-relative, not viewport-relative (2026-10-27).** One section body renders in two places at the same window width: the 480px section sheet below 1024px and the wide column from 1024px up (crew page redesign spec §5.2, §5.3). A viewport switch turned the two-column layout on inside the 480px sheet and squeezed card titles to zero width. So every one-to-two-column switch inside a crew section body (the split-wide grids, the Gear scope grid, `KeyValueRows columns={2}`, the `KeyTimesStrip` row strip) reads the width of the element that bounds the body. Those elements carry `@container`: the Today block, each wide stacked section, and the sheet body. The grids use `@min-crew-split:`, the one named threshold, `--container-crew-split: 656px` in `app/globals.css`:
+**Crew section grids are container-relative, not viewport-relative (2026-10-27).** One section body renders in two places at the same window width: the 480px section sheet below 1024px and the wide column from 1024px up (crew page redesign spec §5.2, §5.3). A viewport switch turned the two-column layout on inside the 480px sheet and squeezed card titles to zero width. So every one-to-two-column switch inside a crew section body (the split-wide grids, the Gear scope grid, `KeyValueRows columns={2}`, the `KeyTimesStrip` row strip) reads the width of the element that bounds the body. Those elements carry `@container`: each wide stacked section and the sheet body. The Today block is not one: nothing in its home body (quick facts, show notes, Dress code card) queries it (crew page redesign plan Task 11; the Dress code lines carry their own `@container`), and containment would make the block the containing block of the fixed copy toast, so no `@min-crew-split:` grid belongs in the home body. The grids use `@min-crew-split:`, the one named threshold, `--container-crew-split: 656px` in `app/globals.css`:
 
-| Container (window width)                  | Content width                             | Layout                                     |
-| ----------------------------------------- | ----------------------------------------- | ------------------------------------------ |
-| Sheet body (below 640px)                  | at most 605px                             | one column                                 |
-| Sheet body (640px to 1023px)              | 446px                                     | one column                                 |
-| Today block, compact home (below 1024px)  | window − 64px (window − 32px below 640px) | two columns from a 720px window, as before |
-| Today block and wide sections (1024px up) | 688px to 864px                            | two columns                                |
+| Container (window width)      | Content width  | Layout      |
+| ----------------------------- | -------------- | ----------- |
+| Sheet body (below 640px)      | at most 605px  | one column  |
+| Sheet body (640px to 1023px)  | 446px          | one column  |
+| Wide sections (1024px up)     | 688px to 864px | two columns |
 
-656px is where the old `min-[720px]` viewport switch landed (720 − 2 × 32px `sm:px-8` gutter), so the compact home switches at the same window width it always did; the widths are derived in the token's comment. Do not put a viewport variant (`sm:`, `min-[…]:`) on a layout switch inside a crew section body.
+The threshold only has to fall between the widest sheet body (605px) and the narrowest wide section (688px). 656px is where the retired `min-[720px]` viewport switch landed (720 − 2 × 32px `sm:px-8` gutter), kept because it falls in that gap; the widths are derived in the token's comment. Do not put a viewport variant (`sm:`, `min-[…]:`) on a layout switch inside a crew section body.
 
 ---
 
@@ -881,7 +880,7 @@ Without both, tiles collapse to their intrinsic content height and the spec §8.
 
 This gotcha is the single most common failure mode on this project's UI work — see `memory/feedback_tailwind_v4_flex_items_stretch.md`. Every tile component's spec must call out the parent → child stretch relationship explicitly, and the M4 layout-dimensions Playwright task (the in-browser `getBoundingClientRect()` assertion) verifies it. jsdom is NOT sufficient — it doesn't compute real layout.
 
-> **Amendment (2026-06-21, owner-directed).** The crew **split-wide two-column grids** (Schedule, Crew, Venue, Travel, and Today Mode A) are the one place this project deliberately does NOT use equal-height: they use `@min-crew-split:items-start` (container-relative since 2026-10-27, §6) so the shorter column (e.g. the ~3-row "Crew Schedule", the ~2-contact "Key contacts") takes its natural height instead of stretching to the taller column and leaving dead space. See `docs/superpowers/specs/v1-pre-deployment-amendments/2026-06-21-split-wide-natural-height.md`. The gotcha above still governs every grid where equal-height IS wanted — the Gear peer-card grid and the admin Dashboard split keep `items-stretch` + `h-full`.
+> **Amendment (2026-06-21, owner-directed).** The crew **split-wide two-column grids** (Schedule, Crew, Venue and Travel; Today Mode A's grid retired with the crew page redesign's home, 2026-10-30) are the one place this project deliberately does NOT use equal-height: they use `@min-crew-split:items-start` (container-relative since 2026-10-27, §6) so the shorter column (e.g. the ~3-row "Crew Schedule", the ~2-contact "Key contacts") takes its natural height instead of stretching to the taller column and leaving dead space. See `docs/superpowers/specs/v1-pre-deployment-amendments/2026-06-21-split-wide-natural-height.md`. The gotcha above still governs every grid where equal-height IS wanted — the Gear peer-card grid and the admin Dashboard split keep `items-stretch` + `h-full`.
 
 ---
 
