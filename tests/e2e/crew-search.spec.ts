@@ -31,6 +31,7 @@
 import { expect, test, type Locator, type Page } from "@playwright/test";
 
 import { deleteSeededShow, seedShowWithCrew, type SeededShow } from "./helpers/seedShowWithCrew";
+import { expectClearOfStickyChrome } from "./helpers/stickyClearance";
 import { TEST_AUTH_SECRET } from "./helpers/testAuthConfig";
 
 const CREW_NAME = "Sam Rivera";
@@ -152,6 +153,9 @@ for (const viewport of [
       await expect(line).toHaveAttribute("data-search-reveal", "");
       await expect(line).toBeFocused();
       await expect(line).toBeInViewport();
+      // In view is not seen: the line and its focus ring clear the sticky header
+      // (UI-gate re-run, audit P3-1), which `toBeInViewport` cannot tell.
+      await expectClearOfStickyChrome(line, "the Wi-Fi password line");
       await expect(line).toContainText(PASSWORD);
       // Ending search by a result tap keeps the query (spec §6.2).
       await expect(searchBox(page)).toHaveValue("wifi");
@@ -366,6 +370,10 @@ test.describe("crew search: a Today run-of-show result shows the day it was inde
     await expect(line).toHaveAttribute("data-search-reveal", "");
     await expect(line).toBeFocused();
     await expect(line).toBeInViewport();
+    // Not under the sticky header, ring included (UI-gate re-run, audit P1-1):
+    // the Today block had no scroll margin, so from 1024px the line landed at the
+    // viewport's top, fully under the header, while still "in the viewport".
+    await expectClearOfStickyChrome(line, "the run-of-show line");
     await expect(line).toContainText(LINE);
     // Past the reveal's 1500 ms wait: a reveal that found its line never announces.
     await page.waitForTimeout(1_600);

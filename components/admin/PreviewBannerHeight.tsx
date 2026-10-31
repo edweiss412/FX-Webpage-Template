@@ -9,8 +9,9 @@
  * crew header under it is sticky too. Both sat at top 0, so once the page
  * scrolled the banner covered the header's title, search field and theme
  * switch. The header sticks at `--crew-sticky-top`, which reads this property
- * (app/globals.css), as do the wide nav's offset, every section's scroll margin
- * and the page's scroll padding through `--crew-header-bottom`.
+ * (app/globals.css), as do the wide nav's offset through `--crew-header-bottom`,
+ * and every scroll margin and the page's scroll padding through
+ * `--crew-scroll-clearance`, at every width (the banner sticks on phones too).
  *
  * The height is measured, not a token: the banner wraps onto more lines at
  * narrow widths and with a long name. It follows every resize, and the property

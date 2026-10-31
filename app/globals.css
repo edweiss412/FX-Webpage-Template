@@ -1924,25 +1924,39 @@ details[open] > summary [data-agenda-day-count] {
  * the crew header, so the header sticks under it: `--preview-banner-h` is the
  * banner's measured height, published on <html> by the banner itself
  * (components/admin/PreviewBannerHeight.tsx) and absent everywhere else, so the
- * offset is 0 on the crew route. The nav's sticky offset and height, every
- * section's scroll margin and the page's scroll padding read the header's
- * bottom edge, never its height alone (audit P1-3, critique F3).
+ * offset is 0 on the crew route. The nav's sticky offset and height read the
+ * header's bottom edge, never its height alone (audit P1-3, critique F3).
+ *
+ * Where anything the page scrolls to may land (UI-gate re-run, audit P1-1 and
+ * P3-1): `--crew-scroll-clearance`, below everything that sticks plus the focus
+ * ring's reach (`--crew-ring-clearance`: the `:focus-visible` ring is a 3px
+ * outline at a 2px offset, so 5px past its box, rounded up to the spacing
+ * scale). From 1024px the header and, on the preview route, the banner above it
+ * stick; below 1024px only the banner does, so there the clearance is the
+ * banner's height (0 on the crew route) plus the ring. Every scroll margin a nav
+ * jump or a search reveal reads (the Today block's and each stacked section's)
+ * and the page's scroll padding are this one value, so neither the target nor
+ * its ring lands under the chrome.
  */
 :root {
   --crew-header-h: 6rem;
   --crew-sticky-top: var(--preview-banner-h, 0rem);
   --crew-header-bottom: calc(var(--crew-sticky-top) + var(--crew-header-h));
+  --crew-ring-clearance: 0.5rem;
+  --crew-scroll-clearance: calc(var(--crew-sticky-top) + var(--crew-ring-clearance));
+  @variant lg {
+    --crew-scroll-clearance: calc(var(--crew-header-bottom) + var(--crew-ring-clearance));
+  }
 }
 
 /*
- * Keyboard focus never lands under the wide sticky header (WCAG 2.2 SC 2.4.11,
+ * Keyboard focus never lands under the sticky chrome (WCAG 2.2 SC 2.4.11,
  * audit P1-2). A control focused by Tab or Shift+Tab is scrolled into view
- * inside the scroll padding, so it stops below the header (and the preview
- * banner) instead of under them. Only from 1024px, where the header sticks, and
- * only on a page that has the crew header.
+ * inside the scroll padding, so it stops below the header and the preview
+ * banner, ring included, instead of under them. At every width, since the
+ * preview banner sticks below 1024px too; only on a page that has the crew
+ * header.
  */
 :root:has([data-testid="page-header"]) {
-  @variant lg {
-    scroll-padding-top: var(--crew-header-bottom);
-  }
+  scroll-padding-top: var(--crew-scroll-clearance);
 }

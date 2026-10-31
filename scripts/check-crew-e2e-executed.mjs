@@ -105,7 +105,10 @@ export const REQUIRED = {
   // the Today block with no run of show, Y9; Shift+Tab never under the sticky
   // header, Y1; the title fits its row, Y4; the header under the preview banner,
   // Y2). Re-derived from the wiring guard's live Playwright resolution (22).
-  "crew-wide-nav.spec.ts": 22,
+  // Twenty-four since the UI-gate re-run's P1-1 added two (a Today search reveal
+  // on the preview route clears the banner and header, at 1280 and at 390).
+  // Re-derived from the wiring guard's live Playwright resolution (24).
+  "crew-wide-nav.spec.ts": 24,
   // 9, and the number is the MATRIX rather than a multiple (plan
   // 2026-08-09-quick-wins-2 "e2e harness readiness"). theme-toggle runs two arms:
   //   arm (a) — 4 standalone-toggle cases, BOTH projects            = 8

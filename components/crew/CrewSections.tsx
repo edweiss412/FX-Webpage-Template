@@ -899,8 +899,11 @@ export function CrewSections({
                   // packed grid of `TODAY_PACKED` instead. Not a size container:
                   // the home body reads no container query, and containment would
                   // make this block the containing block of the fixed copy toast.
+                  // Its scroll margin is the one every reveal into it reads, so a
+                  // revealed line and its ring land clear of the sticky chrome
+                  // (UI-gate re-run, audit P1-1).
                   className={cn(
-                    "flex flex-col lg:flex-row lg:items-start lg:gap-6",
+                    "flex scroll-mt-(--crew-scroll-clearance) flex-col lg:flex-row lg:items-start lg:gap-6",
                     runCard === null && TODAY_PACKED,
                   )}
                 >
@@ -949,7 +952,7 @@ export function CrewSections({
                         data-testid="crew-wide-section"
                         data-section={s.id}
                         aria-labelledby={`crew-section-heading-${s.id}`}
-                        className="@container flex scroll-mt-(--crew-header-bottom) flex-col gap-4"
+                        className="@container flex scroll-mt-(--crew-scroll-clearance) flex-col gap-4"
                       >
                         <h2
                           id={`crew-section-heading-${s.id}`}

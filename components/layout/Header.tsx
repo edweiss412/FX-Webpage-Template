@@ -31,7 +31,8 @@
  *     a screen reader hears title, search, chip in both modes.
  *   - Wide (1024px and up): a fixed-height bar that sticks to the top of the
  *     viewport, `--crew-header-h` tall (spec §8 item 6), the token the wide
- *     nav's sticky offset and every stacked section's scroll margin read too.
+ *     nav's sticky offset and every scroll margin read too (the margins through
+ *     `--crew-scroll-clearance`, which adds the focus ring's reach).
  *     It sticks at `--crew-sticky-top`: 0 on the crew route, the preview
  *     banner's height on the admin preview route, so the banner never covers
  *     it (audit P1-3).

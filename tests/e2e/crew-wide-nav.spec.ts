@@ -58,6 +58,11 @@ import { SCROLL_SPY_OFFSET_PX } from "@/lib/ui/scrollSpy";
 import { ADMIN_FIXTURE } from "./helpers/fixtures";
 import { signInAs, signOut } from "./helpers/signInAs";
 import { deleteSeededShow, seedShowWithCrew } from "./helpers/seedShowWithCrew";
+import {
+  expectClearOfStickyChrome,
+  FOCUS_RING_REACH_PX,
+  settleScroll,
+} from "./helpers/stickyClearance";
 import { admin } from "./helpers/supabaseAdmin";
 import { TEST_AUTH_SECRET } from "./helpers/testAuthConfig";
 
@@ -433,6 +438,11 @@ test.describe("crew wide nav (spec §5.3)", () => {
       probe.style.cssText = "position:absolute;visibility:hidden;height:var(--crew-header-h)";
       document.body.append(probe);
       const token = probe.getBoundingClientRect().height;
+      // The ring allowance and the scroll clearance it builds, resolved the same way.
+      probe.style.height = "var(--crew-ring-clearance)";
+      const ring = probe.getBoundingClientRect().height;
+      probe.style.height = "var(--crew-scroll-clearance)";
+      const clearance = probe.getBoundingClientRect().height;
       probe.remove();
       const rect = (el: Element) => {
         const r = el.getBoundingClientRect();
@@ -454,6 +464,8 @@ test.describe("crew wide nav (spec §5.3)", () => {
       const ns = getComputedStyle(nav);
       return {
         token,
+        ring,
+        clearance,
         innerHeight: window.innerHeight,
         scrollY: window.scrollY,
         header: {
@@ -573,11 +585,19 @@ test.describe("crew wide nav (spec §5.3)", () => {
       m.anchors.map((a) => a.id),
       at,
     ).toEqual(ADMIN_SECTIONS);
+    // Every anchor's scroll margin is the header's bottom edge plus the focus
+    // ring's allowance (UI-gate re-run, audit P3-1): a margin of exactly the
+    // header put the heading's ring top under it.
+    expect(m.ring, `the ring allowance covers the ring's reach ${at}`).toBeGreaterThanOrEqual(
+      FOCUS_RING_REACH_PX,
+    );
+    expect(Math.abs(m.clearance - (m.token + m.ring)), at).toBeLessThanOrEqual(TOL);
     for (const a of m.anchors) {
-      expect(Math.abs(a.margin - m.token), `${at} ${a.id}`).toBeLessThanOrEqual(TOL);
+      expect(Math.abs(a.margin - m.clearance), `${at} ${a.id}`).toBeLessThanOrEqual(TOL);
     }
-    // A jump (instant under reduced motion) lands the section's top on the
-    // header's bottom edge: the heading is never under the header.
+    // A jump (instant under reduced motion) lands the section's top one ring
+    // allowance under the header's bottom edge: neither the heading nor its
+    // focus ring is ever under the header.
     const landed = await page.evaluate(async () => {
       document
         .querySelector<HTMLElement>('[data-testid="crew-wide-nav"] [data-section="gear"]')!
@@ -595,9 +615,12 @@ test.describe("crew wide nav (spec §5.3)", () => {
     });
     expect(landed.scrollY, JSON.stringify(landed)).toBeGreaterThan(0);
     expect(
-      Math.abs(landed.headingTop - landed.headerBottom),
+      Math.abs(landed.headingTop - (landed.headerBottom + m.ring)),
       JSON.stringify(landed),
     ).toBeLessThanOrEqual(TOL);
+    const heading = page.locator('[data-testid="crew-wide-section"][data-section="gear"] h2');
+    await expect(heading).toBeFocused();
+    await expectClearOfStickyChrome(heading, "the Gear heading after a nav jump");
   });
 
   // ── Compound transitions across the breakpoint (spec §7, plan Task 12) ──────
@@ -1086,6 +1109,15 @@ test.describe("the composed home, wide (crew page redesign Task 11)", () => {
           navTop: nav.top,
           searchHitsHeader: Boolean(hit?.closest('[data-testid="page-header"]')),
           scrollPadding: parseFloat(getComputedStyle(document.documentElement).scrollPaddingTop),
+          ring: (() => {
+            const probe = document.createElement("div");
+            probe.style.cssText =
+              "position:absolute;visibility:hidden;height:var(--crew-ring-clearance)";
+            document.body.append(probe);
+            const h = probe.getBoundingClientRect().height;
+            probe.remove();
+            return h;
+          })(),
         };
       });
     const m = await read();
@@ -1099,25 +1131,61 @@ test.describe("the composed home, wide (crew page redesign Task 11)", () => {
       Math.abs(m.navTop - m.headerBottom),
       `the nav sticks under the header ${at}`,
     ).toBeLessThanOrEqual(0.5);
+    expect(m.ring, `the ring allowance covers the ring's reach ${at}`).toBeGreaterThanOrEqual(
+      FOCUS_RING_REACH_PX,
+    );
     expect(
-      Math.abs(m.scrollPadding - m.headerBottom),
-      `scroll padding clears banner and header ${at}`,
+      Math.abs(m.scrollPadding - (m.headerBottom + m.ring)),
+      `scroll padding clears banner, header and a focus ring ${at}`,
     ).toBeLessThanOrEqual(0.5);
-    // A nav jump lands the section's heading just under the header, not under the banner.
+    // A nav jump lands the section's heading, ring included, under the header,
+    // not under the banner.
     await page.getByTestId("crew-wide-nav").locator('[data-section="crew"]').click();
-    await expect
-      .poll(() =>
-        page.evaluate(() =>
-          Math.round(
-            document
-              .querySelector('[data-testid="crew-wide-section"][data-section="crew"] h2')!
-              .getBoundingClientRect().top -
-              document.querySelector('[data-testid="page-header"]')!.getBoundingClientRect().bottom,
-          ),
-        ),
-      )
-      .toBeGreaterThanOrEqual(0);
+    const heading = page.locator('[data-testid="crew-wide-section"][data-section="crew"] h2');
+    await expect(heading).toBeFocused();
+    await expectClearOfStickyChrome(heading, "the Crew heading after a nav jump");
   });
+
+  for (const viewport of [
+    { width: 1280, height: 800, mode: "wide" },
+    { width: 390, height: 844, mode: "compact" },
+  ] as const) {
+    test(`home: on the preview route at ${viewport.width}px, a Today search reveal lands the note, ring included, clear of the banner and the header`, async ({
+      page,
+    }) => {
+      // UI-gate re-run, audit P1-1: the Today block had no scroll margin, so a
+      // reveal of a show note, the Dress code or a run-of-show line put it at the
+      // viewport's top, under the sticky header from 1024px and, on the preview
+      // route at every width, under the sticky banner.
+      const crewId = seeded.crew[0]!.id;
+      await page.setViewportSize({ width: viewport.width, height: viewport.height });
+      const path = `/admin/show/${seeded.slug}/preview/${crewId}`;
+      const res = await page.goto(path, { waitUntil: "domcontentloaded" });
+      expect(res?.status(), `${path} must render`).toBe(200);
+      const root = page.getByTestId("crew-shell-sections");
+      await expect(root).toHaveAttribute("data-crew-controller-ready", "true", {
+        timeout: 30_000,
+      });
+      await expect(root).toHaveAttribute("data-crew-mode", viewport.mode);
+      await page.getByRole("searchbox", { name: "Search this show" }).fill("freight elevator");
+      const row = page
+        .getByTestId("crew-search-row")
+        .and(page.locator('[data-entry-id^="today:"]'))
+        .filter({ hasText: VENUE.notes });
+      await expect(row).toHaveCount(1);
+      const entryId = (await row.getAttribute("data-entry-id"))!;
+      await row.getByTestId("crew-search-row-open").click();
+      const line = page
+        .getByTestId("crew-today-block")
+        .locator(`[data-search-target="${entryId}"]`);
+      await expect(line).toHaveAttribute("data-search-reveal", "");
+      await expect(line).toBeFocused();
+      // PREMISE: the reveal scrolled, so the line's landing is the reveal's.
+      await settleScroll(page);
+      expect(await page.evaluate(() => window.scrollY)).toBeGreaterThan(0);
+      await expectClearOfStickyChrome(line, `the show note at ${viewport.width}px`);
+    });
+  }
 
   test("home: the preview banner shows above the wide home on the preview route", async ({
     page,
