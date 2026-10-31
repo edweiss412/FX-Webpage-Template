@@ -34,7 +34,7 @@ The first run was on HEAD 2c4121f92, after all 28 tasks and the merge of main. T
 
 - Critique, first run: RAN, 26/40, using a live harness with the real components and compiled CSS. Re-check: RAN-DEGRADED, 29/40, from a static render measured in headless Chromium. Final re-check: RAN-DEGRADED, 30/40, with real hydration in a stand-in shell on Chromium and WebKit.
 - Audit, first run: RAN, 15/20. Both re-checks: RAN, 16/20. The detector found 0 issues, and planted controls were flagged.
-- Impeccable 4.5.0 has no `product.md` register. The app-UI register is `operate.md` / `mode-operate.md`, and both runs read those.
+- Impeccable 4.5.0 has no "product" register reference. Its app-UI register is the "operate" and "mode-operate" references, and every run read those.
 
 | # | Finding (severity, source) | Disposition |
 |---|---|---|
