@@ -287,8 +287,10 @@ describe("SavedCopyBar recovery: when the bar probes", () => {
     // read a slow `saved` as nothing. A probe's save fetches no asset, so the
     // asset deadline is no part of the wait (Codex R2 C2; pinned by
     // "a probe's save fetches no asset" in tests/lib/offline/workerInstall.test.ts).
-    // A 5-second margin covers the static files and the commit. It stays under
-    // the 30-second cadence so a reply that never comes frees the next tick.
+    // A 5-second margin covers the commit and the static files the worker holds
+    // (a probe fetching new ones after a deployment can reply late; they are
+    // cached for the next probe). It stays under the 30-second cadence so a
+    // reply that never comes frees the next tick.
     const timeoutMs = post.mock.calls[0]?.[1].timeoutMs ?? 0;
     expect(timeoutMs).toBeGreaterThan(NAV_BUDGET_MS + STATUS_TIMEOUT_MS + PROBE_MARGIN_MS);
     expect(timeoutMs).toBeLessThan(PROBE_EVERY_MS);

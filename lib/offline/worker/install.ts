@@ -115,6 +115,18 @@ const ASSET_TIMEOUT_MS = 5_000;
  */
 const ASSET_FETCH_BUDGET_MS = 15_000;
 
+/** At most this many asset fetches are in flight at once, all under the one deadline (spec 4.8). */
+const ASSET_FETCHES_IN_FLIGHT = 4;
+
+/**
+ * A save waits this long for the static files the page needs to hydrate,
+ * headers and bodies, from the moment it asks for them, before it abandons the
+ * save and leaves the show's copy as it was (spec 4.6). The same allowance the
+ * optional assets get, named for its own rule: a missing asset is skipped, a
+ * missing static file costs the save.
+ */
+const STATIC_FETCH_BUDGET_MS = 15_000;
+
 /** Every document the worker builds: a saved copy, the not-saved page (spec 4.7.1, 4.7.5). */
 const HTML_HEADERS: Readonly<Record<string, string>> = {
   "content-type": "text/html; charset=utf-8",
@@ -748,12 +760,12 @@ export function installWorker(scope: WorkerScope, deps: WorkerDeps): void {
   // --- Saving (spec 4.6 completeness, 4.8 caps and eviction) ---------------------------
 
   /** A required static file from the cache, or fetched and stored; throws when it cannot be had. */
-  async function ensureStatic(path: string): Promise<Response> {
+  async function ensureStatic(path: string, signal: AbortSignal): Promise<Response> {
     const url = absolute(path);
     const cache = await staticCache();
     const hit = await cache.match(url);
     if (hit !== undefined) return hit;
-    const response = await deps.fetch(url);
+    const response = await deps.fetch(url, { signal });
     if (response.status !== 200) throw new Error(`required static file unavailable: ${path}`);
     await cache.put(url, response.clone());
     await store.recordStatics([path], deps.now());
@@ -764,11 +776,27 @@ export function installWorker(scope: WorkerScope, deps: WorkerDeps): void {
    * Every static file the HTML names, plus every font its stylesheets name, one
    * level deep, present in the static cache. Each is recorded at commit time,
    * cache hits included, so the 14-day sweep cannot take one a copy depends on.
+   * The whole set, headers and bodies, shares STATIC_FETCH_BUDGET_MS: past it
+   * every fetch still out is aborted and this rejects, which abandons the save.
    */
   async function storeStatics(html: string, pin: (path: string) => void): Promise<string[]> {
+    const controller = new AbortController();
+    const work = fetchStatics(html, pin, controller.signal);
+    const outcome = await within(work, STATIC_FETCH_BUDGET_MS);
+    if (outcome.kind === "done") return outcome.value;
+    controller.abort();
+    throw new Error("required static files did not arrive in time");
+  }
+
+  async function fetchStatics(
+    html: string,
+    pin: (path: string) => void,
+    signal: AbortSignal,
+  ): Promise<string[]> {
+    const ensure = (path: string) => ensureStatic(path, signal);
     const required = [...requiredStaticUrls(html, origin)];
     required.forEach(pin);
-    const responses = await Promise.all(required.map(ensureStatic));
+    const responses = await Promise.all(required.map(ensure));
     const fonts = new Set<string>();
     for (const [index, path] of required.entries()) {
       const response = responses[index];
@@ -778,7 +806,7 @@ export function installWorker(scope: WorkerScope, deps: WorkerDeps): void {
       }
     }
     fonts.forEach(pin);
-    await Promise.all([...fonts].map(ensureStatic));
+    await Promise.all([...fonts].map(ensure));
     const all = [...required, ...fonts];
     await store.recordStatics(all, deps.now());
     return all;
@@ -835,10 +863,11 @@ export function installWorker(scope: WorkerScope, deps: WorkerDeps): void {
   }
 
   /**
-   * The listed assets this save does not hold, fetched together under one
-   * deadline, ASSET_FETCH_BUDGET_MS from now: once it passes, every fetch still
-   * out is aborted and its asset skipped (spec 4.8). A store that fails aborts
-   * them all and rejects.
+   * The listed assets this save does not hold, fetched in list order with at
+   * most ASSET_FETCHES_IN_FLIGHT out at once, all under one deadline,
+   * ASSET_FETCH_BUDGET_MS from now: once it passes, every fetch still out is
+   * aborted, nothing still queued is asked for, and each of those assets is
+   * skipped (spec 4.8). A store that fails aborts them all and rejects.
    */
   async function fetchMissingAssets(
     paths: readonly string[],
@@ -847,20 +876,28 @@ export function installWorker(scope: WorkerScope, deps: WorkerDeps): void {
     const results = new Map<string, FetchedAsset>();
     const downloads = allowance(SHOW_PREFETCH_MAX_BYTES);
     const controllers = paths.map(() => new AbortController());
-    const all = Promise.all(
-      paths.map(async (path, index) => {
+    let next = 0;
+    let closed = false;
+    const lane = async (): Promise<void> => {
+      while (!closed && next < paths.length) {
+        const index = next;
+        next += 1;
+        const path = paths[index] as string;
         const signal = (controllers[index] as AbortController).signal;
         const fetched = await fetchAsset(path, signal, downloads, cache);
         if (!results.has(path)) results.set(path, fetched);
-      }),
-    );
+      }
+    };
+    const lanes = Math.min(ASSET_FETCHES_IN_FLIGHT, paths.length);
+    const all = Promise.all(Array.from({ length: lanes }, lane));
     try {
       if ((await within(all, ASSET_FETCH_BUDGET_MS)).kind === "timeout") {
         for (const path of paths) if (!results.has(path)) results.set(path, SKIP);
       }
     } finally {
-      // Past the deadline, or after a store that failed, nothing still out is
-      // wanted; aborting a fetch that already finished does nothing.
+      // Past the deadline, or after a store that failed, nothing still out or
+      // queued is wanted; aborting a fetch that already finished does nothing.
+      closed = true;
       for (const controller of controllers) controller.abort();
     }
     return results;

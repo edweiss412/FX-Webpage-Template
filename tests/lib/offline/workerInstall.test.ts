@@ -2138,6 +2138,104 @@ describe("completeness", () => {
     expect(stored.length * 20).toBeLessThanOrEqual(75);
   });
 
+  // Coordinator follow-up (a): the required static files share one deadline,
+  // 15 s from the moment the save asks for them, so a save cannot hang on one.
+  const stalledScript = reply(
+    () => new Response(stalledBody(), { headers: { "content-type": "text/javascript" } }),
+  );
+  test.each([
+    ["a probe", "whose headers never arrive", { type: "probe", url: U }, hang],
+    ["a probe", "whose body stalls after the headers", { type: "probe", url: U }, stalledScript],
+    [
+      "an ensure-saved",
+      "whose headers never arrive",
+      { type: "ensure-saved", url: U, renderedAt: LATER },
+      hang,
+    ],
+    [
+      "an ensure-saved",
+      "whose body stalls after the headers",
+      { type: "ensure-saved", url: U, renderedAt: LATER },
+      stalledScript,
+    ],
+  ] as const)(
+    "%s whose page names a required static file %s ends at 15 s without a commit, and the copy stays",
+    async (_label, _how, message, route) => {
+      const worker = boot();
+      await worker.seed({ showId: SHOW, url: U, savedAt: RENDERED });
+      worker.net.on(CHUNK, route);
+      worker.net.on(
+        U,
+        reply(() => htmlResponse(page(save({ renderedAt: LATER }), "new page"))),
+      );
+      const sent = worker.post(message);
+      await worker.clock.advance(14_999);
+      premise("the save asked for the static file", worker.net.callsTo(CHUNK).length, 0);
+      expect(sent.replies).toEqual([]);
+
+      await worker.clock.advance(1);
+      expect(sent.replies).toEqual([{ outcome: "failed" }]);
+      expect(await worker.store.copyAtUrl(U)).toMatchObject({ savedAt: RENDERED });
+      const call = worker.net.callsTo(CHUNK)[0];
+      expect((call?.init?.signal ?? call?.request?.signal)?.aborted).toBe(true);
+      sent.close();
+    },
+  );
+
+  // Coordinator follow-up (b): at most 4 asset fetches in flight, under the one deadline.
+  test("no more than 4 asset fetches are open at once; the next starts as one finishes", async () => {
+    const worker = boot();
+    const assets = [1, 2, 3, 4, 5, 6].map((n) => `/api/asset/diagram/${SHOW}/rev-1/d-${n}.png`);
+    const gates = assets.map(() => deferred<Response>());
+    assets.forEach((path, n) => {
+      worker.net.on(path, later(gates[n] as Deferred<Response>));
+    });
+    worker.net.on(
+      U,
+      reply(() => htmlResponse(page(save({ assets })))),
+    );
+    const requested = () => assets.filter((path) => worker.net.callsTo(path).length > 0);
+    const nav = worker.navigate(U);
+    await responseOf(nav);
+    await settle();
+    expect(requested()).toEqual(assets.slice(0, 4));
+
+    gates[1]?.resolve(new Response(new Uint8Array([1])));
+    await settle();
+    expect(requested()).toEqual(assets.slice(0, 5));
+    gates[4]?.resolve(new Response(new Uint8Array([2])));
+    await settle();
+    // Four open again: the first, third and fourth still hang, and the sixth.
+    expect(requested()).toEqual(assets);
+
+    // One deadline for the set: at 15 s the save commits with the two that arrived.
+    await worker.clock.advance(15_000);
+    expect(await worker.store.copyAtUrl(U)).toMatchObject({ assets: [assets[1], assets[4]] });
+    await nav.settled();
+  });
+
+  test("assets still queued when the deadline passes are skipped without being asked for", async () => {
+    const worker = boot();
+    const assets = [1, 2, 3, 4, 5, 6].map((n) => `/api/asset/diagram/${SHOW}/rev-1/d-${n}.png`);
+    for (const path of assets.slice(0, 4)) worker.net.on(path, hang);
+    for (const path of assets.slice(4)) {
+      worker.net.on(
+        path,
+        reply(() => new Response(new Uint8Array([3]))),
+      );
+    }
+    worker.net.on(
+      U,
+      reply(() => htmlResponse(page(save({ assets })))),
+    );
+    const nav = worker.navigate(U);
+    await responseOf(nav);
+    await worker.clock.advance(15_000);
+    expect(await worker.store.copyAtUrl(U)).toMatchObject({ assets: [] });
+    expect(assets.slice(4).map((path) => worker.net.callsTo(path).length)).toEqual([0, 0]);
+    await nav.settled();
+  });
+
   test("a quota error on put abandons the save and posts save-failed to every open page", async () => {
     const worker = boot();
     await worker.seed({ showId: SHOW, url: U, savedAt: RENDERED });
