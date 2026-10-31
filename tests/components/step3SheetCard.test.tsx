@@ -673,7 +673,7 @@ describe("Step3SheetCard — breakdown (§4.3)", () => {
   function cellLineText(region: ReturnType<typeof within>, i: number): string | null {
     const el = region.queryByTestId(`wizard-step3-card-${DFID}-warning-${i}-cell`);
     if (!el) return null;
-    // The -open link's href also contains the a1, so it must never be inside the line.
+    // The sheet icon's href also contains the a1, so it must never be inside the line.
     expect(el.querySelector("a")).toBeNull();
     return el.textContent;
   }
@@ -687,7 +687,7 @@ describe("Step3SheetCard — breakdown (§4.3)", () => {
       "VENUE!A1",
     );
     expect(
-      region.getByTestId(`wizard-step3-card-${DFID}-warning-0-open`).getAttribute("href"),
+      region.getByTestId(`wizard-step3-card-${DFID}-warning-0-sheetlink`).getAttribute("href"),
     ).toContain("range=A1");
   });
 
@@ -739,7 +739,7 @@ describe("Step3SheetCard — breakdown (§4.3)", () => {
     expect(region.queryByTestId(`wizard-step3-card-${DFID}-warning-0-cell`)).toBeNull();
   });
 
-  test("a warning with a sourceCell renders an 'Open in Sheet' deep link to that cell; none otherwise", () => {
+  test("a warning with a sourceCell renders the sheet icon deep link to that cell; none otherwise", () => {
     const cell = { title: "INFO", gid: 5, a1: "E12" }; // INFO is allowlisted → cell-precise link
     const FIX = parseResult({
       warnings: [
@@ -755,7 +755,7 @@ describe("Step3SheetCard — breakdown (§4.3)", () => {
     const q = render(<Step3SheetCard row={stagedRow(FIX)} wizardSessionId={WSID} />);
     const region = within(expand(q));
     const link = region.getByTestId(
-      `wizard-step3-card-${DFID}-warning-0-open`,
+      `wizard-step3-card-${DFID}-warning-0-sheetlink`,
     ) as HTMLAnchorElement;
     // href derived from the seeded anchor (gid + range), not hardcoded.
     expect(link.getAttribute("href")).toContain(`#gid=${cell.gid}`);
@@ -763,7 +763,7 @@ describe("Step3SheetCard — breakdown (§4.3)", () => {
     expect(link.getAttribute("target")).toBe("_blank");
     expect(link.getAttribute("rel")).toContain("noopener");
     // The second warning (no sourceCell) has no link.
-    expect(region.queryByTestId(`wizard-step3-card-${DFID}-warning-1-open`)).toBeNull();
+    expect(region.queryByTestId(`wizard-step3-card-${DFID}-warning-1-sheetlink`)).toBeNull();
   });
 
   test("a newly-anchored UNKNOWN_ROLE_TOKEN (with sourceCell) renders the link + catalog title on the real Step-3 card", () => {
@@ -781,7 +781,7 @@ describe("Step3SheetCard — breakdown (§4.3)", () => {
     const q = render(<Step3SheetCard row={stagedRow(FIX)} wizardSessionId={WSID} />);
     const region = within(expand(q));
     const link = region.getByTestId(
-      `wizard-step3-card-${DFID}-warning-0-open`,
+      `wizard-step3-card-${DFID}-warning-0-sheetlink`,
     ) as HTMLAnchorElement;
     expect(link.getAttribute("href")).toContain(`range=${cell.a1}`);
     // invariant 5: the rendered title is the catalog title, not the raw code/message.
@@ -914,7 +914,7 @@ describe("Step3SheetCard — UNKNOWN_FIELD row-label surfacing + legacy shim (Pa
     expect(within(panel).queryByText("GS Podium Type")).not.toBeNull();
   });
 
-  test("Part A shim: a legacy A55-range UNKNOWN_FIELD renders NO 'Open in Sheet' link", () => {
+  test("Part A shim: a legacy A55-range UNKNOWN_FIELD renders NO sheet link", () => {
     const FIX = parseResult({
       warnings: [
         {
@@ -929,7 +929,15 @@ describe("Step3SheetCard — UNKNOWN_FIELD row-label surfacing + legacy shim (Pa
     const q = render(<Step3SheetCard row={stagedRow(FIX)} wizardSessionId={WSID} />);
     fireEvent.click(q.getByTestId(`wizard-step3-card-${DFID}-more`));
     const panel = q.getByTestId(`wizard-step3-card-${DFID}-breakdown-warnings`);
-    expect(within(panel).queryByRole("link", { name: /Open in Sheet/ })).toBeNull();
+    // Since warning-card-fixes Task 7 the link is the title row's sheet icon, whose
+    // name is not "Open in Sheet", so a name query would pass vacuously. Query the
+    // icon's testid, and assert the row carries no link of any kind.
+    expect(within(panel).queryByTestId(`wizard-step3-card-${DFID}-warning-0-sheetlink`)).toBeNull();
+    expect(
+      within(within(panel).getByTestId(`wizard-step3-card-${DFID}-warning-0`)).queryAllByRole(
+        "link",
+      ),
+    ).toHaveLength(0);
   });
 });
 
@@ -1159,10 +1167,10 @@ describe("wizard step-3 warning row: copy and links (spec 2026-08-27)", () => {
     const q = render(<Step3SheetCard row={stagedRow(FIX)} wizardSessionId={WSID} />);
     const region = within(expand(q));
     expect(
-      region.getByTestId(`wizard-step3-card-${DFID}-warning-0-open`).getAttribute("href"),
+      region.getByTestId(`wizard-step3-card-${DFID}-warning-0-sheetlink`).getAttribute("href"),
     ).toMatch(/#gid=7&range=A12$/);
     expect(
-      region.getByTestId(`wizard-step3-card-${DFID}-warning-1-open`).getAttribute("href"),
+      region.getByTestId(`wizard-step3-card-${DFID}-warning-1-sheetlink`).getAttribute("href"),
     ).toMatch(/#gid=0$/);
   });
 });

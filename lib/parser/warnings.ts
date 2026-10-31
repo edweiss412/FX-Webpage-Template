@@ -660,6 +660,11 @@ export function emitHotelAddressSplitAmbiguity(
  * is positional, not semantic, so it can capture note text. Offering it would
  * publish non-guest text into a crew-readable `names` array and could hide a
  * crew member's own lodging from their page.
+ *
+ * `resolution.readAs` keeps a copy of the names we read (warning-card-fixes
+ * §5.2). It is stored for display only, so the card can show "We read" beside
+ * the raw cell; nothing applies it, and no consumer that narrows `parsed` on
+ * `resolvable: true` can reach it.
  */
 export function emitInlineHotelGuestAmbiguity(
   agg: ParseAggregator | undefined,
@@ -679,6 +684,10 @@ export function emitInlineHotelGuestAmbiguity(
     message: `Hotel line "${rawOneLine}" runs the hotel and the booking details together in one cell, so we had to work out where each part starts; double-check this reservation.`,
     blockRef,
     rawSnippet: params.rawCell,
-    resolution: { resolvable: false, reason: "raw-not-guest-scoped" },
+    resolution: {
+      resolvable: false,
+      reason: "raw-not-guest-scoped",
+      readAs: { kind: "hotels", names: [...params.parsedNames] },
+    },
   });
 }

@@ -865,7 +865,68 @@ export function scanCandidates(): Candidate[] {
       // fetch-failure blocks, the quick facts' tiles, actions and toast), two
       // more in all. Re-derived by running the guard.
       //
-      // Probed: 783 such ternaries under the derived roots, 78 on a
+      // 747 -> 748 on feat/warning-card-fixes Task 7: the wizard warning card's title
+      // row deleted one JSX-bearing ternary (the standalone `href ? <a>… : null` link)
+      // and added two (`isJudgment ? <JudgmentCallTag/> : null` and
+      // `href ? <SheetIconLink/> : null`); the sr-only prefix's
+      // `isJudgment ? null : <span>` carries its JSX in the false branch, so it does
+      // not count. Neither new one is a fault branch, so the 78 below is unchanged.
+      // Re-derived by running the guard.
+      //
+      // 748 -> 747 on feat/warning-card-fixes Task 8: the row chip's glyph ternary
+      // (`isWarn ? <AlertTriangle/> : <Info/>`) became a per-kind lookup
+      // (WARNING_ROW_GLYPH), so it is no longer a ternary. Not a fault branch; 78 kept.
+      //
+      // 747 -> 746 on feat/warning-card-fixes Task 9: the published cards' sheet link
+      // moved into the compact shell. Gone: the two text-link ternaries
+      // (`href ? <a>… : null` in PerShowActionableWarnings and NoteWarningCard) and the
+      // controls band's inner `controls ? <div>… : null`, now redundant under its outer
+      // `controls ?`. Added: `isJudgmentCall(w) ? <JudgmentCallTag/> : null` and the
+      // shell's `sheetLink ? <SheetIconLink/> : null`. None is a fault branch; 78 kept.
+      //
+      // 746 -> 748 on feat/warning-card-fixes Task 10: the inline hotel guest split's
+      // read-only comparison in UseRawControl adds `sheetSays ? <>…</> : null` and
+      // `weRead ? <>…</> : null`. Neither is a fault branch; 78 kept. Re-derived by
+      // running the guard, which reported 748 against the tree.
+      //
+      //
+      // 760 + 1 on the merge of origin/main into feat/warning-card-fixes (2026-10-29): main's
+      // crew-search history above (747 -> 760) and this branch's (747 -> 748) both start at 747,
+      // so the merged tree holds 761. Re-derived by running the guard on the merged tree.
+      //
+      // 761 -> 763 on feat/warning-card-fixes Task 12: the Accepted (N) disclosure adds
+      // `accepted.length > 0 ? <details>… : null` on the wizard and
+      // `acceptedRecords.length > 0 ? <details>… : null` on the published extras. Neither is
+      // a fault branch; 78 kept. Re-derived by running the guard.
+      //
+      // 763 -> 768 on feat/warning-card-fixes Task 13: the archived card's `Tab` and `Cases`
+      // lines in step3ReviewSections (two), the shared include button's sr-only suffix
+      // and the card actions' `offeredTab ? <div>… : null` in archivedTabOffer (two), and
+      // the published offer's sr-only suffix (one). None is a fault branch; 78 kept.
+      // Re-derived by running the guard.
+      //
+      // 768 -> 770 on feat/warning-card-fixes Task 14: the action bar's Cancel
+      // (`showCancel ? <button>… : null`) and its `Not saved yet` hint
+      // (`showHint ? <span>… : null`) in DataQualityWarningControls. ChoiceRow's marker
+      // ternary changed its condition, not its count. Neither new one is a fault branch;
+      // 78 kept. Re-derived by running the guard.
+      //
+      // 770 -> 772 on feat/warning-card-fixes Task 16: the Hotels reservation marker
+      // (`marker ? <div>… : null`) and its Sheet says line (`marker.sheetSays ? <p>… : null`)
+      // in HotelCard. Neither is a fault branch; 78 kept. Re-derived by running the guard.
+      //
+      // 772 -> 773 on feat/warning-card-fixes Task 18b: the unsaved-reading prompt
+      // (`pending !== null && count > 0 ? <UnsavedReadingsPrompt … /> : null`) in
+      // components/admin/review/unsavedReadings.tsx. Not a fault branch; 78 kept.
+      // Re-derived by running the guard.
+      //
+      // 796 on the merge of origin/main (feat/warning-card-fixes) into
+      // feat/crew-page-redesign. Both histories above start from 760; neither
+      // side's number describes the merged tree, so the value below is re-derived
+      // by running the guard on it. None of either side's additions is a fault
+      // branch, so the 78 is unchanged.
+      //
+      // Probed: 796 such ternaries under the derived roots, 78 on a
       // fault-vocabulary guard and unclassifiable. 69 of those 78 sit in
       // `"use client"` files, where the guard is interaction state -- `errorCode`,
       // `state.kind === "error"`, `switchStatus === "error"` -- and not a server-render

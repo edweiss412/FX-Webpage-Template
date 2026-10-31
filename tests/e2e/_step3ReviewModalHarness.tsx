@@ -28,7 +28,13 @@ import {
   buildStagedSectionData,
   type StagedSectionData,
 } from "@/components/admin/review/sectionData";
-import type { CrewMemberRow, ParseResult, ParseWarning } from "@/lib/parser/types";
+import type {
+  CrewMemberRow,
+  HotelReservationRow,
+  ParseResult,
+  ParseWarning,
+  PullSheetCase,
+} from "@/lib/parser/types";
 import type { AdminAgendaItem } from "@/lib/agenda/agendaAdminPreview";
 import {
   buildParseResult,
@@ -177,6 +183,174 @@ export function judgmentOnlyHarnessWarnings(): ParseWarning[] {
   ];
 }
 
+/** Warning-card fixture (warning-card-fixes spec §13.1, plan Task 7), one row per
+ *  kind the title row must lay out: a needs-look, a judgment and an info row, each
+ *  with a sheet anchor; a link-less needs-look row (DI-2); and a 120-character
+ *  PROSE title (DI-10). Prose, because an all-caps message matches
+ *  reviewWarningTitle's code-shape rule and falls back to its 42-character generic
+ *  title. The order of WARNING_CARD_KINDS IS the row order, so the indices the
+ *  spec reads (WARNING_CARD_ROWS, published by the live entry) cannot drift from
+ *  the array. Reached only through `_warningCardLiveEntry.tsx`. */
+const WARNING_CARD_KINDS = ["needsLook", "judgment", "info", "linkless", "longTitle"] as const;
+export type WarningCardKind = (typeof WARNING_CARD_KINDS)[number];
+export const WARNING_CARD_ROWS = Object.fromEntries(
+  WARNING_CARD_KINDS.map((kind, i) => [kind, i]),
+) as Record<WarningCardKind, number>;
+export const WARNING_CARD_LONG_TITLE = "A long warning title that wraps ".repeat(4).slice(0, 120);
+
+export function warningCardHarnessWarnings(): ParseWarning[] {
+  const cell = { title: "INFO", gid: 0, a1: "A5", scope: "cell" as const };
+  const byKind: Record<WarningCardKind, ParseWarning> = {
+    needsLook: {
+      severity: "warn",
+      code: "UNKNOWN_FIELD",
+      message: "Unrecognized client row label: 'Backdrup'",
+      blockRef: { kind: "client", name: "Backdrup" },
+      rawSnippet: "Backdrup | black velour",
+      sourceCell: cell,
+    },
+    judgment: {
+      severity: "warn",
+      code: "CREW_COLUMN_POSITIONAL_FALLBACK",
+      message: "Crew columns were read by position.",
+      sourceCell: cell,
+    },
+    info: {
+      severity: "info",
+      code: "AGENDA_PDF_UNREADABLE",
+      message: "An info-level note about the sheet",
+      sourceCell: cell,
+    },
+    linkless: {
+      severity: "warn",
+      code: "HARNESS_LINKLESS",
+      message: "Short row with no link.",
+    },
+    longTitle: {
+      severity: "warn",
+      code: "HARNESS_LONG_TITLE",
+      message: WARNING_CARD_LONG_TITLE,
+      sourceCell: cell,
+    },
+  };
+  return WARNING_CARD_KINDS.map((kind) => byKind[kind]);
+}
+
+/** Archived pull sheet card fixture (warning-card-fixes spec §7.3, plan Task 13): one
+ *  un-included archived tab and the PULL_SHEET_ON_ARCHIVED_TAB warning the scan emits for
+ *  it (`lib/sync/pullSheetOverride.ts` `emitArchivedTabWarnings` shape: the previews
+ *  joined by " | ", the tab name on `blockRef.name`). Reached only through
+ *  `_warningCardLiveEntry.tsx?scenario=archived`, which adds the staged `dq` model the
+ *  card's controls need. */
+export const ARCHIVED_HARNESS_TAB = {
+  tabName: "OLD GEAR",
+  headerPreviews: ["AUDIO 1", "VIDEO RACK", "", "LX 4"],
+  fingerprint: "harness-archived-fp",
+  included: false,
+  contentChangedSinceAccept: false,
+};
+/** The archived warning's index in `archivedTabHarnessWarnings()`. */
+export const ARCHIVED_HARNESS_ROW = 0;
+
+export function archivedTabHarnessWarnings(): ParseWarning[] {
+  return [
+    {
+      severity: "warn" as const,
+      code: "PULL_SHEET_ON_ARCHIVED_TAB",
+      message: `Pull sheet found on archived tab "${ARCHIVED_HARNESS_TAB.tabName}"; left out of the parse.`,
+      blockRef: { kind: "pull_sheet_archived_tab", name: ARCHIVED_HARNESS_TAB.tabName },
+      rawSnippet: ARCHIVED_HARNESS_TAB.headerPreviews.join(" | "),
+    },
+  ];
+}
+
+/** Save-flow fixture (warning-card-fixes spec §6.3, plan Task 15): one resolvable
+ *  ROOM_HEADER_SPLIT_AMBIGUOUS whose rawSnippet is ignorable, so Save sends the reading
+ *  and then accepts the card. Reached only through `_warningCardLiveEntry.tsx?scenario=save`. */
+export const SAVE_HARNESS_ROW = 0;
+export const SAVE_HARNESS_CONTENT_HASH = "harness-room-hash";
+
+export function saveHarnessWarnings(): ParseWarning[] {
+  return [
+    {
+      severity: "warn" as const,
+      code: "ROOM_HEADER_SPLIT_AMBIGUOUS",
+      message: "Room header could be read two ways",
+      blockRef: { kind: "rooms" },
+      rawSnippet: "Ballroom A / B",
+      resolution: {
+        resolvable: true,
+        contentHash: SAVE_HARNESS_CONTENT_HASH,
+        parsed: { kind: "rooms", name: "Ballroom", dimensions: null, floor: null },
+        replacement: { kind: "rooms", name: "Ballroom A / B", dimensions: null, floor: null },
+      },
+    },
+  ];
+}
+
+/** Jumps fixture (warning-card-fixes spec §5.4, §5.5; plan Task 16): two hotels and the
+ *  inline guest split `parseHotels` emits for `Hyatt Regency Eric Weiss - 110525` (Task
+ *  10's fixture, its shape copied from that parse), moved to reservation 1 by its
+ *  `blockRef.index`, so the Hotels section marks the SECOND card. Plan Task 17 adds the
+ *  archived pull sheet warning (the archived scenario's tab and warning) and a staged
+ *  pull sheet, so the Warnings cards carry a Pack list jump and a reservation jump.
+ *  Reached only through `_warningCardLiveEntry.tsx?scenario=jumps`. */
+export const JUMPS_HARNESS_HOTEL_INDEX = 1;
+/** The guest split's index in `jumpsHarnessWarnings()`. */
+export const JUMPS_HARNESS_GUEST_ROW = 0;
+/** The archived pull sheet warning's index in `jumpsHarnessWarnings()`. */
+export const JUMPS_HARNESS_ARCHIVED_ROW = 1;
+
+export function jumpsHarnessPullSheet(): PullSheetCase[] {
+  return [
+    {
+      caseLabel: "FOH",
+      items: [{ qty: 1, cat: "Audio", subCat: null, item: "DI box" }],
+    },
+  ];
+}
+
+function harnessHotel(ordinal: number, name: string): HotelReservationRow {
+  return {
+    ordinal,
+    hotel_name: name,
+    hotel_address: null,
+    names: ["Eric Weiss"],
+    confirmation_no: null,
+    check_in: null,
+    check_out: null,
+    notes: null,
+  };
+}
+
+export function jumpsHarnessHotels(): HotelReservationRow[] {
+  return [harnessHotel(1, "Hotel One"), harnessHotel(2, "Hyatt Regency")];
+}
+
+export function jumpsHarnessWarnings(): ParseWarning[] {
+  return [
+    {
+      severity: "warn" as const,
+      code: "HOTEL_GUEST_SPLIT_AMBIGUOUS",
+      message:
+        'Hotel line "Hyatt Regency Eric Weiss - 110525" runs the hotel and the booking details together in one cell, so we had to work out where each part starts; double-check this reservation.',
+      blockRef: {
+        kind: "hotels",
+        field: "guests",
+        index: JUMPS_HARNESS_HOTEL_INDEX,
+        name: "Hyatt Regency Eric Weiss",
+      },
+      rawSnippet: "Hyatt Regency Eric Weiss - 110525",
+      resolution: {
+        resolvable: false,
+        reason: "raw-not-guest-scoped",
+        readAs: { kind: "hotels", names: ["Hyatt Regency Eric Weiss"] },
+      },
+    },
+    ...archivedTabHarnessWarnings(),
+  ];
+}
+
 export function nearMissHarnessWarnings(): ParseWarning[] {
   return [
     {
@@ -298,11 +472,14 @@ export function modalElement(
     // Re-scan / Ignore footer) instead of the read-only publish footer. The
     // layout harness passes this to measure the folded resolution surface.
     resolution?: import("@/components/admin/wizard/Step3ReviewModal").Step3ReviewResolution;
+    /** warning-card-fixes Task 15: the Save-flow entry's router, whose refresh() swaps the
+     *  harness state. Absent → the inert stub router, as every other caller gets. */
+    router?: AppRouterInstance;
   } = {},
 ): React.ReactElement {
   return React.createElement(
     AppRouterContext.Provider,
-    { value: stubRouter },
+    { value: handlers.router ?? stubRouter },
     React.createElement(Step3ReviewModal, {
       data,
       checked: false,

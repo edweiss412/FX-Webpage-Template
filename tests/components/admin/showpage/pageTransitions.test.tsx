@@ -224,7 +224,10 @@ const PAGE_COMPONENT_COUNTS: Record<string, number> = {
   // lifecycle data. Count captured by RUNNING the scanner, not by reasoning.
   "components/admin/showpage/ShareHub.tsx": 7, // linkActive + 2 archived heads + show-section head + lifecycle arm + dev-capture status line + Developer section (dev-modal-capture §7.4: both INSTANT, deliberate)
   "components/admin/showpage/ChangesSection.tsx": 1, // feed===null infra notice vs feed
-  "components/admin/showpage/sectionWarningExtras.tsx": 1, // ignored-disclosure
+  // 1 -> 2 on feat/warning-card-fixes Task 12: the Accepted (N) disclosure (spec §6.4), a
+  // second native <details> beside Ignored (N); instant, the same CSS-only body. Measured
+  // by running the scanner.
+  "components/admin/showpage/sectionWarningExtras.tsx": 2, // ignored-disclosure + accepted-disclosure
 };
 
 describe("§9 source enumeration — every conditional in the new page components is INSTANT (no state-swap animation)", () => {

@@ -66,6 +66,8 @@ const REGISTRY: Row[] = [
   // from occurrences 1,2 → 0,1.
   L("components/admin/wizard/Step3ReviewModal.tsx", 0),
   L("components/admin/wizard/Step3ReviewModal.tsx", 1),
+  // warning-card-fixes §6.5: the unsaved-reading prompt's "Go back" (a labeled button).
+  L("components/admin/review/unsavedReadings.tsx", 0),
   L("components/shared/AccentButton.tsx", 0),
   L("components/shared/ReportButton.tsx", 0),
   L("components/shared/ReportModal.tsx", 0),

@@ -1571,7 +1571,22 @@ describe("a defect planted in the theme, not in the module (AC-16)", () => {
       // `rounded-pill border border-border` <span>.
       // 2458 -> 2463 on fix/sheet-warning-links (its header-link guard added five lines above; 073cb8eb3). Then 2463 -> 2470 when the hotel-card date-stub pass rewrote HotelCard and MiniAvatar above it. Located on the merged tree: same element, same text.
       // +30 on fix/section-callout-group-repeats; located on the merged tree by its own element: 2500.
-      "components/admin/wizard/step3ReviewSections.tsx:2500",
+      // 2500 -> 2503 on feat/warning-card-fixes Task 7 (three import lines above it);
+      // located by its own element: the PackCountPill `rounded-pill border border-border` <span>.
+      // 2503 -> 2504 on feat/warning-card-fixes Task 8 (the `Circle` lucide import line);
+      // located by its own element, the same PackCountPill <span>.
+      // 2504 -> 2506 on feat/warning-card-fixes Task 13 (two import lines above it);
+      // located by its own element, the same PackCountPill <span>.
+      // 2506 -> 2507 on feat/warning-card-fixes Task 15 (the useRawDraft import line);
+      // located by its own element, the same PackCountPill <span>.
+      // 2507 -> 2521 on feat/warning-card-fixes Task 16 (the reading-display imports and the
+      // callout's reading label above it); located by its own element, the same
+      // PackCountPill <span>.
+      // 2521 -> 2539 on feat/warning-card-fixes Task 17 (the chrome's jump fields and the
+      // sectionForWarning import above it); located by its own element, the same
+      // PackCountPill <span>.
+      // 2539 -> 2546 on feat/warning-card-fixes (UI gate P3: jump targets named by their own heading or title); located by its own element (5-line context match).
+      "components/admin/wizard/step3ReviewSections.tsx:2546",
       // 191 -> 196 on feat/crew-show-search (Schedule search entries); the same overflow `<summary>` divider.
       "components/crew/primitives/KeyTimesStrip.tsx:196",
     ]);

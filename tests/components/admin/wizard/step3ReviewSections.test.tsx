@@ -700,13 +700,16 @@ describe("warnings body (spec §3.10 affirmative empty state + §8 hardening)", 
     // The human message passes through; its code never renders.
     expect(t).toContain("Two flights could not be matched to crew");
     expect(t).not.toContain("UNKNOWN_PARSER_WARNING_XYZ");
-    // Both severities render as list rows with their severity labels.
-    expect(within(panel).getByTestId(`wizard-step3-card-${DFID}-warning-0`).textContent).toContain(
-      "warn",
-    );
-    expect(within(panel).getByTestId(`wizard-step3-card-${DFID}-warning-1`).textContent).toContain(
-      "info",
-    );
+    // Both severities render as list rows, told apart by their sr-only prefixes
+    // (the visible severity word left the card, warning-card-fixes R1).
+    const srPrefix = (i: number) =>
+      Array.from(
+        within(panel)
+          .getByTestId(`wizard-step3-card-${DFID}-warning-${i}`)
+          .querySelectorAll(".sr-only"),
+      ).map((el) => el.textContent);
+    expect(srPrefix(0)).toContain("Needs a look: ");
+    expect(srPrefix(1)).toContain("Note: ");
     // Non-blocking note preserved.
     expect(t).toMatch(/don.t block publishing/i);
   });
@@ -1940,10 +1943,12 @@ describe("whole-diff R1 repairs", () => {
   test("P1: two ignored rows of a NON-UNKNOWN_FIELD family are still distinguishable", () => {
     // The earlier repair gated the discriminator to UNKNOWN_FIELD, so this family
     // rendered one repeated catalog title above two identical Un-ignore buttons.
+    // warning-card-fixes spec §6.4: HOTEL_GUEST_SPLIT_AMBIGUOUS is a judgment call, so its
+    // dismissed rows now sit in Accepted (N), which shares the Ignored row markup.
     const warnings = [HOTEL("Room 214 | 2 guests"), HOTEL("Room 318 | 3 guests")];
     const q = renderBody(sectionData({ warnings }, { dq: dqFor([], [0, 1]) }), "warnings");
     const rows = Array.from(
-      q.getByTestId(`wizard-step3-card-${DFID}-ignored-list`).querySelectorAll("li"),
+      q.getByTestId(`wizard-step3-card-${DFID}-accepted-list`).querySelectorAll("li"),
     );
     expect(rows).toHaveLength(2);
     // Derived from the fixture cells, not hardcoded prose.
@@ -1960,7 +1965,8 @@ describe("whole-diff R1 repairs", () => {
       sectionData({ warnings: [HOTEL(long)] }, { dq: dqFor([], [0]) }),
       "warnings",
     );
-    const text = q.getByTestId(`wizard-step3-card-${DFID}-ignored-list`).textContent ?? "";
+    // warning-card-fixes spec §6.4: a dismissed judgment row sits in Accepted (N).
+    const text = q.getByTestId(`wizard-step3-card-${DFID}-accepted-list`).textContent ?? "";
     expect(text).toContain("…");
     expect(text.length).toBeLessThan(long.length);
   });

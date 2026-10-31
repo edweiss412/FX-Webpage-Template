@@ -601,21 +601,34 @@ describe("structural guards (spec §7.6)", () => {
   // Failure mode: ONE affordance regresses to a bare onClose while the others
   // still route correctly — a repo-wide substring check passes because another
   // affordance supplies the matching text. Each is anchored to its own site.
+  // warning-card-fixes §6.5: every affordance now reaches requestClose THROUGH the
+  // unsaved-reading guard (`guardedClose`), which passes straight through when no
+  // reading is unsaved. The chain is pinned link by link: affordance → guardedClose →
+  // requestCloseRef → requestClose.
   it("each affordance is anchored to requestClose at its own call site", () => {
     const src = stripCommentsForFile(SHELL_SRC, SHELL_PATH);
     const scrimAt = src.indexOf("-backdrop`");
-    expect(src.slice(scrimAt, scrimAt + 400), "scrim onClick must be requestClose").toContain(
-      "onClick={requestClose}",
+    expect(src.slice(scrimAt, scrimAt + 400), "scrim onClick must be the guarded close").toContain(
+      "onClick={() => guardedClose(initialFocusRef.current)}",
     );
     const grabAt = src.indexOf("-grab`");
-    expect(src.slice(grabAt, grabAt + 600), "grab tap must call requestClose").toContain(
-      "requestClose()",
+    expect(src.slice(grabAt, grabAt + 600), "grab tap must call the guarded close").toContain(
+      "guardedClose(event.currentTarget)",
     );
-    expect(bodyOf(src, "function onKeyDown"), "Escape must call requestClose").toContain(
-      "requestClose()",
+    expect(bodyOf(src, "function onKeyDown"), "Escape must call the guarded close").toContain(
+      "guardedClose(",
     );
     expect(src, "the X reaches requestClose only through the provider value").toContain(
-      "<ReviewModalCloseContext.Provider value={requestClose}>",
+      "<ReviewModalCloseContext.Provider value={closeFromHeader}>",
+    );
+    expect(bodyOf(src, "function closeFromHeader"), "the X's value is the guarded close").toContain(
+      "guardedClose(",
+    );
+    expect(bodyOf(src, "function guardedClose"), "the guard's action is requestClose").toContain(
+      "requestCloseRef.current()",
+    );
+    expect(src, "requestCloseRef holds the current requestClose").toContain(
+      "requestCloseRef.current = requestClose;",
     );
   });
 
@@ -681,6 +694,8 @@ describe("structural guards (spec §7.6)", () => {
       dialogRef: "inert target, not a motion state",
       grabRef: "pointer-capture target, not a motion state",
       dragConsumedClickRef: "click-swallow latch, no panel motion",
+      requestCloseRef:
+        "latest requestClose for a close the unsaved-reading prompt held (warning-card-fixes §6.5), no panel motion",
     };
     for (const ref of declared) {
       const row = ROWS[ref];

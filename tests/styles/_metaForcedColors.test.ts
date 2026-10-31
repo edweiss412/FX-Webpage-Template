@@ -458,6 +458,13 @@ describe("forced-colors state collapse (Arm 1)", () => {
     // the wide nav item's icon arrived (the item itself does not collapse).
     // 41 -> 45 with the crew day row (plan Task 8): its Now and day buttons and
     // the two captions inside a day button.
+    // 42 -> 41 on feat/warning-card-fixes Task 9: the PerShowActionableWarnings
+    // "Open in Sheet" text link (a deliberate-flatten row) left with its element.
+    // 41 -> 42 on feat/warning-card-fixes Task 13: the shared archived-tab include button
+    // (a not-a-state row: one button, two placement plates).
+    // 45 on the merge of origin/main (feat/warning-card-fixes) into
+    // feat/crew-page-redesign, re-derived by running this guard: that arc's two moves
+    // net to zero, and the sub-nav tab row it still carried left with the sub-nav.
     expect(COLLAPSE_CENSUS).toHaveLength(45);
     expect(new Set(COLLAPSE_CENSUS.map((r) => r.site)).size).toBe(45);
     const repaired = COLLAPSE_CENSUS.filter((r) => r.disposition === "repaired");
@@ -675,7 +682,15 @@ describe("forced-colors state collapse (Arm 1)", () => {
       // <MailIcon> links and the copy button's <CopyIcon>), each aria-hidden decoration
       // inside a control the census disposes; the show notes' <ChevronRight> moved from
       // the retired TodaySection to HomeSection, so it is one row, not a new one.
-    ).toBe(134);
+      // 127 -> 129 on feat/warning-card-fixes Task 12: the two Accepted (N) disclosure
+      // chevrons (sectionWarningExtras.tsx, step3ReviewSections.tsx), each the same
+      // `<ChevronRight>` shape as its Ignored twin, which is already in this set. Read on the
+      // tree by listing the set's rows in those two files.
+      // 136 on the merge of origin/main (feat/warning-card-fixes) into
+      // feat/crew-page-redesign, re-derived by running findUndecidable on the merged tree:
+      // this branch's rows above and that arc's two Accepted (N) chevrons are all present,
+      // and nothing else moved.
+    ).toBe(136);
     expect(
       undecidable.every((row) => /:\d+ </.test(row) || row.includes("single-path-state-variant")),
       "every cannot-decide row names a site",

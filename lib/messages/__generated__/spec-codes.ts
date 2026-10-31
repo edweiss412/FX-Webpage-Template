@@ -426,7 +426,7 @@ export const SPEC_CODES = {
     "crewFacing": null,
     "dougFacing": "A hotel line in _<sheet-name>_ may not have been read correctly; check who is on the hotel reservation against your sheet.",
     "followUp": "Doug → spot-check hotel guests",
-    "helpfulContext": "A hotel line could be read more than one way, so we made a judgment call. Check who is on the reservation in case two people were merged, one was split, part of the hotel name was read as a person, or someone was left out.",
+    "helpfulContext": "If we split it wrong, fix the names in the sheet. Two people may have been merged, one split, part of the hotel name read as a person, or someone left out.",
   },
   "HOTEL_INLINE_GROUP_HOTEL_SUSPECTED": {
     "crewFacing": null,
@@ -978,13 +978,13 @@ export const SPEC_CODES = {
     "crewFacing": null,
     "dougFacing": "A pull sheet was found on an archived tab ('{tab}') and left out. If it's this show's gear, include it in review; otherwise ignore.",
     "followUp": "Doug → include or ignore",
-    "helpfulContext": "We found a PULL SHEET on a tab that looks like an older copy, so we left it out to avoid mixing old gear in. If it really is this show's gear, the Gear section on this page offers to include it.",
+    "helpfulContext": "We found a PULL SHEET on a tab that looks like an older copy, so we left it out to avoid mixing old gear in. If it really is this show's gear, include it from the Pack list section.",
   },
   "PULL_SHEET_OVERRIDE_CONTENT_CHANGED": {
     "crewFacing": null,
     "dougFacing": "An included archived-tab pull sheet changed and was set back to skipped for safety; admin must re-confirm.",
     "followUp": "Doug → re-confirm",
-    "helpfulContext": "A pull sheet you'd included changed since you last saw it, so we left it out rather than publish gear you haven't seen. Recheck the tab, then re-include it from the Gear section.",
+    "helpfulContext": "A pull sheet you'd included changed since you last saw it, so we left it out rather than publish gear you haven't seen. Recheck the tab, then re-include it from the Pack list section.",
   },
   "PULL_SHEET_PARSE_PARTIAL": {
     "crewFacing": null,

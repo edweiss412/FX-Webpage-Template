@@ -41,6 +41,14 @@ const REPORTED_RESIDUE: Record<string, string> = {
     "instanceof on an error class, not a kind comparison. The admin shell's failure screen — layer 0 catches it, because the capture selector disappears with the shell.",
   "app/admin/wizard/preview/[stagedId]/page.tsx:126":
     "a kind comparison against decode_error, not infra_error. Renders the same marked FailureSurface, so the DOM carries the marker even though the guard is outside the accept-set.",
+  // 433 -> 428 on feat/warning-card-fixes Task 4; located by its own element (still the
+  // `if (state === "legacy-unavailable")` guard): the module-local IN_SCOPE set moved out
+  // to lib/admin/warningReadingDisplay.ts above it.
+  // 428 -> 429 on feat/warning-card-fixes Task 10; located by its own element (still that
+  // guard): a one-line doc comment on the widened `warning` prop lands above it.
+  // 429 -> 433 on feat/warning-card-fixes Task 14; located by its own element (still that
+  // guard): the useUseRawDraft import, ChoiceRow's per-row marker doc and the draft hook
+  // land above it.
   "components/admin/UseRawControl.tsx:433":
     "a string-state comparison against legacy-unavailable. Not reachable from any manifest entry.",
   // 4085 -> 4101 (2026-08-29, wizard-warning-ignore-controls). Located by identity on
@@ -554,6 +562,33 @@ describe("the scanner's population is pinned against resolver drift", () => {
     //   audience, with the same `tile-errors` form, still marked)
     // Nothing joined or left: membership is still 34, and mapping those three rows
     // back to TodaySection 377/378/379 reproduces acf1cfef... byte-for-byte.
+    // Regenerated for feat/warning-card-fixes Task 4, to the same bar. EXACTLY ONE input
+    // changed, a line number, in the one file of this set the task edits:
+    //   components/admin/UseRawControl.tsx 433 -> 428 (-5: the IN_SCOPE set above it moved
+    //   to lib/admin/warningReadingDisplay.ts as USE_RAW_CODES)
+    // Same `unknown:false` row. Membership is still 34, and reverting that ONE row
+    // reproduces 6c20e86f... byte-for-byte.
+    // Regenerated for feat/warning-card-fixes Task 10, to the same bar. EXACTLY ONE input
+    // changed, a line number, in the one file of this set the task edits:
+    //   components/admin/UseRawControl.tsx 428 -> 429 (+1: a doc comment on the widened
+    //   `warning` prop lands above it)
+    // Same `unknown:false` row. Membership is still 34, and reverting that ONE row
+    // reproduces d79bb1f1... byte-for-byte (recomputed from scanCandidates()).
+    // Recomputed on the merge of origin/main into feat/warning-card-fixes (2026-10-29): the
+    // two histories above touch disjoint files (crew sections vs UseRawControl.tsx), so the
+    // merged tree's digest is a fresh computation, not either side's value.
+    // Regenerated for feat/warning-card-fixes Task 14, to the same bar. EXACTLY ONE input
+    // changed, a line number, in the one file of this set the task edits:
+    //   components/admin/UseRawControl.tsx 429 -> 433 (+4: the useUseRawDraft import,
+    //   ChoiceRow's per-row marker doc and the draft hook land above it)
+    // Same `unknown:false` row. Membership is still 34, and reverting that ONE row
+    // reproduces 5fe71de3... byte-for-byte (recomputed from scanCandidates()).
+    // Recomputed on the merge of origin/main (feat/warning-card-fixes) into
+    // feat/crew-page-redesign, by running this guard on the merged tree. That arc's one
+    // input in this set, components/admin/UseRawControl.tsx, ended at line 433, where it
+    // started, so its digest returned to ddb7e342...; this branch's three HomeSection rows
+    // are untouched by it. The merged tree therefore reproduces this branch's ce25e4d6...
+    // byte-for-byte: nothing joined or left, membership is still 34, and no row moved.
     expect(digest).toBe("ce25e4d67e893e5b38403bae0c642f0671c749a60d62b63daca07571d46b0e17");
   });
 });

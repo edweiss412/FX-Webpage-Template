@@ -106,7 +106,9 @@ export const CENSUS: readonly CensusRow[] = [
   // itself is untouched across all three. Relocated by finding its OWN
   // `data-testid` and taking the `<button` it opens, never by applying the
   // delta — `LIM-LINE-KEYED-SITEID`, which this arc has now hit eight times.
-  { file: "components/admin/wizard/Step3ReviewModal.tsx", line: 894 },
+  // 894 -> 905 on feat/warning-card-fixes Task 18b (the unsaved-reading guard's ref
+  // and helper); located by its own `review-resolution-ignore` testid.
+  { file: "components/admin/wizard/Step3ReviewModal.tsx", line: 905 },
   // spec §4.2 row 17 — the `review-publish` button. 883, then 946, same two
   // arcs and the same cause; located from its own testid the same way.
   // NINTH re-key, same session: the impeccable gate reverted this file's ring
@@ -124,7 +126,10 @@ export const CENSUS: readonly CensusRow[] = [
   // Twelve re-keys, deltas +15, +2, +31, +1, -15: a line number is not an
   // identity, and every one of these was relocated from the element's own
   // testid.
-  { file: "components/admin/wizard/Step3ReviewModal.tsx", line: 980 },
+  // 980 -> 995 on feat/warning-card-fixes Task 18b; located by its own
+  // `review-publish` testid (the checked-slot Unpublish button, the first of two).
+  // 995 -> 991 on feat/warning-card-fixes (review R1 E1: the unsaved-reading pending lock); located by its own element (5-line context match).
+  { file: "components/admin/wizard/Step3ReviewModal.tsx", line: 991 },
   // spec §4.2 row 18 — spec cites 4121; the live line is 4151 after the
   // 2026-08-16 sibling merges, the last of them #817 (`feat/mutation-section-order`,
   // 11c4fb6ca), which added one net line above both rows. Line numbers are
@@ -197,7 +202,22 @@ export const CENSUS: readonly CensusRow[] = [
   // `wizard-step3-card-${dfid}-report-toggle` testid, never by the delta.
   // 4878 -> 4883 on fix/sheet-warning-links (its header-link guard added five lines above; 073cb8eb3). Then 4883 -> 4945 when the hotel-card date-stub pass rewrote HotelCard and MiniAvatar above it. Located on the merged tree: same element, same text.
   // +30 on fix/section-callout-group-repeats; located on the merged tree by its own element: 4975.
-  { file: "components/admin/wizard/step3ReviewSections.tsx", line: 4975 },
+  // 4975 -> 4994 on feat/warning-card-fixes Task 7 (the wizard warning title row rebuilt
+  // above it); located by its own `wizard-step3-card-${dfid}-report-toggle` testid.
+  // 4994 -> 5027 on feat/warning-card-fixes Task 8 (the row-kind maps and the `Circle`
+  // import above it); located by its own report-toggle testid.
+  // 5027 -> 5090 on feat/warning-card-fixes Task 12 (the Accepted disclosure and the shared
+  // DismissedWarningRow above it); located by its own report-toggle testid.
+  // 5090 -> 5176 on feat/warning-card-fixes Task 13 (the archived card body and its action
+  // cluster above it); located by its own report-toggle testid.
+  // 5176 -> 5220 on feat/warning-card-fixes Task 15 (the staged reading scope above it);
+  // located by its own report-toggle testid.
+  // 5220 -> 5307 on feat/warning-card-fixes Task 16 (the Hotels reservation marker above
+  // it); located by its own report-toggle testid.
+  // 5307 -> 5375 on feat/warning-card-fixes Task 17 (the chrome's jump fields and the
+  // card section jump above it); located by its own report-toggle testid.
+  // 5375 -> 5395 on feat/warning-card-fixes (UI gate P3: jump targets named by their own heading or title); located by its own element (5-line context match).
+  { file: "components/admin/wizard/step3ReviewSections.tsx", line: 5395 },
   // spec §4.2 row 19 — spec cites 4178; live 4213, same reason as row 18 plus
   // the 2026-08-25 tinted-plate comment above `ArchivedTabRescanNeeded`
   // Line moved 4424 -> 4443 on 2026-08-27 by this arc's own Task 4, which added 27 lines
@@ -246,7 +266,22 @@ export const CENSUS: readonly CensusRow[] = [
   // `disabled={draft.trim()...}` opener.
   // 4960 -> 4965 on fix/sheet-warning-links (its header-link guard added five lines above; 073cb8eb3). Then 4965 -> 5027 when the hotel-card date-stub pass rewrote HotelCard and MiniAvatar above it. Located on the merged tree: same element, same text.
   // +30 on fix/section-callout-group-repeats; located on the merged tree by its own element: 5057.
-  { file: "components/admin/wizard/step3ReviewSections.tsx", line: 5057 },
+  // 5057 -> 5076 on feat/warning-card-fixes Task 7, same cause; located by its own
+  // `disabled={draft.trim()...}` opener (the report-submit <button>).
+  // 5076 -> 5109 on feat/warning-card-fixes Task 8, same cause; located by its own
+  // report-submit testid and `disabled={draft.trim()...}` opener.
+  // 5109 -> 5172 on feat/warning-card-fixes Task 12, same cause; located by its own
+  // report-submit testid.
+  // 5172 -> 5258 on feat/warning-card-fixes Task 13, same cause; located by its own
+  // report-submit testid.
+  // 5258 -> 5302 on feat/warning-card-fixes Task 15, same cause; located by its own
+  // report-submit testid.
+  // 5302 -> 5389 on feat/warning-card-fixes Task 16, same cause; located by its own
+  // report-submit testid.
+  // 5389 -> 5457 on feat/warning-card-fixes Task 17, same cause; located by its own
+  // report-submit testid.
+  // 5457 -> 5477 on feat/warning-card-fixes (UI gate P3: jump targets named by their own heading or title); located by its own element (5-line context match).
+  { file: "components/admin/wizard/step3ReviewSections.tsx", line: 5477 },
   // spec §4.2 row 20 — reset chip on `bg-surface-raised` (§4.3)
   // 728 -> 821 on the diagram-failure-retry arc, which inserted the retry state,
   // the in-flight overlay and the availability sweep above this chip; then
@@ -323,8 +358,16 @@ export const CENSUS: readonly CensusRow[] = [
   // :814 / :993 until 2026-08-27 — the isWarnSeverity import line (spec §2.1).
   // :815 / :994 until 2026-08-27 — the attentionJump effect gained the
   // details-opening loop (spec §4.4), 11 lines above both.
-  { file: "components/admin/review/ShowReviewSurface.tsx", line: 820 },
-  { file: "components/admin/review/ShowReviewSurface.tsx", line: 1001 },
+  // 844 -> 865 and 1025 -> 1046 on feat/warning-card-fixes Task 17 (jumpToHotel added
+  // above both); each located by its own element, the rail item and chip <button>.
+  // 865 -> 886 on feat/warning-card-fixes (a11y fix (a): the jump-focus helpers above the rail); located by its own element (5-line context match).
+  // 886 -> 862 on the merge of origin/main into feat/crew-page-redesign (that branch read
+  // 820: its scroll spy moved out to lib/ui/scrollSpy.ts); located by its own element on the
+  // merged tree (6-line context match).
+  { file: "components/admin/review/ShowReviewSurface.tsx", line: 862 },
+  // 1046 -> 1067 on feat/warning-card-fixes (a11y fix (a): the jump-focus helpers above the rail); located by its own element (5-line context match).
+  // 1067 -> 1043 on the same merge (that branch read 1001); located the same way.
+  { file: "components/admin/review/ShowReviewSurface.tsx", line: 1043 },
   // :979 until 2026-08-27 — the sheetWarnings memo and navigateWarning sit
   // above the pill button (spec §4.1/§4.4).
   // :1083 until fix/attention-autoopen-suppress-phone, whose suppression

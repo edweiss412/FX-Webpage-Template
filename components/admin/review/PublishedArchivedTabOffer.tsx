@@ -10,6 +10,8 @@ import { cn } from "@/lib/ui/cn";
 import {
   ARCHIVED_TAB_BTN,
   ARCHIVED_TAB_GHOST_BTN,
+  ARCHIVED_TAB_INCLUDE_LABEL,
+  ARCHIVED_TAB_INCLUDE_PENDING,
 } from "@/components/admin/wizard/archivedTabOffer";
 
 /**
@@ -169,10 +171,25 @@ export function PublishedArchivedTabOffer(props: BaseProps & { tabName: string }
             className={cn(ARCHIVED_TAB_BTN, "border-text-faint")}
             disabled={pending}
             aria-busy={pending}
-            aria-label={`Include gear from ${tabName}`}
             onClick={include}
           >
-            {pending ? "Including…" : "Include this gear"}
+            {/* R13 (warning-card-fixes §7.3): one label on every surface. The sr-only
+                suffix replaces the old aria-label, so the accessible name reads
+                `Use this pull sheet from tab <name>` while idle, `Including…` while
+                pending, and the visible label alone for a blank name. */}
+            {pending ? (
+              ARCHIVED_TAB_INCLUDE_PENDING
+            ) : (
+              <>
+                {ARCHIVED_TAB_INCLUDE_LABEL}
+                {tabName.trim() ? (
+                  <>
+                    {" "}
+                    <span className="sr-only">from tab {tabName}</span>
+                  </>
+                ) : null}
+              </>
+            )}
           </button>
           <button
             type="button"

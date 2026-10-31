@@ -68,6 +68,12 @@ describe("subtle-on-interactive policy (DESIGN §1.1/§1.1a, spec §4)", () => {
     // 15 -> 14 (2026-10-27, crew page redesign PR A): the crew sub-nav's inactive
     // tab row left with the sub-nav. The wide nav that replaced it dims only its
     // icon, which no scanner hit names.
-    expect(SUBTLE_INTERACTIVE_EXEMPTIONS.length).toBe(14);
+    // 15 -> 17 (feat/warning-card-fixes Task 12, spec §6.4 / §16.3): the Accepted (N)
+    // disclosure, one on the wizard panel and one on the published extras, each the
+    // Ignored twin's Family S shape and token verbatim, so each earns a row.
+    // 16 on the merge of origin/main (feat/warning-card-fixes) into
+    // feat/crew-page-redesign: this branch's sub-nav row gone, that arc's two Accepted (N)
+    // rows present. Re-derived by running this guard on the merged tree.
+    expect(SUBTLE_INTERACTIVE_EXEMPTIONS.length).toBe(16);
   });
 });

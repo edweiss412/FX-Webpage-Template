@@ -55,8 +55,9 @@ type SheetIconLinkProps = {
    *  yields the no-subject fallback phrasing (no dangling "for"). */
   subjectLabel: string;
   testId: string;
-  /** Container-matched focus ring offset. */
-  ringOffset: "bg" | "surface";
+  /** Container-matched focus ring offset. `warning-bg` and `surface-sunken`
+   *  are the compact card's active and muted plates (warning-card-fixes §3.6). */
+  ringOffset: "bg" | "surface" | "warning-bg" | "surface-sunken";
   /** Positional classes ONLY (order/margin). Never colour, size, or hit-area. */
   className?: string;
 };
@@ -70,6 +71,8 @@ type SheetIconLinkProps = {
 const BACKDROP_SKIN = {
   bg: "focus-visible:ring-offset-bg hover:bg-surface active:bg-surface",
   surface: "focus-visible:ring-offset-surface hover:bg-surface-sunken active:bg-surface-sunken",
+  "warning-bg": "focus-visible:ring-offset-warning-bg hover:bg-surface active:bg-surface",
+  "surface-sunken": "focus-visible:ring-offset-surface-sunken hover:bg-surface active:bg-surface",
 } satisfies Record<SheetIconLinkProps["ringOffset"], string>;
 
 const BASE_CLASSES = cn(

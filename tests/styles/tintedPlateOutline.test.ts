@@ -175,7 +175,11 @@ const REGISTRY: readonly RegistryRow[] = [
     carries: TINTED,
     invisibleBecause:
       "the file declares no ring-offset at all. The override is at the CALL SITES and not in `ARCHIVED_TAB_BTN`, and that is a correction: the colour was briefly moved into the constant on the reasoning that both card tones are tinted, which is true of this file's two sites and false of the constant — `components/admin/review/PublishedArchivedTabOffer.tsx` uses it at two more, both on `bg-surface-sunken`.",
-    neutralFaintCount: 0,
+    // 0 -> 1 on feat/warning-card-fixes Task 13 (spec §7.3): the shared include button
+    // takes its outline from its `plate` prop. Its `surface` arm stands on the wizard
+    // warning card's `bg-surface`, a NEUTRAL ground, so it wears `border-text-faint`; its
+    // `tinted` arm (Pack list, Resolve box) keeps the plate token.
+    neutralFaintCount: 1,
   },
   {
     file: "components/admin/review/PublishedArchivedTabOffer.tsx",

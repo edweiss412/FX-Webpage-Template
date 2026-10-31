@@ -1142,6 +1142,10 @@ describe("sheet-link phrase containment (spec §7.10)", () => {
         "lib/drive/showDayTimeAnchors.ts": 1,
         "lib/drive/sourceAnchors.ts": 1,
         "lib/drive/unknownFieldAnchors.ts": 2,
+        // The venue block's empty address cell (warning-card-fixes §4.2 item 3): its one
+        // `@/lib/sheet-links/buildSheetDeepLink` import, for `REGION_ANCHOR_SPEC`,
+        // `SOURCE_LINK_ALLOWLIST` and the `SourceAnchor` type, never the builder.
+        "lib/drive/venueAddressAnchor.ts": 1,
         // Type-only `SourceAnchor` import on the wave-code anchor replay, the second
         // raw-workbook scanner that sets `scope: "cell"` (spec 2026-08-29 §2). Same shape
         // as `showDayTimeAnchors.ts` above: a type, never the builder.
@@ -2168,6 +2172,10 @@ describe("sheet-link phrase containment (spec §7.10)", () => {
       // event — a new row lands only WITH its rect-intersection e2e and
       // impeccable pass.
       expect(adopters.sort()).toEqual([
+        // warning-card-fixes Task 9 (spec §3.6, R11): the compact card shell owns the
+        // published warning cards' one call site; its rect-intersection e2e is
+        // tests/e2e/compact-alert-card-layout.spec.ts (DI-C1 to DI-C9).
+        "components/admin/CompactAlertCard.tsx",
         "components/admin/showpage/PublishedReviewModal.tsx",
         "components/admin/wizard/Step3ReviewModal.tsx",
         "components/admin/wizard/step3ReviewSections.tsx",
