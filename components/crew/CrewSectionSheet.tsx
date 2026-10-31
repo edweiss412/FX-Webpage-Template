@@ -81,8 +81,21 @@ const SHEET_SLIDE = { duration: 0.22, ease: [0.25, 1, 0.5, 1] } as const;
 /** Reduced motion: every sheet step is instant. */
 const SHEET_INSTANT = { duration: 0 } as const;
 
-/** Elements the inert sweep leaves alone: they render nothing a user can reach. */
-const NOT_INERTED = new Set(["SCRIPT", "STYLE", "LINK", "META", "TEMPLATE", "NOSCRIPT"]);
+/**
+ * Elements the inert sweep leaves alone: they render nothing a user can reach.
+ * `NEXT-ROUTE-ANNOUNCER` is Next's live region for client navigations, a child
+ * of <body>: inerting it would drop it from the accessibility tree, so a
+ * navigation started from inside the sheet would be announced into nothing.
+ */
+const NOT_INERTED = new Set([
+  "SCRIPT",
+  "STYLE",
+  "LINK",
+  "META",
+  "TEMPLATE",
+  "NOSCRIPT",
+  "NEXT-ROUTE-ANNOUNCER",
+]);
 /**
  * A status region marked with this attribute stays live under an open sheet: it
  * holds no control, and an inert subtree is dropped from the accessibility tree,

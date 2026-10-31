@@ -296,8 +296,10 @@ export const TAP_TARGET_CENSUS: readonly TapCensusRow[] = [
     // 296 -> 304 on the merge of origin/main (crew show search): the inert sweep's
     // live-region exemption (`LIVE_REGION_ATTR`) sits above it. Same scrim, confirmed
     // by reading its className at the new key. 304 -> 316 in plan Task 12: the
-    // `presence` prop and its doc sit above it. Same scrim.
-    line: 316,
+    // `presence` prop and its doc sit above it. Same scrim. 316 -> 329 on the
+    // invariant-8 fixes (audit P3-5): the inert sweep's exempt set grew a route
+    // announcer row and a doc. Same scrim.
+    line: 329,
     tag: "motion.div",
     category: "full-bleed",
     reason:

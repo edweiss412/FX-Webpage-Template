@@ -173,6 +173,24 @@ describe("CrewSectionSheet (spec §5.2)", () => {
     expect(behind.closest("[inert]")).toBeNull();
   });
 
+  it("sheet: the inert sweep leaves Next's route announcer live (audit P3-5)", () => {
+    // Next mounts `<next-route-announcer>` as a child of <body>, a sibling of the
+    // app root, so the sweep reaches it. Inerting it drops it from the
+    // accessibility tree, and a navigation started from inside the sheet would be
+    // announced into nothing.
+    const announcer = document.createElement("next-route-announcer");
+    document.body.appendChild(announcer);
+    try {
+      render(<Page initial={VENUE} />);
+      // The sweep ran: the page behind is inert, so the announcer's exemption is
+      // a choice the sweep made, not a sweep that never reached it.
+      expect(screen.getByTestId("behind").closest("[inert]")).not.toBeNull();
+      expect(announcer.hasAttribute("inert")).toBe(false);
+    } finally {
+      announcer.remove();
+    }
+  });
+
   it("sheet: body scroll is locked while open and restored on close", async () => {
     document.body.style.overflow = "scroll";
     render(<Page />);
