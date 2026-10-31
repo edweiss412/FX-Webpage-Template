@@ -111,7 +111,7 @@ export default defineConfig({
       // Chromium alone runs the realtime spec: the realtime path is engine-independent
       // client code, and one engine proves it.
       name: "crew-offline-chromium",
-      testMatch: /crew-offline(-layout|-realtime)?\.spec\.ts/,
+      testMatch: /(crew-offline|crew-offline-layout|crew-offline-realtime)\.spec\.ts/,
       use: {
         ...devices["Desktop Chrome"],
         viewport: { width: 390, height: 844 },
@@ -122,7 +122,7 @@ export default defineConfig({
       // the fixture sends WebKit to the proxy's https listener, whose certificate is a
       // per-run throwaway: ignoreHTTPSErrors covers that loopback origin and nothing else.
       name: "crew-offline-webkit",
-      testMatch: /crew-offline(-layout)?\.spec\.ts/,
+      testMatch: /(crew-offline|crew-offline-layout)\.spec\.ts/,
       use: {
         ...devices["iPhone 14"],
         viewport: { width: 390, height: 844 },

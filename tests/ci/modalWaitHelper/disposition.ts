@@ -807,4 +807,24 @@ export const DISPOSITION_RULES: DispositionRule[] = [
         "theme-toggle.spec.ts",
       ].some((file) => inFile(c, file)),
   },
+  {
+    id: "e/crew-offline-saved-copy-reload",
+    origin: "e-renavigation",
+    disposition: {
+      kind: "exclusion",
+      reason:
+        "a reload of a crew show route through the offline specs' loopback proxy. The reload IS the act under test: the service worker answers the navigation with the saved copy, the not-saved page, or the network. No ?show= route is visited in these files, so the review modal whose loader the §4.2 post-open wait covers never opens. The overlays they do open are the avatar menu (a popover) and the agenda viewer (a client-side dialog whose pages come from the saved PDF, with no route loader behind it)",
+    },
+    // 18 since 2026-10-30 (feat/crew-offline-saved-copy): 14 in
+    // crew-offline.spec.ts, 1 in crew-offline-layout.spec.ts's module-scope
+    // helper, 3 in crew-offline-realtime.spec.ts.
+    expectedCount: 18,
+    // Recognizer reads the MATCH line (contract rule 2). No refusal gate: an
+    // origin-(e) statement carries no route, and a reload edited into
+    // goBack/goForward misses `.reload(` and falls through to undisposed.
+    match: (c) =>
+      ["crew-offline.spec.ts", "crew-offline-layout.spec.ts", "crew-offline-realtime.spec.ts"].some(
+        (file) => inFile(c, file),
+      ) && /\.reload\(/.test(c.matchLineText),
+  },
 ];

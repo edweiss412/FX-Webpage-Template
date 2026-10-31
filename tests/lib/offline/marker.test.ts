@@ -541,7 +541,7 @@ describe("readNavigationMarker", () => {
     // fallback reads only a body with no marker element.
     const both = STREAMED_CREW_PAGE.replace(
       "</body>",
-      `<script>$RX("B:0","${NOT_FOUND_DIGEST_TEXT}")</script></body>`,
+      () => `<script>$RX("B:0","${NOT_FOUND_DIGEST_TEXT}")</script></body>`,
     );
     premise("the digest is in the body", occurrences(both, NOT_FOUND_DIGEST_TEXT), 0);
     expect(readNavigationMarker(both)).toStrictEqual(readMarker(STREAMED_CREW_PAGE));
@@ -555,7 +555,7 @@ describe("readNavigationMarker", () => {
     premiseHolds("the fixture names its show", showId !== undefined && UUID_SHAPE.test(showId));
     const body = STREAMED_CREW_PAGE.replace(CREW_PAGE_MARKER, (element) =>
       element.replace('data-v="3"', 'data-v="9"'),
-    ).replace("</body>", `<script>$RX("B:0","${NOT_FOUND_DIGEST_TEXT}")</script></body>`);
+    ).replace("</body>", () => `<script>$RX("B:0","${NOT_FOUND_DIGEST_TEXT}")</script></body>`);
     premiseHolds("the marker element now has an unknown version", body.includes('data-v="9"'));
     premise("the digest is in the body", occurrences(body, NOT_FOUND_DIGEST_TEXT), 0);
     expect(readNavigationMarker(body)).toStrictEqual(invalid(showId ?? null));
