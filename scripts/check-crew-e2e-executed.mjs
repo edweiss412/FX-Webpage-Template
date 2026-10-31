@@ -126,10 +126,11 @@ export const REQUIRED = {
   // or removing a case.
   //
   // Re-derived 2026-10-31 (Codex R1 D1: the layout row was a stale 12 against 16,
-  // and the UI gate re-check E4 added layout case 9), after every D edit:
+  // and the UI gate re-check E4 added layout case 9), after every D edit; the
+  // crew-offline row re-derived again after Codex R3 C added case 11c:
   //   == crew-offline.spec.ts
-  //     [crew-offline-webkit] › crew-offline.spec.ts:830:5 › 15. hydration is clean on a served copy, offline and ended
-  //   Total: 32 tests in 1 file
+  //     [crew-offline-webkit] › crew-offline.spec.ts:943:5 › 15. hydration is clean on a served copy, offline and ended
+  //   Total: 34 tests in 1 file
   //   == crew-offline-realtime.spec.ts
   //     [crew-offline-chromium] › crew-offline-realtime.spec.ts:150:5 › an unpublish arriving by realtime refresh wipes the copy
   //   Total: 3 tests in 1 file
@@ -137,8 +138,8 @@ export const REQUIRED = {
   //     [crew-offline-webkit] › crew-offline-layout.spec.ts:636:5 › 9. one bottom edge: under the detail at rest, under the pinned line once the detail has scrolled away
   //   Total: 18 tests in 1 file
   //
-  // 32 = 16 cases under each of Chromium and WebKit.
-  "crew-offline.spec.ts": 32,
+  // 34 = 17 cases under each of Chromium and WebKit.
+  "crew-offline.spec.ts": 34,
   // 3 = three realtime cases, Chromium alone by testMatch.
   "crew-offline-realtime.spec.ts": 3,
   // 18 = 9 layout cases under each engine.
