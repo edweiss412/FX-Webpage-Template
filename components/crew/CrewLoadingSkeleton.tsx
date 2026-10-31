@@ -15,7 +15,8 @@ import { cn } from "@/lib/ui/cn";
  * same split `components/crew/CrewSections.tsx` uses before hydration:
  *   - below 1024px: the header with its search row, the day-row strip, a
  *     pass-sized block, then the "All sections" list block;
- *   - from 1024px: the header sticky at `--crew-header-h`, the 240px left nav
+ *   - from 1024px: the header sticky at `--crew-sticky-top`, `--crew-header-h`
+ *     tall, the title block with twice the search slot's share, the 240px left nav
  *     column, and beside it the Today block (the day row and pass beside a home
  *     body column) over one stacked section frame.
  * The header bar, its row, the search slot and the nav column carry the real
@@ -45,19 +46,19 @@ export function CrewLoadingSkeleton() {
           same in both modes, the fixed `--crew-header-h` bar from 1024px included. */}
       <div
         data-testid="crew-loading-header"
-        className="border-b border-border bg-bg lg:sticky lg:top-0 lg:z-nav lg:h-(--crew-header-h)"
+        className="border-b border-border bg-bg lg:sticky lg:top-(--crew-sticky-top) lg:z-nav lg:h-(--crew-header-h)"
       >
         <div className="mx-auto flex w-full max-w-[1200px] flex-wrap items-baseline justify-between gap-x-6 gap-y-3 px-4 py-3 sm:gap-y-4 sm:px-8 sm:py-4 lg:h-full lg:flex-nowrap lg:items-center lg:py-0">
           {/* One plate per line box of the title block: the eyebrow (`text-xs`,
               16px), the title row (its status pill, 22px) and the date (`text-xs`). */}
-          <div className="min-w-0 flex-1">
+          <div className="min-w-0 flex-1 lg:flex-[2_1_0%]">
             <Skeleton className="h-4 w-24" />
             <Skeleton className="mt-1 h-5.5 w-56" />
             <Skeleton className="mt-1 h-4 w-40" />
           </div>
           <div
             data-testid="crew-loading-search"
-            className="order-last basis-full lg:order-0 lg:max-w-xl lg:grow lg:basis-0 lg:self-center"
+            className="order-last basis-full lg:order-0 lg:max-w-sm lg:grow lg:basis-0 lg:self-center"
           >
             <Skeleton className="h-13 w-full" />
           </div>
@@ -72,7 +73,7 @@ export function CrewLoadingSkeleton() {
         {/* Left nav column, 1024px and up: `CrewWideNav`'s box, Today then the base sections. */}
         <div
           data-testid="crew-loading-nav"
-          className="sticky top-(--crew-header-h) hidden h-[calc(100dvh-var(--crew-header-h))] w-60 shrink-0 flex-col gap-1 self-start overflow-y-auto border-r border-border py-6 pr-3 lg:flex"
+          className="sticky top-(--crew-header-bottom) hidden h-[calc(100dvh-var(--crew-header-bottom))] w-60 shrink-0 flex-col gap-1 self-start overflow-y-auto border-r border-border py-6 pr-3 lg:flex"
         >
           {BASE_SECTION_IDS.map((id) => (
             <div
