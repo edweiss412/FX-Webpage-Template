@@ -218,36 +218,38 @@ export function GearSection({
                       <SectionCard
                         icon={DISCIPLINE_ICONS[d.id]}
                         title={d.heading}
+                        eyebrow={
+                          // The viewer's-own-scope eyebrow, above the header: in the
+                          // action slot beside "In sheet" and the report button it
+                          // left the title 2px at 320 and none in the 1024 thirds
+                          // (whole-diff review round 2, CI-parity run). Chrome, not
+                          // sheet data; the card's search lines carry it as context.
+                          d.emphasized ? (
+                            <span
+                              data-search-skip=""
+                              className="text-xs font-medium uppercase tracking-eyebrow text-accent-on-bg"
+                            >
+                              {YOUR_SCOPE}
+                            </span>
+                          ) : undefined
+                        }
                         action={
-                          // The viewer's-own-scope eyebrow (when emphasized) and the
-                          // recessive source link share the header action slot.
-                          <div className="flex items-center gap-2">
-                            {d.emphasized ? (
-                              // Chrome, not sheet data; the card's search lines carry it as context.
-                              <span
-                                data-search-skip=""
-                                className="text-xs font-medium uppercase tracking-eyebrow text-accent-on-bg"
-                              >
-                                {YOUR_SCOPE}
-                              </span>
-                            ) : null}
-                            <CardHeaderActions
-                              cardId={`gear-scope-${d.id}`}
-                              driveFileId={data.driveFileId}
-                              anchor={
-                                // GEAR-derived scope (modern shows) → link to the GEAR tab via the
-                                // date-grid-gated `gear_scope` anchor; legacy INFO-inline shows have no
-                                // `gear_scope` anchor → the precise `rooms` (INFO) anchor (spec §3.6).
-                                data.sourceAnchors[
-                                  data.sourceAnchors["gear_scope"]
-                                    ? "gear_scope"
-                                    : CARD_REGION_MAP[`gear-scope-${d.id}`]
-                                ]
-                              }
-                              showId={showId}
-                              cardReport={cardReport}
-                            />
-                          </div>
+                          <CardHeaderActions
+                            cardId={`gear-scope-${d.id}`}
+                            driveFileId={data.driveFileId}
+                            anchor={
+                              // GEAR-derived scope (modern shows) → link to the GEAR tab via the
+                              // date-grid-gated `gear_scope` anchor; legacy INFO-inline shows have no
+                              // `gear_scope` anchor → the precise `rooms` (INFO) anchor (spec §3.6).
+                              data.sourceAnchors[
+                                data.sourceAnchors["gear_scope"]
+                                  ? "gear_scope"
+                                  : CARD_REGION_MAP[`gear-scope-${d.id}`]
+                              ]
+                            }
+                            showId={showId}
+                            cardReport={cardReport}
+                          />
                         }
                       >
                         <KeyValueRows rows={d.rows} />

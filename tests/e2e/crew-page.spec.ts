@@ -3434,25 +3434,67 @@ test.describe("quick facts and card titles on the seeded show (moved from crew-l
       }, scope);
     const cut = (titles: Awaited<ReturnType<typeof readTitles>>) =>
       titles.filter((t) => t.scrollWidth > t.clientWidth + TOL_TIGHT || t.overflow === "ellipsis");
-    let seen = 0;
-    for (const width of [320, 390]) {
-      await page.setViewportSize({ width, height: 844 });
-      for (const section of ["schedule", "venue", "travel", "crew", "gear"]) {
-        await gotoSection(page, section);
-        const titles = await readTitles('[data-testid="crew-section-sheet-body"]');
+
+    // The Gear scope cards need a room with audio and video values, which the
+    // shared seed may not carry; set them here and put them back after. An
+    // admin owns every discipline, so both cards carry the "Your scope" eyebrow,
+    // which in the header's action slot beside "In sheet" and the report button
+    // squeezed their titles to 2px at 320 and to none in the 1024 thirds
+    // (CI-parity run at b66631b3e).
+    const seeded = await lookupSeededShow();
+    // not-subject-to-meta: test-local fixture setup (see lookupSeededShow).
+    const { data: room, error: roomError } = await admin
+      .from("rooms")
+      .select("id, audio, video")
+      .eq("show_id", seeded.showId)
+      .limit(1)
+      .maybeSingle();
+    if (roomError) throw new Error(`card titles setup: rooms lookup FAILED: ${roomError.message}`);
+    if (!room?.id) throw new Error("card titles setup: no room on the Waldorf seed");
+    const original = { audio: room.audio ?? null, video: room.video ?? null };
+    const { error: setError } = await admin
+      .from("rooms")
+      .update({ audio: "2x QSC K12 mains", video: "2x 7000-lumen laser projectors" })
+      .eq("id", room.id);
+    if (setError)
+      throw new Error(`card titles setup: room A/V override FAILED: ${setError.message}`);
+    try {
+      let seen = 0;
+      const gearAt320: string[] = [];
+      for (const width of [320, 390]) {
+        await page.setViewportSize({ width, height: 844 });
+        for (const section of ["schedule", "venue", "travel", "crew", "gear"]) {
+          await gotoSection(page, section);
+          const titles = await readTitles('[data-testid="crew-section-sheet-body"]');
+          seen += titles.length;
+          if (width === 320 && section === "gear")
+            gearAt320.push(...titles.map((t) => t.text ?? ""));
+          expect(cut(titles), `${width}px ${section}: ${JSON.stringify(titles)}`).toEqual([]);
+        }
+      }
+      // PREMISE: the scope cards rendered, so their titles were among those read.
+      expect(gearAt320.map((t) => t.toLowerCase())).toEqual(
+        expect.arrayContaining(["audio", "video"]),
+      );
+      for (const width of [1024, 1280]) {
+        await page.setViewportSize({ width, height: 900 });
+        await gotoSection(page, "today");
+        const titles = await readTitles('[data-testid="crew-wide-stack"]');
         seen += titles.length;
-        expect(cut(titles), `${width}px ${section}: ${JSON.stringify(titles)}`).toEqual([]);
+        expect(cut(titles), `${width}px: ${JSON.stringify(titles)}`).toEqual([]);
+      }
+      // PREMISE: the walk read real titles, the ones that were cut among them.
+      expect(seen).toBeGreaterThan(20);
+    } finally {
+      // Loud: a restore that fails leaves the override in every later suite.
+      const { error: restoreError } = await admin.from("rooms").update(original).eq("id", room.id);
+      if (restoreError) {
+        throw new Error(
+          `card titles teardown: room A/V RESTORE FAILED for room ${room.id as string}; ` +
+            `re-run \`pnpm db:seed\`: ${restoreError.message}`,
+        );
       }
     }
-    for (const width of [1024, 1280]) {
-      await page.setViewportSize({ width, height: 900 });
-      await gotoSection(page, "today");
-      const titles = await readTitles('[data-testid="crew-wide-stack"]');
-      seen += titles.length;
-      expect(cut(titles), `${width}px: ${JSON.stringify(titles)}`).toEqual([]);
-    }
-    // PREMISE: the walk read real titles, the ones that were cut among them.
-    expect(seen).toBeGreaterThan(20);
   });
 });
 

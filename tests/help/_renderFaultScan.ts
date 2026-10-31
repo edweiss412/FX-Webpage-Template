@@ -932,7 +932,12 @@ export function scanCandidates(): Candidate[] {
       // replaces the `truncated ? <div>… : null` it held inside the details. None
       // is a fault branch; 78 kept. Re-derived by running the guard.
       //
-      // Probed: 797 such ternaries under the derived roots, 78 on a
+      // 797 -> 798 on the whole-diff review round 2 card-title fix: SectionCard's
+      // optional eyebrow (`eyebrow !== undefined ? <div>… : null`) is new; Gear's
+      // "Your scope" ternary moved from the action slot into that prop. Not a
+      // fault branch; 78 kept. Re-derived by running the guard.
+      //
+      // Probed: 798 such ternaries under the derived roots, 78 on a
       // fault-vocabulary guard and unclassifiable. 69 of those 78 sit in
       // `"use client"` files, where the guard is interaction state -- `errorCode`,
       // `state.kind === "error"`, `switchStatus === "error"` -- and not a server-render
