@@ -384,6 +384,28 @@ describe("text-subtle on surface-raised contrast (raised-surface captions)", () 
   }
 });
 
+// The crew section sheet's panel (components/crew/CrewSectionSheet.tsx) paints
+// `bg-surface-raised` so it lifts off the scrimmed page in dark (critique F14:
+// on `bg-surface` it was the same value as the cards behind the scrim). Its own
+// text sits on that ground: the title at `text-strong`, body copy at `text`,
+// captions at `text-subtle` (pinned above). The lift is a premise of the change,
+// so it is pinned too: a dark raised step equal to the surface would undo it.
+describe("crew section sheet panel on surface-raised (critique F14)", () => {
+  for (const mode of MODES) {
+    for (const ink of ["--color-text-strong-runtime", "--color-text-runtime"] as const) {
+      it(`${mode.name}: ${ink} clears >=4.5:1 AA on surface-raised`, () => {
+        const raised = tokenIn(mode.src, "--color-surface-raised-runtime");
+        expect(contrast(tokenIn(mode.src, ink), raised)).toBeGreaterThanOrEqual(TEXT_FLOOR);
+      });
+    }
+  }
+  it("dark: surface-raised is a lighter step than surface, so the panel lifts", () => {
+    const dark = MODES.find((m) => m.name === "dark")!;
+    const raised = tokenIn(dark.src, "--color-surface-raised-runtime");
+    expect(relLuminance(raised)).toBeGreaterThan(relLuminance(dark.surface));
+  });
+});
+
 // SheetIconLink press/hover washes (sheet-icon-link spec §3, impeccable audit
 // P3): the glyph renders `text-text-strong` ON its wash — `bg-surface-sunken`
 // at the surface-backed modal titles, `bg-surface` at the bg-backed section

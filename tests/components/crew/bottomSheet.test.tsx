@@ -227,6 +227,19 @@ describe("CrewSectionSheet (spec §5.2)", () => {
     }
   });
 
+  it("sheet: the panel paints the raised surface, and the close ring's offset matches it (critique F14)", () => {
+    // Dark mode has one step between `surface` and `surface-raised`; on
+    // `bg-surface` the panel matched the cards behind the scrim and had no lift.
+    // The close button's ring offset paints the panel's ground, so it names the
+    // same token or the ring shows a stripe of the wrong colour.
+    render(<Page initial={VENUE} />);
+    const panel = screen.getByTestId("crew-section-sheet-panel");
+    expect(panel.className.split(/\s+/)).toContain("bg-surface-raised");
+    expect(panel.className.split(/\s+/)).not.toContain("bg-surface");
+    const close = screen.getByRole("button", { name: `Close ${VENUE.label.toLowerCase()}` });
+    expect(close.className.split(/\s+/)).toContain("focus-visible:ring-offset-surface-raised");
+  });
+
   it("sheet: body scroll is locked while open and restored on close", async () => {
     document.body.style.overflow = "scroll";
     render(<Page />);

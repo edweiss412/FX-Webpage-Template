@@ -404,7 +404,7 @@ function SheetFrame({
         <div
           ref={panelRef}
           data-testid="crew-section-sheet-panel"
-          className="pointer-events-auto flex max-h-[90dvh] w-full flex-col rounded-t-lg border border-b-0 border-border bg-surface text-text shadow-popover sm:max-w-panel-max"
+          className="pointer-events-auto flex max-h-[90dvh] w-full flex-col rounded-t-lg border border-b-0 border-border bg-surface-raised text-text shadow-popover sm:max-w-panel-max"
         >
           <div
             className="shrink-0 touch-none select-none"
@@ -433,7 +433,7 @@ function SheetFrame({
                 type="button"
                 aria-label={closeName}
                 onClick={onRequestClose}
-                className="inline-flex size-tap-min shrink-0 items-center justify-center rounded-pill bg-surface-sunken text-text transition-colors duration-fast hover:text-text-strong focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring focus-visible:ring-offset-2 focus-visible:ring-offset-surface"
+                className="inline-flex size-tap-min shrink-0 items-center justify-center rounded-pill bg-surface-sunken text-text transition-colors duration-fast hover:text-text-strong focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring focus-visible:ring-offset-2 focus-visible:ring-offset-surface-raised"
               >
                 <X aria-hidden="true" className="size-4" />
               </button>
