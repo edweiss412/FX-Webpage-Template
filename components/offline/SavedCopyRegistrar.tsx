@@ -27,10 +27,13 @@
  * - When the show has an agenda it loads the agenda viewer's code and the
  *   pdf.js worker that code configures, online, idle and once a worker controls
  *   the page, so both pass through the worker into its static cache and an
- *   agenda nobody opened still opens offline (spec 4.8). A prefetch that could
- *   not run (offline at idle) or failed (an import that rejects, a worker fetch
- *   that fails or answers other than ok) is tried again on the next `online`
- *   event; one that succeeded is not repeated in this page load.
+ *   agenda nobody opened still opens offline (spec 4.8). The worker stores the
+ *   pdf.js file as its body passes through, so the prefetch reads that body to
+ *   its end before it counts as done. A prefetch that could not run (offline at
+ *   idle) or failed (an import that rejects, a worker fetch that fails or
+ *   answers other than ok, a body that fails or has not arrived whole
+ *   AGENDA_PREFETCH_TIMEOUT_MS after the fetch was sent) is tried again on the
+ *   next `online` event; one that succeeded is not repeated in this page load.
  * - A failed registration and a `save-failed` broadcast from the worker are
  *   logged with source `client.crew` (spec 6), the source crew components use
  *   and the client-error route accepts. Neither is shown: nothing here renders
@@ -69,6 +72,13 @@ const ENSURE_SAVED_THROTTLE_MS = 10_000;
  * check a probe runs.
  */
 const ENSURE_SAVED_REPLY_TIMEOUT_MS = 20_000;
+
+/**
+ * How long the agenda prefetch waits for the pdf.js worker file, headers and
+ * body, before it counts as failed, aborts the fetch and leaves the next
+ * `online` event to try again (spec 4.8).
+ */
+const AGENDA_PREFETCH_TIMEOUT_MS = 60_000;
 
 /**
  * Where there is no requestIdleCallback (WebKit), the work runs in the first
@@ -170,9 +180,30 @@ function persistStorageOnce(): void {
 async function prefetchAgendaViewer(): Promise<void> {
   await loadAgendaPdfViewer();
   const { PDF_WORKER_SRC } = await import("@/components/agenda/pdfWorkerSrc");
-  const response = await fetch(PDF_WORKER_SRC);
-  // A 404 or a 503 put nothing in the worker's static cache.
-  if (!response.ok) throw new Error(`pdf.js worker answered ${response.status}`);
+  const controller = new AbortController();
+  const read = (async () => {
+    const response = await fetch(PDF_WORKER_SRC, { signal: controller.signal });
+    // A 404 or a 503 put nothing in the worker's static cache.
+    if (!response.ok) throw new Error(`pdf.js worker answered ${response.status}`);
+    // Neither does a body that fails or stalls once the headers are in.
+    await response.arrayBuffer();
+  })();
+  await new Promise<void>((resolve, reject) => {
+    const timer = window.setTimeout(() => {
+      controller.abort();
+      reject(new Error("pdf.js worker did not arrive in time"));
+    }, AGENDA_PREFETCH_TIMEOUT_MS);
+    read.then(
+      () => {
+        window.clearTimeout(timer);
+        resolve();
+      },
+      (error: unknown) => {
+        window.clearTimeout(timer);
+        reject(error);
+      },
+    );
+  });
 }
 
 /** At most one prefetch out at a time; a failed one leaves the next attempt free to run. */

@@ -42,8 +42,9 @@
  * the agenda code fetched for a show without an agenda, without a controlling
  * worker, offline, more than once after it succeeded, or from a worker URL
  * other than the one AgendaPdfViewer assigns to pdf.js; a prefetch that could
- * not run or failed (a rejected import, a non-ok worker fetch) never tried
- * again when the phone comes back online; react-pdf imported by the registrar
+ * not run or failed (a rejected import, a non-ok worker fetch, a body that
+ * fails or stalls past its deadline) never tried again when the phone comes
+ * back online; react-pdf imported by the registrar
  * itself; and anything at all, or a throw, where the browser has no service
  * worker container.
  */
@@ -98,6 +99,7 @@ import {
   type SavedCopyRegistrarProps,
 } from "@/components/offline/SavedCopyRegistrar";
 import { postToWorker } from "@/lib/offline/client/messaging";
+import { premiseHolds } from "@/tests/_shared/premise";
 
 const post = vi.mocked(postToWorker);
 
@@ -116,6 +118,30 @@ function ensureSaved(renderedAt: string) {
 /** The messages the registrar posted, in order. */
 function posted(): unknown[] {
   return post.mock.calls.map(([message]) => message);
+}
+
+/** One prefetch of the pdf.js worker file: its URL, and a signal its deadline aborts. */
+function workerFetch(url: string = agenda.WORKER_SRC): unknown[] {
+  return [url, { signal: expect.any(AbortSignal) }];
+}
+
+/** A body that sends some bytes, then fails, as a dropped connection does. */
+function failingBody(): ReadableStream<Uint8Array> {
+  return new ReadableStream<Uint8Array>({
+    start(controller) {
+      controller.enqueue(new TextEncoder().encode("// pdf.js worker, part"));
+      controller.error(new TypeError("network connection was lost"));
+    },
+  });
+}
+
+/** A body that sends some bytes and then nothing more, never ending. */
+function stalledBody(): ReadableStream<Uint8Array> {
+  return new ReadableStream<Uint8Array>({
+    start(controller) {
+      controller.enqueue(new TextEncoder().encode("// pdf.js worker, part"));
+    },
+  });
 }
 
 type Installed = {
@@ -597,7 +623,7 @@ describe("agenda viewer code (spec 4.8)", () => {
 
     rerender(<SavedCopyRegistrar {...BASE} hasAgenda />);
     await settle();
-    expect(fetchMock.mock.calls).toEqual([[agenda.WORKER_SRC]]);
+    expect(fetchMock.mock.calls).toEqual([workerFetch()]);
 
     // Once per page load: new render times and a remount fetch it again never.
     rerender(<SavedCopyRegistrar {...BASE} renderedAt={SECOND} hasAgenda />);
@@ -618,7 +644,7 @@ describe("agenda viewer code (spec 4.8)", () => {
 
     takeControl(container);
     await settle();
-    expect(fetchMock.mock.calls).toEqual([[agenda.WORKER_SRC]]);
+    expect(fetchMock.mock.calls).toEqual([workerFetch()]);
   });
 
   test("waits for idle, and fetches nothing while the phone is offline", async () => {
@@ -636,7 +662,7 @@ describe("agenda viewer code (spec 4.8)", () => {
     render(<SavedCopyRegistrar {...BASE} hasAgenda />);
     expect(fetchMock).not.toHaveBeenCalled();
     await settle();
-    expect(fetchMock.mock.calls).toEqual([[agenda.WORKER_SRC]]);
+    expect(fetchMock.mock.calls).toEqual([workerFetch()]);
   });
 
   // Codex R1 C1: one mounted registrar, never remounted. At most once per page
@@ -656,7 +682,7 @@ describe("agenda viewer code (spec 4.8)", () => {
       window.dispatchEvent(new Event("online"));
     });
     await settle();
-    expect(fetchMock.mock.calls).toEqual([[agenda.WORKER_SRC]]);
+    expect(fetchMock.mock.calls).toEqual([workerFetch()]);
 
     // Done: a later online event fetches nothing more.
     act(() => {
@@ -673,13 +699,13 @@ describe("agenda viewer code (spec 4.8)", () => {
 
     render(<SavedCopyRegistrar {...BASE} hasAgenda />);
     await settle();
-    expect(fetchMock.mock.calls).toEqual([[agenda.WORKER_SRC]]);
+    expect(fetchMock.mock.calls).toEqual([workerFetch()]);
 
     act(() => {
       window.dispatchEvent(new Event("online"));
     });
     await settle();
-    expect(fetchMock.mock.calls).toEqual([[agenda.WORKER_SRC], [agenda.WORKER_SRC]]);
+    expect(fetchMock.mock.calls).toEqual([workerFetch(), workerFetch()]);
 
     // The second answered 200: done, so a later online event fetches nothing.
     act(() => {
@@ -687,6 +713,79 @@ describe("agenda viewer code (spec 4.8)", () => {
     });
     await settle();
     expect(fetchMock).toHaveBeenCalledTimes(2);
+  });
+
+  // Codex R2 C1: the worker stores the file as its body passes through, so 200
+  // headers are not success. Only a body read to its end is done.
+  test("a 200 whose body fails mid-stream is not done: offline, then online, fetches it again", async () => {
+    installServiceWorker({ controlled: true });
+    installStorage();
+    fetchMock.mockResolvedValueOnce(new Response(failingBody(), { status: 200 }));
+
+    render(<SavedCopyRegistrar {...BASE} hasAgenda />);
+    await settle();
+    expect(fetchMock.mock.calls).toEqual([workerFetch()]);
+
+    setOnline(false);
+    act(() => {
+      window.dispatchEvent(new Event("offline"));
+    });
+    setOnline(true);
+    act(() => {
+      window.dispatchEvent(new Event("online"));
+    });
+    await settle();
+    expect(fetchMock.mock.calls).toEqual([workerFetch(), workerFetch()]);
+
+    // That body arrived whole: done, so a later online event fetches nothing.
+    act(() => {
+      window.dispatchEvent(new Event("online"));
+    });
+    await settle();
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+  });
+
+  test("a body still arriving 60 seconds after the fetch is a failure: the fetch is aborted, and the next online event fetches again", async () => {
+    // Warm the mocked modules first, so the prefetch's own imports settle under fake timers.
+    await import("@/components/agenda/loadAgendaPdfViewer");
+    await import("@/components/agenda/AgendaPdfViewer");
+    await import("@/components/agenda/pdfWorkerSrc");
+    vi.useFakeTimers();
+    installServiceWorker({ controlled: true });
+    installStorage();
+    let sentAt = Number.NaN;
+    fetchMock.mockImplementationOnce(() => {
+      sentAt = Date.now();
+      return Promise.resolve(new Response(stalledBody(), { status: 200 }));
+    });
+    const runTimers = async (ms: number): Promise<void> => {
+      for (let round = 0; round < 5; round += 1) {
+        await act(() => vi.advanceTimersByTimeAsync(round === 0 ? ms : 0));
+      }
+    };
+    const online = async (): Promise<void> => {
+      act(() => {
+        window.dispatchEvent(new Event("online"));
+      });
+      await runTimers(0);
+    };
+
+    render(<SavedCopyRegistrar {...BASE} hasAgenda />);
+    await runTimers(0);
+    expect(fetchMock.mock.calls).toEqual([workerFetch()]);
+    premiseHolds("the fetch time was recorded", Number.isFinite(sentAt));
+    const signal = (fetchMock.mock.calls[0]?.[1] as RequestInit | undefined)?.signal;
+
+    await runTimers(sentAt + 59_999 - Date.now());
+    await online();
+    // Still out: one prefetch at a time.
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    expect(signal?.aborted).toBe(false);
+
+    await runTimers(1);
+    expect(signal?.aborted).toBe(true);
+    await online();
+    expect(fetchMock.mock.calls).toEqual([workerFetch(), workerFetch()]);
   });
 
   test("a rejected viewer import is tried again on the next online event", async () => {
@@ -717,7 +816,7 @@ describe("agenda viewer code (spec 4.8)", () => {
         window.dispatchEvent(new Event("online"));
       });
       await vi.waitFor(() => expect(fetchMock).toHaveBeenCalled());
-      expect(fetchMock.mock.calls).toEqual([[agenda.WORKER_SRC]]);
+      expect(fetchMock.mock.calls).toEqual([workerFetch()]);
       expect(loads.loader).toBe(2);
     } finally {
       await restoreAgendaMocks();
@@ -744,7 +843,7 @@ describe("agenda viewer code (spec 4.8)", () => {
       // with the bundled worker file.
       expect(assigned).not.toBe(agenda.REACT_PDF_DEFAULT);
       expect(assigned).toMatch(/\/pdfjs-dist\/build\/pdf\.worker\.min\.mjs$/);
-      expect(fetchMock.mock.calls).toEqual([[assigned]]);
+      expect(fetchMock.mock.calls).toEqual([workerFetch(assigned)]);
     } finally {
       await restoreAgendaMocks();
     }
@@ -773,7 +872,7 @@ describe("agenda viewer code (spec 4.8)", () => {
 
       render(<fresh.SavedCopyRegistrar {...BASE} hasAgenda />);
       await vi.waitFor(() => expect(fetchMock).toHaveBeenCalled());
-      expect(fetchMock.mock.calls).toEqual([[agenda.WORKER_SRC]]);
+      expect(fetchMock.mock.calls).toEqual([workerFetch()]);
       expect(loads.loader).toBe(1);
     } finally {
       await restoreAgendaMocks();
@@ -803,7 +902,7 @@ describe("agenda viewer code (spec 4.8)", () => {
       await vi.waitFor(() => expect(fetchMock).toHaveBeenCalled());
       // The prefetch ran to its end, on the viewer's URL, with the viewer's code
       // loaded (so its chunks pass through the worker too)...
-      expect(fetchMock.mock.calls).toEqual([[agenda.WORKER_SRC]]);
+      expect(fetchMock.mock.calls).toEqual([workerFetch()]);
       expect(loads.viewer).toBe(1);
       // ...and never loaded react-pdf.
       expect(loads.reactPdf).toBe(0);
