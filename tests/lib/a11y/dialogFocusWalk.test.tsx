@@ -33,6 +33,9 @@ import { useDialogFocus } from "@/lib/a11y/dialogFocus";
 // that is what both engines report for them (offsetParent BODY, tabIndex 0).
 // What tells a closed disclosure apart in a browser is that focus() on its
 // contents does nothing; jsdom would move focus there, so the model refuses it.
+// The reverse for media with controls: both engines focus a `video[controls]`
+// or `audio[controls]` (WebKit reporting tabIndex -1 while it does, as it does
+// for an editing host), and jsdom refuses, so the model lets it through.
 const originalOffsetParent = Object.getOwnPropertyDescriptor(HTMLElement.prototype, "offsetParent");
 const originalFocus = HTMLElement.prototype.focus;
 
@@ -60,6 +63,14 @@ beforeEach(() => {
   });
   HTMLElement.prototype.focus = function focus(this: HTMLElement, options?: FocusOptions) {
     if (inClosedDisclosure(this)) return;
+    if (this instanceof HTMLMediaElement && this.controls && !this.hasAttribute("tabindex")) {
+      // jsdom focuses only what it deems a focusable area; a tabindex makes it
+      // one for the call, and focus stays once the attribute is gone.
+      this.setAttribute("tabindex", "-1");
+      originalFocus.call(this, options);
+      this.removeAttribute("tabindex");
+      return;
+    }
     originalFocus.call(this, options);
   };
 });
@@ -456,6 +467,48 @@ describe("walk mode (walkTabs, the crew section sheet): the hook moves focus on 
       expect(active(), "Shift+Tab while resolving").toBe("confirm");
     });
   }
+
+  test("walk: media with controls, a frame and an editing host are stops; media without controls and a non-editable region are not (R2-F3)", () => {
+    render(
+      <Dialog testId="d" walk>
+        <button type="button" data-testid="close">
+          Close
+        </button>
+        {/* The Gear section's opening reel (components/tiles/OpeningReelVideo.tsx). */}
+        <video controls preload="none" data-testid="reel" />
+        <video preload="none" data-testid="silent" />
+        <audio controls preload="none" data-testid="clip" />
+        <iframe title="Frame" data-testid="frame" />
+        <div contentEditable suppressContentEditableWarning data-testid="editable">
+          Notes
+        </div>
+        <div contentEditable={false} data-testid="not-editable">
+          Read only
+        </div>
+        <button type="button" data-testid="last">
+          Last
+        </button>
+      </Dialog>,
+    );
+    // PREMISE: each stop takes focus here, as in both engines.
+    for (const id of ["reel", "clip", "frame", "editable"]) {
+      screen.getByTestId(id).focus();
+      expect(active(), `${id} takes focus`).toBe(id);
+    }
+    screen.getByTestId("close").focus();
+    const forward: (string | null)[] = [];
+    for (let i = 0; i < 6; i++) {
+      tab();
+      forward.push(active());
+    }
+    expect(forward).toEqual(["reel", "clip", "frame", "editable", "last", "close"]);
+    const back: (string | null)[] = [];
+    for (let i = 0; i < 6; i++) {
+      tab(true);
+      back.push(active());
+    }
+    expect(back).toEqual(["last", "editable", "frame", "clip", "reel", "close"]);
+  });
 
   test("walk: a dialog nested inside the sheet keeps its own ends, and the walk carries the Tabs between them", () => {
     render(

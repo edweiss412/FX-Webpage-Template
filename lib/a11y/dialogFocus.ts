@@ -57,6 +57,13 @@ const WALK_SELECTOR = [
   // A disclosure's own summary is a native Tab stop (narrowed to a details
   // element's first summary in `isTabStop`).
   "summary",
+  // Focusable in both engines (measured, Playwright 1.59): media with controls
+  // (the Gear section's opening reel, whole-diff review R2-F3), a frame, and an
+  // editing host. A video without controls is not.
+  "video[controls]",
+  "audio[controls]",
+  "iframe",
+  '[contenteditable]:not([contenteditable="false"])',
   '[tabindex]:not([tabindex="-1"])',
 ].join(",");
 
@@ -92,11 +99,14 @@ function isTabStop(el: HTMLElement): boolean {
   return (
     !inClosedDisclosure(el) &&
     el.offsetParent !== null &&
-    // tabIndex >= 0 mirrors native sequential order: `a[href]` (etc.) with an
-    // explicit tabindex="-1" is click/programmatically focusable but NOT
-    // Tab-reachable (e.g. HoverHelp's learn-more link while its popover is
-    // closed or collision-hidden).
-    el.tabIndex >= 0 &&
+    // An explicit negative tabindex takes an element out of sequential order:
+    // `a[href]` (etc.) with tabindex="-1" is click/programmatically focusable
+    // but NOT Tab-reachable (e.g. HoverHelp's learn-more link while its popover
+    // is closed or collision-hidden). Without the attribute, everything the
+    // selector matches is a stop. The property is no guide there: WebKit reports
+    // tabIndex -1 for a `video[controls]` it focuses, both engines for an
+    // editing host.
+    (!el.hasAttribute("tabindex") || el.tabIndex >= 0) &&
     // visibility:hidden keeps offsetParent non-null, and focus() on such an
     // element is a no-op that would strand the walk on it.
     getComputedStyle(el).visibility !== "hidden" &&
