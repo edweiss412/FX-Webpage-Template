@@ -381,12 +381,6 @@ const DECLARED = [
     treatment: "not a render branch; with no worker the clear starts inside the tap, as before",
   },
   {
-    id: "C38",
-    what: "the switch row's accessible name says why it is disabled while offline",
-    marker: /^online \? "Switch crew member" : "Switch crew member, needs signal"\u0000/,
-    treatment: "instant: label swap, no animation",
-  },
-  {
     id: "C39",
     what: "the switch row is aria-disabled while busy OR offline",
     marker: /^switchBusy \|\| !online\u0000/,
@@ -394,8 +388,8 @@ const DECLARED = [
   },
   {
     id: "C40",
-    what: "the switch row's visible label reads Needs signal while offline",
-    marker: /^online \? "Not you\? Switch person" : "Needs signal"\u0000/,
+    what: "the switch row reads Not you? Needs signal while offline, and that text is its name",
+    marker: /^online \? "Not you\? Switch person" : "Not you\? Needs signal"\u0000/,
     treatment: "instant: label swap, no animation",
   },
 ] as const;

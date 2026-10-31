@@ -192,7 +192,9 @@ describe("the person row", () => {
     const row = screen.getByTestId("avatar-menu-switch-person");
     expect(row).toHaveAttribute("role", "menuitem");
     expect(row).toHaveAttribute("type", "submit");
-    expect(row).toHaveAttribute("aria-label", "Switch crew member");
+    // Named by its visible text (WCAG 2.5.3): no aria-label override.
+    expect(row).not.toHaveAttribute("aria-label");
+    expect(row).toHaveAccessibleName("Not you? Switch person");
 
     const form = row.closest("form");
     expect(form, "the person row must submit a form, not invoke an action bare").not.toBeNull();

@@ -387,7 +387,7 @@ It also retries by itself: every 30 seconds while `navigator.onLine` is true (th
 |---|---|
 | `tel:` and `mailto:` links | Unchanged (R11) |
 | Open in Maps | Unchanged link; the Maps app may have its own offline maps |
-| Not you? Switch person | Disabled while `online` is false, labelled "Needs signal" (R11) |
+| Not you? Switch person | Disabled while `online` is false (`aria-disabled`, still focusable), and reads "Not you? Needs signal" (R11), so it still says what it is for. Its accessible name is its visible text in both states, "Not you? Switch person" online and "Not you? Needs signal" offline, with no `aria-label` override (WCAG 2.5.3) |
 | Section tabs, theme toggle, avatar menu | Work from the saved page (client-side only) |
 | Stage diagrams, agenda | Served from the saved assets (§4.8) |
 | Report a problem | Piece 2 (§5) |

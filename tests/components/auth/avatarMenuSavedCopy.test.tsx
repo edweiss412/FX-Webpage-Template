@@ -397,22 +397,21 @@ describe("the purge bracket around Not you? (spec 4.6)", () => {
 });
 
 describe("Not you? while offline (spec 4.7.6)", () => {
-  test("offline, the row reads Needs signal, says why to assistive tech, and does nothing on a tap", async () => {
+  test("offline, the row reads Not you? Needs signal, is named by that text, and does nothing on a tap", async () => {
     const worker = installWorker({ autoAck: true });
     const clear = heldAction();
     renderMenu(clear.action);
     goOnline(false);
     openMenu();
 
-    const row = screen.getByRole("menuitem", { name: /needs signal/i });
+    const row = screen.getByRole("menuitem", { name: "Not you? Needs signal" });
     expect(row).toBe(switchRow());
-    expect(row).toHaveAccessibleName("Switch crew member, needs signal");
-    expect(row.textContent?.trim()).toBe("Needs signal");
-    // WCAG 2.5.3, label in name: the name contains the words a sighted person
-    // would speak to activate it.
-    expect(row.getAttribute("aria-label")?.toLowerCase()).toContain(
-      row.textContent!.trim().toLowerCase(),
-    );
+    // The row still says what it is for, and why it is off.
+    expect(row.textContent?.trim()).toBe("Not you? Needs signal");
+    // WCAG 2.5.3, label in name: the name IS the visible text, so the words a
+    // sighted person would speak to activate it are the name, with no override.
+    expect(row).not.toHaveAttribute("aria-label");
+    expect(row).toHaveAccessibleName(row.textContent!.trim());
     expect(row).toHaveAttribute("aria-disabled", "true");
     // Still focusable and still in the arrow traversal: aria-disabled, never
     // the native attribute (the busy phase's reasoning).
@@ -435,14 +434,15 @@ describe("Not you? while offline (spec 4.7.6)", () => {
     renderMenu(clear.action);
     goOnline(false);
     openMenu();
-    expect(screen.getByRole("menuitem", { name: /needs signal/i })).toBe(switchRow());
+    expect(screen.getByRole("menuitem", { name: "Not you? Needs signal" })).toBe(switchRow());
 
     goOnline(true);
-    const row = screen.getByRole("menuitem", { name: "Switch crew member" });
+    const row = screen.getByRole("menuitem", { name: "Not you? Switch person" });
     expect(row).toBe(switchRow());
     expect(row.textContent?.trim()).toBe("Not you? Switch person");
+    expect(row).not.toHaveAttribute("aria-label");
     expect(row).toHaveAttribute("aria-disabled", "false");
-    expect(within(screen.getByRole("menu")).queryByText("Needs signal")).toBeNull();
+    expect(within(screen.getByRole("menu")).queryByText(/needs signal/i)).toBeNull();
 
     tapSwitch();
     expect(clear.action, "online again, the tap clears").toHaveBeenCalledTimes(1);
@@ -456,12 +456,12 @@ describe("Not you? while offline (spec 4.7.6)", () => {
     const clear = heldAction();
     renderMenu(clear.action);
     openMenu();
-    expect(switchRow()).toHaveAccessibleName("Switch crew member");
+    expect(switchRow()).toHaveAccessibleName("Not you? Switch person");
     expect(switchRow().textContent?.trim()).toBe("Not you? Switch person");
 
     goOnline(false);
-    expect(switchRow()).toHaveAccessibleName("Switch crew member, needs signal");
-    expect(switchRow().textContent?.trim()).toBe("Needs signal");
+    expect(switchRow()).toHaveAccessibleName("Not you? Needs signal");
+    expect(switchRow().textContent?.trim()).toBe("Not you? Needs signal");
     expect(switchRow()).toHaveAttribute("aria-disabled", "true");
   });
 
@@ -476,8 +476,8 @@ describe("Not you? while offline (spec 4.7.6)", () => {
     renderMenu(clear.action);
     openMenu();
 
-    const row = screen.getByRole("menuitem", { name: /needs signal/i });
-    expect(row.textContent?.trim()).toBe("Needs signal");
+    const row = screen.getByRole("menuitem", { name: "Not you? Needs signal" });
+    expect(row.textContent?.trim()).toBe("Not you? Needs signal");
     expect(row).toHaveAttribute("aria-disabled", "true");
   });
 });

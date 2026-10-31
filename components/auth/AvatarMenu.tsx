@@ -529,9 +529,9 @@ export function AvatarMenu({ name, role, slug, shareToken, showId, clearAction }
                 onClick={beginSwitch}
                 data-testid="avatar-menu-switch-person"
                 data-identity-chip-not-you=""
-                // Offline, the name says WHY the row is disabled and contains
-                // the visible words "Needs signal" (WCAG 2.5.3, label in name).
-                aria-label={online ? "Switch crew member" : "Switch crew member, needs signal"}
+                // No aria-label: the visible text IS the name, online and
+                // offline, so the words a person reads are the words that
+                // activate it by voice (WCAG 2.5.3, label in name).
                 tabIndex={activeIndex === 1 ? 0 : -1}
                 // `aria-disabled`, NEVER the native `disabled` attribute. Native
                 // disabled takes the item out of the focus order, and this menu's
@@ -557,7 +557,8 @@ export function AvatarMenu({ name, role, slug, shareToken, showId, clearAction }
                 )}
               >
                 <UserRoundCog aria-hidden="true" className="size-4" />
-                {online ? "Not you? Switch person" : "Needs signal"}
+                {/* Offline it keeps saying what it is for, and adds why it is off (spec 4.7.6). */}
+                {online ? "Not you? Switch person" : "Not you? Needs signal"}
               </button>
             </form>
           </div>
