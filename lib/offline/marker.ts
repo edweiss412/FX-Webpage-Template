@@ -150,7 +150,12 @@ function parseMarker(attributes: ReadonlyMap<string, string>): Marker | null {
   return null;
 }
 
-function isIsoUtc(value: string): boolean {
+/**
+ * An ISO 8601 UTC timestamp that names a real instant: the shape a `save`
+ * marker's `data-rendered-at` must have. The saved-copy status route reads its
+ * `saved` parameter, which is that same value, with this one check.
+ */
+export function isIsoUtc(value: string): boolean {
   if (!ISO_UTC.test(value)) return false;
   const time = Date.parse(value);
   // Date.parse rolls February 30 over to March and 24:00 over to the next day;

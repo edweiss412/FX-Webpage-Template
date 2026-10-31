@@ -33,18 +33,13 @@ import { timingSafeEqual } from "node:crypto";
 import { isAdminSession } from "@/lib/auth/isAdminSession";
 import { resolveCrewIdentity } from "@/lib/auth/picker/resolveCrewIdentity";
 import { log } from "@/lib/log";
+import { isIsoUtc } from "@/lib/offline/marker";
 import { lifecycleAllowsEnded, type LifecycleRow } from "@/lib/offline/statusLifecycle";
 import { viewerKey } from "@/lib/offline/viewerKey";
 import { createSupabaseServiceRoleClient } from "@/lib/supabase/server";
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const EPOCH_RE = /^\d+$/;
-/**
- * `saved` is the copy's savedAt, which is the marker's `data-rendered-at`: ISO 8601 UTC, the shape
- * lib/offline/marker.ts accepts. Checked before Date.parse, which also accepts
- * implementation-defined forms ("1", "2026", "Oct 21") that no saved copy carries.
- */
-const SAVED_AT_RE = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d{1,9})?Z$/;
 
 type StatusQuery = { showId: string; epoch: number; viewer: string; savedAtMs: number };
 
@@ -58,9 +53,13 @@ function parseQuery(url: URL): StatusQuery | null {
   const epoch = Number(epochText);
   if (!Number.isSafeInteger(epoch)) return null;
   if (viewer === null || viewer === "") return null;
-  if (saved === null || !SAVED_AT_RE.test(saved)) return null;
+  // `saved` is the copy's savedAt, which is the marker's `data-rendered-at`, so it
+  // passes the marker's own check: ISO 8601 UTC, refusing the implementation-defined
+  // forms Date.parse also takes ("1", "2026", "Oct 21"), and naming a real instant,
+  // so a February 30 that Date.parse would roll over to March answers like a
+  // malformed time.
+  if (saved === null || !isIsoUtc(saved)) return null;
   const savedAtMs = Date.parse(saved);
-  if (Number.isNaN(savedAtMs)) return null;
   return { showId, epoch, viewer, savedAtMs };
 }
 

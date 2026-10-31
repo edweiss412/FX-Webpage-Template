@@ -264,6 +264,15 @@ describe("malformed or missing parameters answer gone without touching the datab
       "a saved with an offset instead of Z",
       (u) => u.searchParams.set("saved", `${SAVED_AT.slice(0, -1)}+00:00`),
     ],
+    // Impossible calendar dates in the right shape: Date.parse rolls each over to
+    // a real day instead of refusing it (Codex R1 B2).
+    ["February 30", (u) => u.searchParams.set("saved", "2026-02-30T12:00:00.000Z")],
+    [
+      "February 29 in a non-leap year",
+      (u) => u.searchParams.set("saved", "2026-02-29T12:00:00.000Z"),
+    ],
+    ["April 31", (u) => u.searchParams.set("saved", "2026-04-31T12:00:00.000Z")],
+    ["hour 24", (u) => u.searchParams.set("saved", "2026-10-21T24:00:00.000Z")],
   ])("%s", async (_label, edit) => {
     const world = endedWorld();
     const { status, body } = await call(world, statusRequest(world, savedCopy(), edit));
@@ -277,6 +286,22 @@ describe("malformed or missing parameters answer gone without touching the datab
     const world = endedWorld();
     await call(world);
     expect(world.fromCalls).toContain("shows");
+  });
+
+  // The round trip compares through the seconds, as the marker's own check does
+  // (lib/offline/marker.ts), so every fraction width the marker accepts is read.
+  test.each([
+    ["no fractional seconds", SAVED_AT.replace(".000Z", "Z")],
+    ["one fractional digit", SAVED_AT.replace(".000Z", ".0Z")],
+    ["a real leap day", "2028-02-29T12:00:00.000Z"],
+  ])("a possible saved time with %s is read, not refused", async (_label, saved) => {
+    const world = endedWorld();
+    const { body } = await call(
+      world,
+      statusRequest(world, savedCopy(), (u) => u.searchParams.set("saved", saved)),
+    );
+    expect(world.fromCalls).toContain("shows");
+    expect(body).toEqual({ state: "ended" });
   });
 });
 
