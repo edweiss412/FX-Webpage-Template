@@ -118,8 +118,11 @@ export const REQUIRED = {
   // Re-derived from the wiring guard's live Playwright resolution (24).
   // Twenty-five since whole-diff review round 2 (2026-10-31, 2A-3) added one (a
   // Today search reveal after a nav jump to Venue leaves the URL at home). Re-derived
-  // from the wiring guard's live Playwright resolution (25).
-  "crew-wide-nav.spec.ts": 25,
+  // from the wiring guard's live Playwright resolution (25). Twenty-six since
+  // round 3 (3A-2) added one (a search started from a scrolled section leaves the
+  // nav on the section in view, with its bar). Re-derived from the wiring
+  // guard's live Playwright resolution (26).
+  "crew-wide-nav.spec.ts": 26,
   // 9, and the number is the MATRIX rather than a multiple (plan
   // 2026-08-09-quick-wins-2 "e2e harness readiness"). theme-toggle runs two arms:
   //   arm (a) — 4 standalone-toggle cases, BOTH projects            = 8
