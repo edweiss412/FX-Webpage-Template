@@ -63,7 +63,7 @@
  * port-3000 webServer carries) so `todayIso === '2026-04-21'` server-side and
  * the gate fires. Single-writer (mobile-safari) for the same reason inv3 is.
  */
-import { test, expect } from "@playwright/test";
+import { test, expect, devices } from "@playwright/test";
 import { ADMIN_FIXTURE } from "./helpers/fixtures";
 import { signInAs, signOut } from "./helpers/signInAs";
 import { admin } from "./helpers/supabaseAdmin";
@@ -2294,4 +2294,170 @@ test.describe("crew diagrams gallery — next/image variant tiers (private image
       `the un-zoomed ACTIVE slide must NOT serve the ORIGINAL; got ${active.src}`,
     ).not.toBe(noDims!.key);
   });
+});
+
+/**
+ * Loading skeleton vs. the loaded page (crew page redesign PR A).
+ *
+ * `app/show/[slug]/[shareToken]/loading.tsx` draws `CrewLoadingSkeleton`
+ * (components/crew/CrewLoadingSkeleton.tsx) while the route streams. It must
+ * reserve the loaded page's geometry, or the swap jumps. Below 1024px the header
+ * grows with its text (a long title wraps; the skeleton cannot know it), so the
+ * case reads everything under the header from the header's bottom edge: the
+ * search row, the first day button's offset and height, the pass's offset and
+ * width. From 1024px the header is a fixed `--crew-header-h` bar, so its box is
+ * compared outright, and so is the left nav column's. Every expected value is the
+ * LOADED page's own measurement at the same viewport; nothing is restated here but
+ * the tolerance.
+ *
+ * The skeleton is read in a JavaScript-off context, where React's swap never runs
+ * and the fallback stays in the DOM. LoadingShell's <noscript> rule hides it there
+ * (tests/e2e/nojs-loading-notice.spec.ts), so the response is rewritten to hide
+ * the notice instead, leaving the skeleton as a JS-on visitor sees it mid-load.
+ * (Not `addStyleTag`: it waits on a load event that script delivers, so it never
+ * settles with scripting off.) The rewrite landing and the skeleton being attached
+ * are premises: a route that resolved before its first flush would inline the page
+ * and leave nothing to measure.
+ *
+ * No seed writes, so no single-writer `beforeAll`; the project gate is a declared
+ * skip, never a bare return.
+ */
+test.describe("crew loading skeleton — reserves the loaded page's geometry", () => {
+  /** Sub-pixel line boxes (`text-lg/tight` is 22.5px) round differently in a plate. */
+  const TOL = 2;
+  /** LoadingShell's no-JS rule (components/layout/Skeleton.tsx), and its stand-in. */
+  const HIDE_SHELL = "[data-loading-shell-content]{display:none}";
+  const HIDE_NOTICE = "noscript{display:none}";
+
+  type Box = { x: number; y: number; width: number; height: number };
+  async function boxOf(locator: import("@playwright/test").Locator, label: string): Promise<Box> {
+    const box = await locator.boundingBox();
+    if (!box) throw new Error(`${label} has no box`);
+    return box;
+  }
+
+  for (const width of [390, 768, 1280] as const) {
+    test(`at ${width}px the skeleton's header, day row, pass and nav land where the loaded page puts them`, async ({
+      page,
+      browser,
+    }, testInfo) => {
+      test.skip(
+        testInfo.project.name !== "mobile-safari",
+        "geometry case runs once, on mobile-safari",
+      );
+      const seeded = await lookupSeededShow();
+      const shareToken = await lookupShareToken(seeded.showId);
+      const path = `/show/${seeded.slug}/${shareToken}`;
+      const viewport = { width, height: 900 };
+      const wide = width >= 1024;
+
+      // The loaded page.
+      await page.setViewportSize(viewport);
+      await signInAs(page, ADMIN_FIXTURE);
+      await page.goto(path, { waitUntil: "domcontentloaded" });
+      await expect(page.getByTestId("crew-shell-sections")).toHaveAttribute(
+        "data-crew-controller-ready",
+        "true",
+        { timeout: 30_000 },
+      );
+      const firstDay = page.getByTestId("crew-day-row").locator("> button").first();
+      await expect(firstDay, "premise: the seeded show renders a day row").toBeVisible();
+      await expect(page.getByTestId("crew-pass")).toBeVisible();
+      // The header's line boxes are the resolved face's: measure after it settles.
+      await page.evaluate(() => document.fonts.ready);
+      const real = {
+        header: await boxOf(page.getByTestId("page-header"), "page-header"),
+        search: await boxOf(page.getByTestId("page-header-search"), "page-header-search"),
+        day: await boxOf(firstDay, "first day button"),
+        // The row's slot in the lead column: `CrewSections` wraps it in a margin
+        // div. The row itself can scroll sideways (five or more days, centred on
+        // mount), so its first button's x says nothing about the slot.
+        dayRow: await boxOf(page.getByTestId("crew-day-row").locator(".."), "day row slot"),
+        pass: await boxOf(page.getByTestId("crew-pass"), "crew-pass"),
+        nav: wide ? await boxOf(page.getByTestId("crew-wide-nav"), "crew-wide-nav") : null,
+      };
+
+      // The skeleton, mid-load, in a context matching the project's device.
+      const baseURL = testInfo.project.use.baseURL;
+      if (!baseURL) throw new Error("the mobile-safari project declares a baseURL");
+      const context = await browser.newContext({
+        ...devices["iPhone 14"],
+        baseURL,
+        viewport,
+        javaScriptEnabled: false,
+      });
+      try {
+        const off = await context.newPage();
+        await signInAs(off, ADMIN_FIXTURE);
+        let rewritten = false;
+        await off.route(`**${path}`, async (route) => {
+          const response = await route.fetch();
+          const html = await response.text();
+          rewritten = html.includes(HIDE_SHELL);
+          await route.fulfill({ response, body: html.split(HIDE_SHELL).join(HIDE_NOTICE) });
+        });
+        // `load`, not `document.fonts.ready`: nothing evaluates with scripting off,
+        // and next/font preloads its faces, so the load event waits for them.
+        await off.goto(path, { waitUntil: "load" });
+        expect(rewritten, "premise: the response carries LoadingShell's no-JS rule").toBe(true);
+        await expect(
+          off.getByTestId("crew-loading-skeleton"),
+          "premise: the route streamed its loading fallback",
+        ).toBeAttached();
+        await expect(off.getByTestId("crew-loading-header")).toBeVisible();
+        const skel = {
+          header: await boxOf(off.getByTestId("crew-loading-header"), "crew-loading-header"),
+          search: await boxOf(off.getByTestId("crew-loading-search"), "crew-loading-search"),
+          day: await boxOf(
+            off.getByTestId("crew-loading-day-row").locator("> div").first(),
+            "first day slot",
+          ),
+          dayRow: await boxOf(off.getByTestId("crew-loading-day-row"), "crew-loading-day-row"),
+          pass: await boxOf(off.getByTestId("crew-loading-pass"), "crew-loading-pass"),
+          nav: wide ? await boxOf(off.getByTestId("crew-loading-nav"), "crew-loading-nav") : null,
+        };
+
+        const near = (label: string, got: number, want: number) =>
+          expect(
+            Math.abs(got - want),
+            `${label}: skeleton ${got}, loaded ${want}`,
+          ).toBeLessThanOrEqual(TOL);
+        /** Distance from the header's bottom edge, the one line both pages share. */
+        const under = (box: Box, header: Box) => box.y - (header.y + header.height);
+        near("header top", skel.header.y, real.header.y);
+        near(
+          "search row, offset under the header",
+          under(skel.search, skel.header),
+          under(real.search, real.header),
+        );
+        near("search row height", skel.search.height, real.search.height);
+        near(
+          "first day button, offset under the header",
+          under(skel.day, skel.header),
+          under(real.day, real.header),
+        );
+        near("first day button height", skel.day.height, real.day.height);
+        near("day row left", skel.dayRow.x, real.dayRow.x);
+        near("day row width", skel.dayRow.width, real.dayRow.width);
+        near(
+          "pass, offset under the header",
+          under(skel.pass, skel.header),
+          under(real.pass, real.header),
+        );
+        near("pass width", skel.pass.width, real.pass.width);
+        if (wide) near("header height (the fixed bar)", skel.header.height, real.header.height);
+        if (skel.nav && real.nav) {
+          near("nav left", skel.nav.x, real.nav.x);
+          near("nav width", skel.nav.width, real.nav.width);
+          near("nav top", skel.nav.y, real.nav.y);
+        } else {
+          expect(wide, "the nav column is drawn from 1024px, in both").toBe(false);
+          await expect(off.getByTestId("crew-loading-nav")).toBeHidden();
+          await expect(page.getByTestId("crew-wide-nav")).toHaveCount(0);
+        }
+      } finally {
+        await context.close();
+      }
+    });
+  }
 });

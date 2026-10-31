@@ -576,7 +576,12 @@ export const DISPOSITION_RULES: DispositionRule[] = [
     // load the share and preview routes through gotoHome's `path` in
     // crew-page.spec.ts. Same disposition: a crew page. Re-derived from the
     // failure's own count (24 candidates).
-    expectedCount: 24,
+    // 26 since the crew page redesign's loading-skeleton case: the geometry case
+    // in crew-layout-dimensions.spec.ts loads the share route through `path`
+    // twice, once with scripting on (the loaded page) and once with it off (the
+    // skeleton). Same disposition: a crew page. Re-derived from the failure's own
+    // count (26 candidates).
+    expectedCount: 26,
     match: (c) =>
       !c.file.startsWith("tests/e2e/published-review-modal.") &&
       !/\bcrewPage\.goto\(/.test(c.matchLineText) &&
