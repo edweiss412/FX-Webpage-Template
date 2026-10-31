@@ -146,6 +146,10 @@ export function Header({ show, identityChip, statusPill, search }: HeaderProps) 
             {hasEyebrow ? (
               <p
                 data-testid="page-header-eyebrow"
+                // From 1024px the status pill shares this line (critique N7), so a
+                // long client and venue truncate first; like the h1, the line
+                // names itself whole.
+                title={[client, venue].filter((part) => part !== null).join(" · ")}
                 className={`text-xs font-medium uppercase tracking-eyebrow text-text-subtle lg:truncate ${hasPill ? "lg:col-start-1" : "lg:col-span-2"}`}
               >
                 {client}

@@ -67,6 +67,7 @@ describe("Header without the search slot (markup unchanged)", () => {
             <p
               class="text-xs font-medium uppercase tracking-eyebrow text-text-subtle lg:truncate lg:col-start-1"
               data-testid="page-header-eyebrow"
+              title="Acme Corp · Hilton Chicago"
             >
               Acme Corp
               <span
@@ -171,6 +172,7 @@ describe("Header without the search slot (markup unchanged)", () => {
             <p
               class="text-xs font-medium uppercase tracking-eyebrow text-text-subtle lg:truncate lg:col-span-2"
               data-testid="page-header-eyebrow"
+              title="Acme Corp · Hilton Chicago"
             >
               Acme Corp
               <span

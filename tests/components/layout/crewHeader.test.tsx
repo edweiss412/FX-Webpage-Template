@@ -286,6 +286,17 @@ describe("crew header title (audit P2-3, critique F8)", () => {
   });
 });
 
+describe("crew header eyebrow (UI-gate re-run, critique N7)", () => {
+  it("eyebrow: carries client and venue whole as `title`, since from 1024px the status pill shares its line and a long one truncates", () => {
+    render(<Header show={showWith(CLIENT, VENUE)} statusPill={<span>Show day 1 of 2</span>} />);
+    const eyebrow = within(headerEl()).getByTestId("page-header-eyebrow");
+    expect(eyebrow).toHaveAttribute("title", `${CLIENT} · ${VENUE}`);
+    // PREMISE: the line renders both parts.
+    expect(eyebrow.textContent).toContain(CLIENT);
+    expect(eyebrow.textContent).toContain(VENUE);
+  });
+});
+
 describe("crew header search slot (spec §4.1, §1.2)", () => {
   it("search slot: renders the node it is given inside the header, after the title and before the identity chip, in neither the title block nor the right slot", () => {
     render(
