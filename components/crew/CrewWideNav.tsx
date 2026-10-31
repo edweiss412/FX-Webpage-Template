@@ -16,7 +16,8 @@
  * navigation and imports no `next/link`.
  *
  * The accent bar is ONE measured element that slides to the active item at
- * `--duration-fast`, the admin rail's mechanism
+ * `--duration-fast` by transform alone (a fixed-height bar, sized per item by
+ * scaleY), the admin rail's mechanism
  * (`components/admin/review/ShowReviewSurface.tsx`, §A3), never a per-item
  * conditional render: a conditional bar would teleport rather than move. It
  * mounts without its transition and turns it on the next frame, so it never
@@ -50,7 +51,10 @@ export interface CrewWideNavProps {
 export function CrewWideNav({ items, active, hrefFor, hidden = false }: CrewWideNavProps) {
   const navRef = useRef<HTMLElement | null>(null);
   const itemRefs = useRef(new Map<SectionId, HTMLAnchorElement>());
-  const [indicator, setIndicator] = useState<{ y: number; h: number } | null>(null);
+  // `base` is the bar's layout height, fixed at its first placement; every size
+  // after that is a scaleY of it, so a move animates transform alone (DESIGN.md
+  // §5.4, critique F15).
+  const [indicator, setIndicator] = useState<{ y: number; h: number; base: number } | null>(null);
   const [transitionsOn, setTransitionsOn] = useState(false);
 
   useLayoutEffect(() => {
@@ -66,10 +70,12 @@ export function CrewWideNav({ items, active, hrefFor, hidden = false }: CrewWide
       setIndicator(null); // unmeasurable (jsdom, display:none): hidden until a real layout
       return;
     }
-    setIndicator({
+    const h = itemRect.height - 2 * INDICATOR_INSET_PX;
+    setIndicator((prev) => ({
       y: itemRect.top - navRect.top + nav.scrollTop + INDICATOR_INSET_PX,
-      h: itemRect.height - 2 * INDICATOR_INSET_PX,
-    });
+      h,
+      base: prev?.base ?? h,
+    }));
   }, [active, items]);
 
   // The frame after the bar is first placed, turn its transition on. Its own
@@ -96,11 +102,14 @@ export function CrewWideNav({ items, active, hrefFor, hidden = false }: CrewWide
           aria-hidden="true"
           data-testid="crew-wide-nav-indicator"
           className={cn(
-            "pointer-events-none absolute top-0 left-0 w-1 rounded-r-pill bg-accent",
+            "pointer-events-none absolute top-0 left-0 w-1 origin-top rounded-r-pill bg-accent",
             transitionsOn &&
-              "transition-[transform,height] duration-fast ease-out-quart motion-reduce:transition-none",
+              "transition-transform duration-fast ease-out-quart motion-reduce:transition-none",
           )}
-          style={{ transform: `translateY(${indicator.y}px)`, height: `${indicator.h}px` }}
+          style={{
+            transform: `translateY(${indicator.y}px) scaleY(${indicator.h / indicator.base})`,
+            height: `${indicator.base}px`,
+          }}
         />
       ) : null}
       {items.map((item) => {

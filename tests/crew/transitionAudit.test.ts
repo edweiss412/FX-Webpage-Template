@@ -388,10 +388,14 @@ const ROWS: Record<number, Row> = {
         AUDIT_UNIT,
         "wide nav: the accent bar turns its transition on after its first measure, even when effects run twice",
       ],
+      [
+        AUDIT_UNIT,
+        "wide nav: moving to a taller item changes the bar's scale, never its layout height (critique F15)",
+      ],
     ],
     source: () => {
       expect(read(WIDE_NAV)).toContain(
-        "transition-[transform,height] duration-fast ease-out-quart motion-reduce:transition-none",
+        "transition-transform duration-fast ease-out-quart motion-reduce:transition-none",
       );
       expectNoFramer(WIDE_NAV);
     },

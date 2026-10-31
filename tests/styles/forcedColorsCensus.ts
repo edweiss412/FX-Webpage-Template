@@ -562,8 +562,10 @@ export const COLLAPSE_CENSUS: readonly CollapseCensusRow[] = [
     // 119 -> 124 on the crew day row's arc (plan Task 8): the accent bar's
     // transition switch became its own effect above. Same <Icon>, confirmed at
     // the new key. 124 -> 128 on the layout dimensions arc (plan Task 13): the
-    // header comment gained the nav's dimension rule. Same <Icon>.
-    site: "components/crew/CrewWideNav.tsx:128",
+    // header comment gained the nav's dimension rule. Same <Icon>. 128 -> 137 on
+    // the invariant-8 fixes (critique F15): the bar's fixed base height and its
+    // scaleY style sit above. Same <Icon>.
+    site: "components/crew/CrewWideNav.tsx:137",
     disposition: "carrier-survives",
     reason:
       "an icon inside the crew wide nav item; the item itself carries the state, as aria-current (the forced-colors Highlight fill) and as weight (font-semibold on the active path only)",

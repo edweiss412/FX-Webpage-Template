@@ -298,7 +298,61 @@ describe("§4.10 transition audit — instant-by-design rows", () => {
     // One indicator rendered outside the item map, so it moves rather than
     // teleporting with a per-item conditional render.
     expect(s.match(/data-testid="crew-wide-nav-indicator"/g) ?? []).toHaveLength(1);
-    expect(s, "the bar slides by transform").toMatch(/transition-\[transform,height\]/);
+    // Transform only (critique F15): the bar's layout height is fixed, and its
+    // size on each item is a scaleY, so no move ever animates a layout property
+    // (DESIGN.md §5.4).
+    expect(s, "the bar slides and scales by transform alone").toMatch(/\btransition-transform\b/);
+    expect(s, "no layout property in the bar's transition").not.toMatch(
+      /transition-\[[^\]]*height/,
+    );
+  });
+
+  it("wide nav: moving to a taller item changes the bar's scale, never its layout height (critique F15)", () => {
+    // Two items of different heights, read from their own data-section, the nav
+    // itself at the origin. The bar's height is set once, from the first item it
+    // lands on; every later size is a scaleY of that fixed bar.
+    const HEIGHTS: Record<string, number> = { today: 44, venue: 64 };
+    const TOPS: Record<string, number> = { today: 0, venue: 50 };
+    vi.spyOn(Element.prototype, "getBoundingClientRect").mockImplementation(function (
+      this: Element,
+    ) {
+      const id = this.getAttribute("data-section");
+      const top = id ? TOPS[id]! : 0;
+      const height = id ? HEIGHTS[id]! : 400;
+      return {
+        top,
+        bottom: top + height,
+        height,
+        left: 0,
+        right: 240,
+        width: 240,
+        x: 0,
+        y: top,
+        toJSON: () => ({}),
+      } as DOMRect;
+    });
+    const items = [
+      { id: "today" as const, label: "Today" },
+      { id: "venue" as const, label: "Venue" },
+    ];
+    const { rerender } = render(<CrewWideNav items={items} active="today" hrefFor={() => "#"} />);
+    try {
+      const bar = () => screen.getByTestId("crew-wide-nav-indicator");
+      const placed = bar().style.height;
+      // PREMISE: the bar was measured and placed on Today, unscaled.
+      expect(placed).not.toBe("");
+      expect(bar().style.transform).toMatch(/scaleY\(1\)/);
+      rerender(<CrewWideNav items={items} active="venue" hrefFor={() => "#"} />);
+      expect(bar().style.height, "the layout height never moves").toBe(placed);
+      const scale = Number(/scaleY\(([\d.]+)\)/.exec(bar().style.transform)?.[1]);
+      // Venue's bar is its height less the two insets, over the fixed bar.
+      expect(scale * parseFloat(placed)).toBeCloseTo(HEIGHTS.venue! - 20, 5);
+      expect(bar().className, "scaled from the top edge, where translateY places it").toMatch(
+        /\borigin-top\b/,
+      );
+    } finally {
+      vi.restoreAllMocks();
+    }
   });
 
   it("wide nav: the accent bar turns its transition on after its first measure, even when effects run twice", () => {
