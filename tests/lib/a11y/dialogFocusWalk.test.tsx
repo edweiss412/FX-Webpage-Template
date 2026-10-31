@@ -38,6 +38,8 @@ import { useDialogFocus } from "@/lib/a11y/dialogFocus";
 // for an editing host), and jsdom refuses, so the model lets it through.
 const originalOffsetParent = Object.getOwnPropertyDescriptor(HTMLElement.prototype, "offsetParent");
 const originalFocus = HTMLElement.prototype.focus;
+/** Every focus() the model refused for a closed disclosure's contents. */
+let refusedInDisclosure: HTMLElement[] = [];
 
 /** Inside a closed <details>, and not in its own summary: rendered hidden. */
 function inClosedDisclosure(el: Element): boolean {
@@ -55,6 +57,7 @@ function inClosedDisclosure(el: Element): boolean {
 }
 
 beforeEach(() => {
+  refusedInDisclosure = [];
   Object.defineProperty(HTMLElement.prototype, "offsetParent", {
     configurable: true,
     get(this: HTMLElement) {
@@ -62,7 +65,10 @@ beforeEach(() => {
     },
   });
   HTMLElement.prototype.focus = function focus(this: HTMLElement, options?: FocusOptions) {
-    if (inClosedDisclosure(this)) return;
+    if (inClosedDisclosure(this)) {
+      refusedInDisclosure.push(this);
+      return;
+    }
     if (this instanceof HTMLMediaElement && this.controls && !this.hasAttribute("tabindex")) {
       // jsdom focuses only what it deems a focusable area; a tabindex makes it
       // one for the call, and focus stays once the attribute is gone.
@@ -392,6 +398,7 @@ describe("walk mode (walkTabs, the crew section sheet): the hook moves focus on 
     // PREMISE: the model hides the closed disclosure's contents from focus.
     screen.getByTestId("un-ignore").focus();
     expect(active(), "focus() inside a closed disclosure does nothing").toBe("d-title");
+    refusedInDisclosure = [];
 
     screen.getByTestId("close").focus();
     const forward: (string | null)[] = [];
@@ -406,6 +413,8 @@ describe("walk mode (walkTabs, the crew section sheet): the hook moves focus on 
       back.push(active());
     }
     expect(back).toEqual(["next", "outer-summary", "summary", "close"]);
+    // Not stops at all, not stops the walk tried and passed over.
+    expect(refusedInDisclosure.map((el) => el.dataset.testid ?? el.tagName)).toEqual([]);
 
     (screen.getByTestId("fold") as HTMLDetailsElement).open = true;
     screen.getByTestId("summary").focus();
@@ -508,6 +517,46 @@ describe("walk mode (walkTabs, the crew section sheet): the hook moves focus on 
       back.push(active());
     }
     expect(back).toEqual(["last", "editable", "frame", "clip", "reel", "close"]);
+  });
+
+  // The class R2-F1 belongs to: a stop the walk accepts while focus() on it does
+  // nothing. A closed disclosure's contents are filtered out by name; a control
+  // in a disabled fieldset (measured: tabIndex 0, an offsetParent, focus()
+  // refused in both engines) or an editable region nested in another editing
+  // host is the same shape, and the walk must pass over it rather than hold.
+  test("walk: a stop that refuses focus is passed over in both directions, never held", () => {
+    render(
+      <Dialog testId="d" walk>
+        <button type="button" data-testid="close">
+          Close
+        </button>
+        <fieldset disabled>
+          <button type="button" data-testid="locked">
+            Locked
+          </button>
+        </fieldset>
+        <button type="button" data-testid="next">
+          Next
+        </button>
+      </Dialog>,
+    );
+    // PREMISE: the locked control refuses focus, as it does in both engines.
+    screen.getByTestId("locked").focus();
+    expect(active(), "focus() in a disabled fieldset does nothing").toBe("d-title");
+
+    screen.getByTestId("close").focus();
+    const forward: (string | null)[] = [];
+    for (let i = 0; i < 2; i++) {
+      tab();
+      forward.push(active());
+    }
+    expect(forward).toEqual(["next", "close"]);
+    const back: (string | null)[] = [];
+    for (let i = 0; i < 2; i++) {
+      tab(true);
+      back.push(active());
+    }
+    expect(back).toEqual(["next", "close"]);
   });
 
   test("walk: a dialog nested inside the sheet keeps its own ends, and the walk carries the Tabs between them", () => {

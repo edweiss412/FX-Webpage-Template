@@ -305,8 +305,17 @@ export function useDialogFocus(
       }
       event.preventDefault();
       const stops = walkStops(container as HTMLElement);
-      if (stops.length === 0) return;
-      nextStop(stops, document.activeElement, event.shiftKey).focus();
+      // A stop that refuses focus (a control in a disabled fieldset, an editable
+      // region nested in another editing host) would hold the walk in place on
+      // every Tab, as a closed disclosure's contents did (R2-F1): pass over it,
+      // as the browser's own navigation does.
+      let from: Element | null = document.activeElement;
+      for (let tries = 0; tries < stops.length; tries++) {
+        const target = nextStop(stops, from, event.shiftKey);
+        target.focus();
+        if (document.activeElement === target) return;
+        from = target;
+      }
     }
 
     if (walkTabs) {
