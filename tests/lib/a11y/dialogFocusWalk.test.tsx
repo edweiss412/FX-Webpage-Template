@@ -559,6 +559,38 @@ describe("walk mode (walkTabs, the crew section sheet): the hook moves focus on 
     expect(back).toEqual(["next", "close"]);
   });
 
+  // The walk listens on `window`, so it hears Tabs from anywhere on the page. A
+  // dialog opened from the sheet but portaled outside it (as the admin review
+  // modal's unsaved-readings prompt is portaled) owns its own Tabs.
+  test("walk: a Tab outside the sheet's dialog is not the walk's, even in a dialog opened over it", () => {
+    render(
+      <Dialog testId="sheet" walk>
+        <button type="button" data-testid="sheet-close">
+          Close
+        </button>
+        <Dialog testId="prompt" portal>
+          <button type="button" data-testid="prompt-a">
+            A
+          </button>
+          <button type="button" data-testid="prompt-m">
+            M
+          </button>
+          <button type="button" data-testid="prompt-b">
+            B
+          </button>
+        </Dialog>
+      </Dialog>,
+    );
+    // PREMISE: the prompt is outside the sheet's DOM, though inside its React tree.
+    expect(screen.getByTestId("sheet").contains(screen.getByTestId("prompt"))).toBe(false);
+    screen.getByTestId("prompt-m").focus();
+    expect(tab(), "a middle Tab in the prompt is the browser's").toBe(false);
+    expect(active()).toBe("prompt-m");
+    screen.getByTestId("prompt-b").focus();
+    expect(tab(), "the prompt's own end wraps").toBe(true);
+    expect(active()).toBe("prompt-a");
+  });
+
   test("walk: a dialog nested inside the sheet keeps its own ends, and the walk carries the Tabs between them", () => {
     render(
       <Dialog testId="outer" walk>
