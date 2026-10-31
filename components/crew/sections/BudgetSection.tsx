@@ -7,7 +7,7 @@
  * contract `({ data, viewer, today, showId })`.
  *
  * Single-predicate gate (§4.1): the SAME `financialsVisible(viewerFlags,
- * isAdmin)` predicate gates the Budget tab (CrewSubNav), the section
+ * isAdmin)` predicate gates the Budget entry (`crewSectionsFor`), the section
  * selection (`resolveActiveSection` — a non-lead's `?s=budget` falls back to
  * `today`), AND the projection itself (`getShowForViewer` only populates
  * `financials` when the viewer is a lead/admin). So this section is only ever

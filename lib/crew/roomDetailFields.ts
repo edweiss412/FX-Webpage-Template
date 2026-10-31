@@ -14,7 +14,7 @@ export type RoomDetailKey =
  * modal — single source of truth so the two surfaces can't drift. Physical
  * detail first (where / how big / how set), then the per-room schedule.
  * Deliberately EXCLUDES power/digital_signage (AV-adjacent; show-level
- * event_details already surfaces them) and notes (TodaySection renders it).
+ * event_details already surfaces them) and notes (the home's show notes card renders it).
  * (BL-ROOM-DETAIL-UNRENDERED)
  */
 export const ROOM_DETAIL_FIELDS: readonly { key: RoomDetailKey; label: string }[] = [

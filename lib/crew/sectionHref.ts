@@ -1,5 +1,5 @@
 /**
- * lib/crew/sectionHref.ts — single source of truth for the crew sub-nav section
+ * lib/crew/sectionHref.ts — single source of truth for the crew section
  * URL.
  *
  * Builds the FRESH-params URL the crew page navigates to when a section is

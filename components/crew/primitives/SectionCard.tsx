@@ -1,7 +1,7 @@
 /**
  * components/crew/primitives/SectionCard.tsx — crew-redesign §4.6 primitive.
  *
- * A pure presentational card shell for a sub-nav section. Header is optional
+ * A pure presentational card shell for a crew section. Header is optional
  * in every part: `icon`, `title`, and `action` each render ONLY when supplied;
  * `children` ALWAYS render. The card shape matches the established tile idiom
  * (DESIGN.md §3/§4: `rounded-md border border-border bg-surface p-tile-pad`)

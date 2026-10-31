@@ -1,6 +1,6 @@
 /**
  * components/crew/sections/ScheduleSection.tsx — crew-redesign §9 "Schedule"
- * section. Synchronous Server Component for the Schedule sub-nav surface.
+ * section. Synchronous Server Component for the Schedule section body.
  *
  * Two non-negotiable contracts (§9 tests 32 + 34):
  *

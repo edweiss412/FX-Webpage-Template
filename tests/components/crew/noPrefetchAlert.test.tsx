@@ -10,12 +10,12 @@
  * `upsertAdminAlert({ code: "TILE_PROJECTION_FETCH_FAILED" })`. That write
  * happens at module-render time, before the section model is even resolved.
  *
- * Next.js App Router prefetches route segments aggressively. If a sub-nav tab
- * were an `<Link prefetch>` pointing at a `?s=<section>` URL, hovering/scrolling
- * the nav would cause Next to RENDER the destination route segment ahead of any
- * click — and because the crew page render runs CrewShell, that prefetch would
- * fire the projection-fetch admin_alerts write WITHOUT a real human visit. A
- * burst of prefetches across six tabs would spray phantom alert rows. The
+ * Next.js App Router prefetches route segments aggressively. If a section link
+ * (an "All sections" row, a nav item) were a `<Link prefetch>` to a `?s=` URL,
+ * scrolling it into view would cause Next to RENDER the destination route segment
+ * ahead of any click — and because the crew page render runs CrewShell, that
+ * prefetch would fire the projection-fetch admin_alerts write WITHOUT a real human
+ * visit. A burst of prefetches across the section links would spray phantom rows.
  * §12.4 alert catalog is supposed to mean "a real load actually failed for a
  * real viewer," not "Next speculatively rendered a segment."
  *

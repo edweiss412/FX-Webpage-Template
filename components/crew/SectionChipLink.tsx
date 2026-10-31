@@ -2,13 +2,13 @@
 
 /**
  * components/crew/SectionChipLink.tsx — an in-body shortcut chip that navigates
- * to another crew sub-nav section.
+ * to another crew section.
  *
  * The mock renders a `.chip` action in some card headers (e.g. the Today "Run of
  * show" card's "Agenda" chip). In this app the full multi-day run-of-show lives
  * in the Schedule section, so the chip is a real navigation affordance, not a
  * decorative/dead control: it is a `next/link` to `?s=<section>` built through
- * the SAME `buildSectionHref` the sub-nav uses, so it carries only `s` + an
+ * the SAME `buildSectionHref` the section list and nav use, so it carries only `s` + an
  * allow-listed `gate` and drops every other param (R13-MEDIUM-1 discipline).
  *
  * Client island (the chip reads the live pathname + query). Decorative icon is
@@ -32,7 +32,7 @@ import type { SectionId } from "@/lib/crew/resolveActiveSection";
 import { cn } from "@/lib/ui/cn";
 
 type SectionChipLinkProps = {
-  /** Destination sub-nav section. */
+  /** Destination crew section. */
   section: SectionId;
   /** Optional leading glyph (decorative → aria-hidden via the icon component). */
   icon?: ReactNode;

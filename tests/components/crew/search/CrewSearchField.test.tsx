@@ -80,7 +80,7 @@ describe("CrewSearchField: states (spec §6.2)", () => {
   });
 
   // WCAG 3.2.1 On Focus (impeccable audit U1): receiving focus must not change
-  // the page. Search hides the sub-nav and the section body, so focus, and the
+  // the page. Search hides the wide nav and the page body, so focus, and the
   // click or tap that gives a text field focus, leave it Idle.
   it("focus alone changes nothing: still Idle, no Cancel, no hint", () => {
     const input = renderField();

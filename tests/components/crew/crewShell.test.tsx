@@ -6,7 +6,7 @@
  *   - Test 21  fail-closed: a malformed crewMembers projection (not an array)
  *     for a crew AND an admin_preview viewer renders the
  *     <TerminalFailure code="PICKER_RESOLVER_LOOKUP_FAILED"> arm and NO section
- *     content (no sub-nav, no section-* body).
+ *     content (no section controller or list, no section-* body).
  *   - Test 23  the realtime bridge receives renderVersion === viewerVersionToken
  *     and showId === the showId PROP (exact).
  *   - Test 19-port  the Footer report props differ by viewer kind exactly as

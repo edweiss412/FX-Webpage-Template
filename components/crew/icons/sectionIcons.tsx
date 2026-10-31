@@ -10,7 +10,7 @@
  *
  * Exported here: `DockIcon` (loading dock), `CarIcon` (parking/ground),
  * `WifiIcon` (crew Wi-Fi) — the three Venue fact-row mini-icons — and
- * `PlaneIcon` (flight legs / Travel section). Task 8.5 adds the seven sub-nav
+ * `PlaneIcon` (flight legs / Travel section). Task 8.5 adds the seven crew
  * section glyphs: `HomeIcon` (Today), `CalendarIcon` (Schedule), `MapPinIcon`
  * (Venue), `PlaneIcon` (Travel — reused), `UsersIcon` (Crew), `BoxIcon` (Gear),
  * `ReceiptIcon` (Budget). Additional glyphs can join as surfaces adopt them.
@@ -79,7 +79,7 @@ export function WifiIcon({ className }: GlyphProps) {
   );
 }
 
-/** Today — a house roof + walls with a doorway (sub-nav: Today section). */
+/** Today — a house roof + walls with a doorway (the Today section's icon). */
 export function HomeIcon({ className }: GlyphProps) {
   return (
     <svg {...baseProps} className={className} aria-hidden="true">
@@ -88,7 +88,7 @@ export function HomeIcon({ className }: GlyphProps) {
   );
 }
 
-/** Schedule — a wall calendar (sub-nav: Schedule section). */
+/** Schedule — a wall calendar (the Schedule section's icon). */
 export function CalendarIcon({ className }: GlyphProps) {
   return (
     <svg {...baseProps} className={className} aria-hidden="true">
@@ -98,7 +98,7 @@ export function CalendarIcon({ className }: GlyphProps) {
   );
 }
 
-/** Venue — a map pin (sub-nav: Venue section). */
+/** Venue — a map pin (the Venue section's icon). */
 export function MapPinIcon({ className }: GlyphProps) {
   return (
     <svg {...baseProps} className={className} aria-hidden="true">
@@ -108,7 +108,7 @@ export function MapPinIcon({ className }: GlyphProps) {
   );
 }
 
-/** Crew — two people (sub-nav: Crew section). */
+/** Crew — two people (the Crew section's icon). */
 export function UsersIcon({ className }: GlyphProps) {
   return (
     <svg {...baseProps} className={className} aria-hidden="true">
@@ -119,7 +119,7 @@ export function UsersIcon({ className }: GlyphProps) {
   );
 }
 
-/** Gear — a shipping box / case (sub-nav: Gear section). */
+/** Gear — a shipping box / case (the Gear section's icon). */
 export function BoxIcon({ className }: GlyphProps) {
   return (
     <svg {...baseProps} className={className} aria-hidden="true">
@@ -128,7 +128,7 @@ export function BoxIcon({ className }: GlyphProps) {
   );
 }
 
-/** Budget — a receipt with a torn zig-zag foot (sub-nav: Budget section). */
+/** Budget — a receipt with a torn zig-zag foot (the Budget section's icon). */
 export function ReceiptIcon({ className }: GlyphProps) {
   return (
     <svg {...baseProps} className={className} aria-hidden="true">
