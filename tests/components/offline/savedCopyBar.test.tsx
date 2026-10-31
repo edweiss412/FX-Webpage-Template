@@ -210,6 +210,11 @@ type StateCase = {
   icon: string;
   lead: string | null;
   text: string;
+  /**
+   * What the live region announces, when it is not `text`: the relative age is
+   * visual only (spec 4.7.2 Accessibility), so the minute tick announces nothing.
+   */
+  announced?: string;
 };
 
 /** Forces one input only later tasks wire up, through the real derivation. */
@@ -229,6 +234,7 @@ const STATE_CASES = {
     icon: "lucide-wifi-off",
     lead: "No signal.",
     text: `No signal. Showing your saved copy from ${at(FRESH_SAVED_AT)} (30 min ago).`,
+    announced: `No signal. Showing your saved copy from ${at(FRESH_SAVED_AT)}.`,
   },
   "saved-old": {
     arrange: () => {
@@ -240,6 +246,9 @@ const STATE_CASES = {
     lead: "Slow connection.",
     text:
       `Slow connection. Your saved copy is from ${at(OLD_SAVED_AT)} (7 hr ago). ` +
+      "Things may have changed since then.",
+    announced:
+      `Slow connection. Your saved copy is from ${at(OLD_SAVED_AT)}. ` +
       "Things may have changed since then.",
   },
   ended: {
@@ -323,7 +332,8 @@ describe("SavedCopyBar: one case per visible state", () => {
     expect(icon.getAttribute("class") ?? "").toContain(testCase.icon);
 
     expect(contentText()).toBe(testCase.text);
-    expect(announcedText(live)).toBe(testCase.text);
+    const stateCase: StateCase = testCase;
+    expect(announcedText(live)).toBe(stateCase.announced ?? stateCase.text);
     const strong = screen.getByTestId("saved-copy-bar-content").querySelectorAll("strong");
     if (testCase.lead === null) {
       expect(strong).toHaveLength(0);
@@ -374,9 +384,7 @@ describe("SavedCopyBar: inputs", () => {
     goOnline(false);
     expect(region()).toBe(live);
     expect(live.contains(bar())).toBe(true);
-    expect(announcedText(live)).toBe(
-      `No signal. Showing your saved copy from ${at(RENDERED_AT)} (1 min ago).`,
-    );
+    expect(announcedText(live)).toBe(`No signal. Showing your saved copy from ${at(RENDERED_AT)}.`);
 
     goOnline(true);
     expect(region()).toBe(live);
@@ -475,6 +483,31 @@ describe("SavedCopyBar: inputs", () => {
     expect(contentText()).toBe(
       `No signal. Your saved copy is from ${at(savedAt)} (6 hr ago). Things may have changed since then.`,
     );
+  });
+
+  test("the minute tick moves the visible age and leaves the announced text alone", () => {
+    vi.useFakeTimers({ now: NOW_MS, toFake: ["Date", "setInterval", "clearInterval"] });
+    setServedMeta("offline", FRESH_SAVED_AT);
+    renderBar();
+    const live = region();
+    const visibleBefore = contentText();
+    const announcedBefore = announcedText(live);
+    expect(visibleBefore).toBe(
+      `No signal. Showing your saved copy from ${at(FRESH_SAVED_AT)} (30 min ago).`,
+    );
+    expect(announcedBefore).toBe(`No signal. Showing your saved copy from ${at(FRESH_SAVED_AT)}.`);
+
+    act(() => {
+      vi.advanceTimersByTime(MINUTE_MS);
+    });
+    // The tick re-rendered the bar: the age a sighted reader sees moved on.
+    expect(contentText()).toBe(
+      `No signal. Showing your saved copy from ${at(FRESH_SAVED_AT)} (31 min ago).`,
+    );
+    // The same node, and not one character of what it announces changed, so a
+    // polite region has nothing to read again.
+    expect(region()).toBe(live);
+    expect(announcedText(live)).toBe(announcedBefore);
   });
 
   test("navigator.serviceWorker absent changes nothing about rendering", () => {

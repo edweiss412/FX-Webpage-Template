@@ -80,7 +80,13 @@ import { Check, Clock, RefreshCw, TriangleAlert, WifiOff, type LucideIcon } from
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
 
 import { usePrefersReducedMotion } from "@/lib/a11y/usePrefersReducedMotion";
-import { deriveBarView, type BarInputs, type BarMode, type BarView } from "@/lib/offline/barState";
+import {
+  deriveBarView,
+  type BarInputs,
+  type BarMode,
+  type BarView,
+  type BodyPart,
+} from "@/lib/offline/barState";
 import { postToWorker, serviceWorkerContainer } from "@/lib/offline/client/messaging";
 import { useOnlineStatus } from "@/lib/offline/client/online";
 import { reloadPage } from "@/lib/offline/client/reload";
@@ -146,6 +152,20 @@ const ICONS: Record<NonNullable<BarView["icon"]>, LucideIcon> = {
   alert: TriangleAlert,
   sync: RefreshCw,
   check: Check,
+};
+
+/**
+ * Each run of the body's copy, by kind. The relative age is `aria-hidden`: the
+ * minute tick rewrites it inside the live region, and a polite status region
+ * re-reads its whole text whenever that text changes, so without this the bar
+ * would be announced again about once a minute for the first hour. The saved
+ * time stays announced, so assistive tech still hears how old the copy is
+ * (spec 4.7.2 Accessibility).
+ */
+const PART_ATTRIBUTES: Record<BodyPart["kind"], { "aria-hidden"?: "true" }> = {
+  text: {},
+  time: {},
+  age: { "aria-hidden": "true" },
 };
 
 function isFreshReadyFor(data: unknown, path: string): boolean {
@@ -412,7 +432,12 @@ export function SavedCopyBarView({ view, fading, onFadeEnd }: SavedCopyBarViewPr
                 <strong className="font-semibold">{view.lead}</strong>{" "}
               </>
             )}
-            {view.body}
+            {view.parts.map((part, index) => (
+              // The runs of one view never reorder: the index is their identity.
+              <span key={index} {...PART_ATTRIBUTES[part.kind]}>
+                {part.text}
+              </span>
+            ))}
           </p>
         </div>
       )}

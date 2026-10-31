@@ -41,8 +41,14 @@ function inputs(over: Partial<BarInputs> = {}): BarInputs {
   };
 }
 
-const view = (over: Partial<BarInputs> = {}, timeZone: string | undefined = TZ): BarView =>
-  deriveBarView(inputs(over), timeZone);
+/** The view without its parts: the copy as one string, which the cases below pin exactly. */
+const view = (
+  over: Partial<BarInputs> = {},
+  timeZone: string | undefined = TZ,
+): Omit<BarView, "parts"> => {
+  const { parts: _parts, ...copy } = deriveBarView(inputs(over), timeZone);
+  return copy;
+};
 
 // Tone tokens and copy are literals here, never imported from the module under test.
 const INFO = "bg-info-bg";
@@ -275,6 +281,80 @@ describe("deriveBarView: an unknown saved time drops the time and age (spec guar
         body: "This is the last version we have. Check with Doug before relying on it.",
       });
     });
+  });
+});
+
+describe("deriveBarView: the body's parts", () => {
+  /** One input set per state, every saved lead included, plus the unknown-time forms. */
+  const EVERY_VIEW: ReadonlyArray<{ label: string; over: Partial<BarInputs> }> = [
+    { label: "hidden", over: {} },
+    ...SAVED_LEADS.map((row) => ({ label: `saved-fresh, ${row.label}`, over: row.over })),
+    ...SAVED_LEADS.map((row) => ({
+      label: `saved-old, ${row.label}`,
+      over: { ...row.over, savedAt: savedAgo(7 * HOUR) },
+    })),
+    { label: "saved-old, no time", over: { mode: "offline", savedAt: null } },
+    { label: "ended", over: { mode: "ended" } },
+    { label: "ended, no time", over: { mode: "ended", savedAt: null } },
+    { label: "sheet-gone", over: { sheetUnavailable: true } },
+    { label: "sheet-gone-saved", over: { mode: "slow", sheetUnavailable: true } },
+    {
+      label: "sheet-gone-saved, no time",
+      over: { mode: "slow", sheetUnavailable: true, savedAt: null },
+    },
+    { label: "updating", over: { updating: true } },
+    { label: "updated", over: { justUpdated: true } },
+  ];
+
+  test("the cases reach every state", () => {
+    const reached = new Set(EVERY_VIEW.map(({ over }) => deriveBarView(inputs(over), TZ).state));
+    expect([...reached].sort()).toEqual([...BAR_STATES].sort());
+  });
+
+  test.each(EVERY_VIEW)("$label: the parts read, in order, as the body", ({ over }) => {
+    const result = deriveBarView(inputs(over), TZ);
+    expect(result.parts.map((part) => part.text).join("")).toBe(result.body);
+    // No empty run: an empty span would be a node with nothing to read.
+    for (const part of result.parts) expect(part.text.length).toBeGreaterThan(0);
+  });
+
+  test("saved-fresh: the time and the relative age are their own parts", () => {
+    expect(deriveBarView(inputs({ mode: "offline", online: false }), TZ).parts).toEqual([
+      { kind: "text", text: "Showing your saved copy from " },
+      { kind: "time", text: "10:30 AM" },
+      { kind: "age", text: " (30 min ago)" },
+      { kind: "text", text: "." },
+    ]);
+  });
+
+  test("saved-old: the time and the relative age are their own parts", () => {
+    expect(deriveBarView(inputs({ mode: "slow", savedAt: savedAgo(7 * HOUR) }), TZ).parts).toEqual([
+      { kind: "text", text: "Your saved copy is from " },
+      { kind: "time", text: "4:00 AM" },
+      { kind: "age", text: " (7 hr ago)" },
+      { kind: "text", text: ". Things may have changed since then." },
+    ]);
+  });
+
+  test("ended and sheet-gone-saved carry their time as a part, and no age", () => {
+    expect(deriveBarView(inputs({ mode: "ended" }), TZ).parts).toEqual([
+      { kind: "text", text: "You're seeing the last version, from " },
+      { kind: "time", text: "10:30 AM" },
+      { kind: "text", text: "." },
+    ]);
+    expect(deriveBarView(inputs({ mode: "slow", sheetUnavailable: true }), TZ).parts).toEqual([
+      { kind: "text", text: "This is the last version we have, from " },
+      { kind: "time", text: "10:30 AM" },
+      { kind: "text", text: ". Check with Doug before relying on it." },
+    ]);
+  });
+
+  test("only the two saved states carry a relative age", () => {
+    const withAge = EVERY_VIEW.map(({ over }) => deriveBarView(inputs(over), TZ))
+      .filter((result) => result.parts.some((part) => part.kind === "age"))
+      .map((result) => result.state);
+    premise("the saved cases carry an age", withAge.length, 0);
+    expect([...new Set(withAge)].sort()).toEqual(["saved-fresh", "saved-old"]);
   });
 });
 

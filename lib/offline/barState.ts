@@ -35,12 +35,22 @@ export const BAR_STATES = [
 
 export type BarState = (typeof BAR_STATES)[number];
 
+/**
+ * One run of the body's copy. `time` is the saved time and `age` the relative
+ * age, parenthesis and leading space included, so the view can treat the two
+ * figures apart from the prose: the age is visual only, since it changes every
+ * minute and the bar is a live region (spec 4.7.2 Accessibility).
+ */
+export type BodyPart = { kind: "text" | "time" | "age"; text: string };
+
 export type BarView = {
   state: BarState;
   tone: string | null;
   icon: "signal-off" | "clock" | "alert" | "sync" | "check" | null;
   lead: string | null;
+  /** The body as it reads on screen: every part's text, in order. */
   body: string;
+  parts: readonly BodyPart[];
 };
 
 export const OLD_COPY_MS = 6 * 60 * 60 * 1000;
@@ -70,6 +80,17 @@ const SAVED_LEADS: Record<Exclude<BarMode, "ended">, string> = {
 
 type SavedCopyTime = { time: string; ago: string; ageMs: number };
 
+/** The body from its runs: a string is prose, and `body` is every run's text joined. */
+function bodyOf(...runs: ReadonlyArray<string | BodyPart>): Pick<BarView, "body" | "parts"> {
+  const parts = runs.map(
+    (run): BodyPart => (typeof run === "string" ? { kind: "text", text: run } : run),
+  );
+  return { body: parts.map((part) => part.text).join(""), parts };
+}
+
+const timePart = (text: string): BodyPart => ({ kind: "time", text });
+const agePart = (ago: string): BodyPart => ({ kind: "age", text: ` (${ago})` });
+
 /** The saved time as the copy shows it, or null when the time or the clock is unusable. */
 function readSavedCopyTime(
   savedAt: string | null,
@@ -93,10 +114,9 @@ export function deriveBarView(inputs: BarInputs, timeZone?: string): BarView {
       tone: STALE_TONE,
       icon: "clock",
       lead: "This show has ended.",
-      body:
-        saved === null
-          ? "You're seeing the last version."
-          : `You're seeing the last version, from ${saved.time}.`,
+      ...(saved === null
+        ? bodyOf("You're seeing the last version.")
+        : bodyOf("You're seeing the last version, from ", timePart(saved.time), ".")),
     };
   }
 
@@ -106,7 +126,7 @@ export function deriveBarView(inputs: BarInputs, timeZone?: string): BarView {
       tone: INFO_TONE,
       icon: "sync",
       lead: "Signal's back.",
-      body: "Loading the latest version.",
+      ...bodyOf("Loading the latest version."),
     };
   }
 
@@ -117,7 +137,7 @@ export function deriveBarView(inputs: BarInputs, timeZone?: string): BarView {
         tone: WARNING_TONE,
         icon: "alert",
         lead: SHEET_GONE_LEAD,
-        body: "You're seeing the last version we have. Check with Doug before relying on it.",
+        ...bodyOf("You're seeing the last version we have. Check with Doug before relying on it."),
       };
     }
     const saved = readSavedCopyTime(savedAt, nowMs, timeZone);
@@ -126,10 +146,13 @@ export function deriveBarView(inputs: BarInputs, timeZone?: string): BarView {
       tone: WARNING_TONE,
       icon: "alert",
       lead: SHEET_GONE_LEAD,
-      body:
-        saved === null
-          ? "This is the last version we have. Check with Doug before relying on it."
-          : `This is the last version we have, from ${saved.time}. Check with Doug before relying on it.`,
+      ...(saved === null
+        ? bodyOf("This is the last version we have. Check with Doug before relying on it.")
+        : bodyOf(
+            "This is the last version we have, from ",
+            timePart(saved.time),
+            ". Check with Doug before relying on it.",
+          )),
     };
   }
 
@@ -143,7 +166,7 @@ export function deriveBarView(inputs: BarInputs, timeZone?: string): BarView {
         tone: STALE_TONE,
         icon: "clock",
         lead,
-        body: "Showing your saved copy.",
+        ...bodyOf("Showing your saved copy."),
       };
     }
     if (saved.ageMs < OLD_COPY_MS) {
@@ -152,7 +175,7 @@ export function deriveBarView(inputs: BarInputs, timeZone?: string): BarView {
         tone: INFO_TONE,
         icon: "signal-off",
         lead,
-        body: `Showing your saved copy from ${saved.time} (${saved.ago}).`,
+        ...bodyOf("Showing your saved copy from ", timePart(saved.time), agePart(saved.ago), "."),
       };
     }
     return {
@@ -160,7 +183,12 @@ export function deriveBarView(inputs: BarInputs, timeZone?: string): BarView {
       tone: STALE_TONE,
       icon: "clock",
       lead,
-      body: `Your saved copy is from ${saved.time} (${saved.ago}). Things may have changed since then.`,
+      ...bodyOf(
+        "Your saved copy is from ",
+        timePart(saved.time),
+        agePart(saved.ago),
+        ". Things may have changed since then.",
+      ),
     };
   }
 
@@ -170,9 +198,9 @@ export function deriveBarView(inputs: BarInputs, timeZone?: string): BarView {
       tone: POSITIVE_TONE,
       icon: "check",
       lead: null,
-      body: "Updated. You're on the latest version.",
+      ...bodyOf("Updated. You're on the latest version."),
     };
   }
 
-  return { state: "hidden", tone: null, icon: null, lead: null, body: "" };
+  return { state: "hidden", tone: null, icon: null, lead: null, ...bodyOf() };
 }
