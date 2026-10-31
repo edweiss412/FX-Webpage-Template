@@ -12,6 +12,9 @@
  *   before any wait (a status check, a page fetch) is still stored there.
  * - Every save takes its generation and ordinal (`beginSave`) before its fetch
  *   is sent, so a purge that lands while the fetch is in flight voids it.
+ * - A purge the store cannot write fails closed: the worker quarantines itself
+ *   in memory, serving no copy and committing no save, until a retried purge
+ *   or the escalation succeeds (spec 4.6).
  * - A fault inside the handlers serves the network, or the not-saved page when
  *   the network fails too; never a copy. Bookkeeping writes (`touchOpened`, the
  *   sweep, broadcasts) are best effort, so a full or failing store cannot stop
@@ -61,11 +64,12 @@ import type {
   SavedCopyStore,
   StoredCopy,
 } from "@/lib/offline/store";
-import { ASSET_CACHE, CACHE_PREFIX, STATIC_CACHE } from "@/lib/offline/storeSchema";
+import { ASSET_CACHE, CACHE_PREFIX, DB_NAME, STATIC_CACHE } from "@/lib/offline/storeSchema";
 import type {
   CacheLike,
   CacheStorageLike,
   Clients,
+  ExtendableEvent,
   ExtendableMessageEvent,
   FetchEvent,
   Timers,
@@ -76,6 +80,12 @@ export type WorkerDeps = {
   store: SavedCopyStore;
   /** Static and asset caches are opened from here when first needed (ruling D3). */
   cacheStorage: CacheStorageLike;
+  /**
+   * The factory the store's database lives in (entry.ts opens the store over the
+   * same one). A purge the store cannot write, retried and failing again,
+   * escalates to deleting that database (spec 4.6).
+   */
+  indexedDB: Pick<IDBFactory, "deleteDatabase">;
   fetch: (input: Request | string, init?: RequestInit) => Promise<Response>;
   /** Epoch milliseconds. */
   now: () => number;
@@ -138,6 +148,13 @@ const STOP: FetchedAsset = Object.freeze({ kind: "stop" });
 
 /** What a fetch handler serves, and the work that continues after it (kept alive by waitUntil). */
 type Handled = { response: Response; background: Promise<unknown> };
+
+/**
+ * What a save began with: the store's token, and G in memory at that moment
+ * (spec 4.6). G in memory is null for a save begun in quarantine, which never
+ * commits.
+ */
+type Ticket = { token: SaveToken; memoryGeneration: number | null };
 
 const NOTHING_MORE: Promise<void> = Promise.resolve();
 
@@ -314,15 +331,21 @@ export function installWorker(scope: WorkerScope, deps: WorkerDeps): void {
   };
   const savingKey = (url: string, renderedAt: string): string => `${url}\n${renderedAt}`;
 
-  function opener(name: string): () => Promise<CacheLike> {
+  /** Opens a cache once; `forget` makes the next call open it again, as after the cache is deleted. */
+  function opener(name: string): (() => Promise<CacheLike>) & { forget: () => void } {
     let opening: Promise<CacheLike> | null = null;
-    return () => {
+    const open = (): Promise<CacheLike> => {
       opening ??= deps.cacheStorage.open(name).catch((error: unknown) => {
         opening = null;
         throw error;
       });
       return opening;
     };
+    return Object.assign(open, {
+      forget: () => {
+        opening = null;
+      },
+    });
   }
   const staticCache = opener(STATIC_CACHE);
   const assetCache = opener(ASSET_CACHE);
@@ -381,7 +404,12 @@ export function installWorker(scope: WorkerScope, deps: WorkerDeps): void {
     // The eviction order only: a full or failing store must not stop the serve.
     await store.touchOpened(refOf(copy), now).catch(() => undefined);
     const current = await store.copyAtUrl(url);
-    if (current === null || current.showId !== copy.showId || current.ordinal !== copy.ordinal) {
+    if (
+      quarantined() ||
+      current === null ||
+      current.showId !== copy.showId ||
+      current.ordinal !== copy.ordinal
+    ) {
       return null;
     }
     const time = formatSavedTime(current.savedAt, now);
@@ -412,15 +440,109 @@ export function installWorker(scope: WorkerScope, deps: WorkerDeps): void {
 
   // --- Purging and cleanup ----------------------------------------------------------
 
+  // A purge whose write fails, by a rejected promise or an aborted or errored
+  // transaction (idbStore.ts rejects on both), fails closed (spec 4.6).
+
+  /** The scopes whose purge the store could not write. While any is left, the worker is quarantined. */
+  const unpurged: PurgeScope[] = [];
+
+  /**
+   * G in memory: advanced by every purge the store could not write, so a save
+   * begun before one never commits, as the stored G advancing would have ensured.
+   */
+  let memoryGeneration = 0;
+
+  /** The recovery in progress, so events arriving during it do not start another. */
+  let recovering: Promise<void> | null = null;
+
+  /** No saved copy or stored asset is served, and no save commits (spec 4.6). */
+  function quarantined(): boolean {
+    return unpurged.length > 0;
+  }
+
   /**
    * Advances G and removes what the scope names; returns once the store has
    * done so. The files only those copies used go in a sweep queued behind it,
-   * which every event handler waits for under waitUntil (`sweepsDone`).
+   * which every event handler waits for under waitUntil (`sweepsDone`). Never
+   * rejects: a write that fails quarantines the worker and removes nothing.
    */
   async function purge(scope: PurgeScope): Promise<readonly StoredCopy[]> {
-    const removed = await store.purge(scope);
-    void sweep();
-    return removed;
+    try {
+      const removed = await store.purge(scope);
+      void sweep();
+      return removed;
+    } catch {
+      memoryGeneration += 1;
+      unpurged.push(scope);
+      return [];
+    }
+  }
+
+  /** While quarantined, every fetch event and message retries the purges the worker is waiting on. */
+  function retryWhileQuarantined(event: ExtendableEvent): void {
+    if (quarantined()) event.waitUntil(recover());
+  }
+
+  /**
+   * Retries each failed purge in order. One that fails again escalates; the
+   * quarantine ends once every scope has been purged or the escalation succeeds.
+   */
+  function recover(): Promise<void> {
+    recovering ??= (async () => {
+      try {
+        while (unpurged.length > 0) {
+          try {
+            await store.purge(unpurged[0] as PurgeScope);
+          } catch {
+            // Every copy lived in the database the escalation deletes.
+            if (await escalate()) unpurged.length = 0;
+            return;
+          }
+          unpurged.shift();
+          void sweep();
+        }
+      } finally {
+        recovering = null;
+      }
+    })();
+    return recovering;
+  }
+
+  /**
+   * Deletes the store's database, then every fxav- cache. True once both are
+   * gone. The store retires on the version change (idbStore.ts), so from then
+   * on nothing is read or written until the browser restarts the worker.
+   */
+  async function escalate(): Promise<boolean> {
+    try {
+      await deleteDatabase();
+      for (const name of await deps.cacheStorage.keys()) {
+        if (name.startsWith(CACHE_PREFIX)) await deps.cacheStorage.delete(name);
+      }
+      return true;
+    } catch {
+      return false;
+    } finally {
+      // A deleted cache's object keeps working on a cache nothing can reach.
+      staticCache.forget();
+      assetCache.forget();
+    }
+  }
+
+  /** Settles on success, rejects on error. A blocked delete stays queued until the blocker closes. */
+  function deleteDatabase(): Promise<void> {
+    return new Promise((resolve, reject) => {
+      const request = deps.indexedDB.deleteDatabase(DB_NAME);
+      request.onsuccess = () => resolve();
+      request.onerror = () =>
+        reject(request.error ?? new Error("The saved-copy database was not deleted."));
+    });
+  }
+
+  /** A save's ticket, taken before its fetch is sent: in quarantine it can never commit. */
+  async function beginSave(): Promise<Ticket> {
+    const generation = quarantined() ? null : memoryGeneration;
+    return { token: await store.beginSave(), memoryGeneration: generation };
   }
 
   async function announcePurged(removed: readonly StoredCopy[]): Promise<void> {
@@ -632,7 +754,7 @@ export function installWorker(scope: WorkerScope, deps: WorkerDeps): void {
    */
   async function commitSave(
     url: string,
-    token: SaveToken,
+    ticket: Ticket,
     html: string,
     marker: SaveMarker,
   ): Promise<boolean> {
@@ -646,6 +768,11 @@ export function installWorker(scope: WorkerScope, deps: WorkerDeps): void {
     try {
       const statics = await storeStatics(html, pin);
       const assets = await storeAssets(marker.assets, pin);
+      // G in memory: every purge the store could not write since this save began
+      // advanced it, and a save begun in quarantine holds none, so this one check
+      // refuses every commit while the worker is quarantined.
+      if (ticket.memoryGeneration !== memoryGeneration) return false;
+      const { token } = ticket;
       const outcome = await store.commitIfCurrent(token, {
         showId: marker.showId,
         url,
@@ -678,7 +805,7 @@ export function installWorker(scope: WorkerScope, deps: WorkerDeps): void {
   // --- Navigation (spec 4.4) ----------------------------------------------------------
 
   /** Step 3 with serving: the marker decides what the page gets and what happens to the copy. */
-  async function decideServed(url: string, token: SaveToken, fetched: Fetched): Promise<Handled> {
+  async function decideServed(url: string, ticket: Ticket, fetched: Fetched): Promise<Handled> {
     const view = await readView(url);
     const step = decideStep3(url, completeOf(fetched), view);
     switch (step.serve) {
@@ -704,7 +831,7 @@ export function installWorker(scope: WorkerScope, deps: WorkerDeps): void {
         if (marker === null || fetched.kind !== "body") return served(networkResponse(fetched));
         return {
           response: networkResponse(fetched),
-          background: commitSave(url, token, fetched.text, marker),
+          background: commitSave(url, ticket, fetched.text, marker),
         };
       }
     }
@@ -727,7 +854,7 @@ export function installWorker(scope: WorkerScope, deps: WorkerDeps): void {
   /** Step 3 without serving (a probe, an ensure-saved, a step 5 continuation). */
   async function decideSilently(
     url: string,
-    token: SaveToken,
+    ticket: Ticket,
     fetched: Fetched,
     announce: boolean,
   ): Promise<SilentResult> {
@@ -747,7 +874,7 @@ export function installWorker(scope: WorkerScope, deps: WorkerDeps): void {
         if (step.then === "none") return "unchanged";
         const marker = saveMarkerOf(fetched);
         if (marker === null || fetched.kind !== "body") return "commit-failed";
-        const committed = await commitSave(url, token, fetched.text, marker);
+        const committed = await commitSave(url, ticket, fetched.text, marker);
         if (committed && announce) await broadcast({ type: "fresh-ready", url }, url);
         return committed ? "committed" : "commit-failed";
       }
@@ -787,7 +914,7 @@ export function installWorker(scope: WorkerScope, deps: WorkerDeps): void {
   async function continueInBackground(
     attempt: Attempt,
     url: string,
-    token: SaveToken,
+    ticket: Ticket,
     ms: number,
   ): Promise<void> {
     const outcome = await within(attempt.result, ms);
@@ -795,16 +922,16 @@ export function installWorker(scope: WorkerScope, deps: WorkerDeps): void {
       attempt.abort();
       return;
     }
-    if (outcome.value !== null) await decideSilently(url, token, outcome.value, true);
+    if (outcome.value !== null) await decideSilently(url, ticket, outcome.value, true);
   }
 
   /** Steps 2 to 5. */
   async function fetchAndDecide(request: Request, url: string): Promise<Handled> {
-    const token = await store.beginSave();
+    const ticket = await beginSave();
     const attempt = startFetch(request);
     const first = await within(attempt.result, NAV_BUDGET_MS);
     if (first.kind === "done") {
-      return first.value === null ? noResponse(url) : decideServed(url, token, first.value);
+      return first.value === null ? noResponse(url) : decideServed(url, ticket, first.value);
     }
     const view = await readView(url);
     const decision = decideNoResponse("timeout", view);
@@ -813,14 +940,14 @@ export function installWorker(scope: WorkerScope, deps: WorkerDeps): void {
       if (saved !== null) {
         return {
           response: saved,
-          background: continueInBackground(attempt, url, token, decision.continueForMs),
+          background: continueInBackground(attempt, url, ticket, decision.continueForMs),
         };
       }
     }
     // No S(U), or it left the store just now: nothing better to show, so the
     // worker sets no timeout of its own.
     const fetched = await attempt.result;
-    return fetched === null ? noResponse(url) : decideServed(url, token, fetched);
+    return fetched === null ? noResponse(url) : decideServed(url, ticket, fetched);
   }
 
   /**
@@ -882,15 +1009,15 @@ export function installWorker(scope: WorkerScope, deps: WorkerDeps): void {
 
   /**
    * The request passes through with its own redirect mode, every copy purged
-   * before it is sent and again once its response arrives. A purge that fails
-   * does not stop the request: signing out must keep working.
+   * before it is sent and again once its response arrives. A purge never
+   * rejects (a failed one quarantines the worker), so signing out keeps working.
    */
   async function passThroughBracketed(request: Request): Promise<Response> {
-    await purge({ by: "all" }).catch(() => undefined);
+    await purge({ by: "all" });
     try {
       return await deps.fetch(request);
     } finally {
-      await purge({ by: "all" }).catch(() => undefined);
+      await purge({ by: "all" });
     }
   }
 
@@ -923,7 +1050,7 @@ export function installWorker(scope: WorkerScope, deps: WorkerDeps): void {
     try {
       const path = rootRelative(request.url);
       const listed = async () =>
-        (await store.listCopies()).some((copy) => copy.assets.includes(path));
+        (await store.listCopies()).some((copy) => copy.assets.includes(path)) && !quarantined();
       if (!(await listed())) return undefined;
       const stored = await (await assetCache()).match(absolute(path));
       if (stored === undefined) return undefined;
@@ -971,7 +1098,7 @@ export function installWorker(scope: WorkerScope, deps: WorkerDeps): void {
 
   /** Steps 2 and 3 for U without serving, under the step 2 budget. */
   async function runSilently(url: string): Promise<SilentResult> {
-    const token = await store.beginSave();
+    const ticket = await beginSave();
     const attempt = startFetch(absolute(url), { redirect: "manual", credentials: "same-origin" });
     const outcome = await within(attempt.result, NAV_BUDGET_MS);
     if (outcome.kind === "timeout") {
@@ -980,7 +1107,7 @@ export function installWorker(scope: WorkerScope, deps: WorkerDeps): void {
     }
     return outcome.value === null
       ? "no-response"
-      : decideSilently(url, token, outcome.value, false);
+      : decideSilently(url, ticket, outcome.value, false);
   }
 
   async function ensureSaved(rawUrl: string, renderedAt: string): Promise<SilentResult> {
@@ -1074,6 +1201,8 @@ export function installWorker(scope: WorkerScope, deps: WorkerDeps): void {
   });
 
   scope.addEventListener("fetch", (event) => {
+    // First, so a retried purge reaches the store before this request's own reads.
+    retryWhileQuarantined(event);
     const { request } = event;
     const kind = classifyRequest(
       {
@@ -1106,6 +1235,7 @@ export function installWorker(scope: WorkerScope, deps: WorkerDeps): void {
   });
 
   scope.addEventListener("message", (event: ExtendableMessageEvent) => {
+    retryWhileQuarantined(event);
     const port = event.ports[0];
     event.waitUntil(
       answer(parsePageMessage(event.data))

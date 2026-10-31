@@ -23,6 +23,8 @@ function realDeps(): WorkerDeps {
   return {
     store: createIdbStore(indexedDB),
     cacheStorage: caches,
+    // The factory the store's database lives in: the escalation deletes that database.
+    indexedDB,
     // Wrapped, not passed: the handlers call `deps.fetch(...)`, which would run
     // the native `fetch` with `deps` as its receiver, and browsers refuse that.
     fetch: (input, init) => fetch(input, init),

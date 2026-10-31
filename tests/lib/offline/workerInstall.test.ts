@@ -1,7 +1,9 @@
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
-import { describe, expect, test, vi } from "vitest";
+import { IDBFactory as FakeIDBFactory, IDBObjectStore as FakeIDBObjectStore } from "fake-indexeddb";
+import { afterEach, describe, expect, test, vi } from "vitest";
 import { premise, premiseHolds } from "@/tests/_shared/premise";
+import { createIdbStore } from "@/lib/offline/idbStore";
 import { requiredStaticUrls } from "@/lib/offline/completeness";
 import { formatSavedTime } from "@/lib/offline/format";
 import { injectSavedCopyHead } from "@/lib/offline/inject";
@@ -14,7 +16,13 @@ import {
   statusOutcomeOf,
 } from "@/lib/offline/protocol";
 import { createMemoryStore, type SavedCopyStore, type StoredCopy } from "@/lib/offline/store";
-import { ASSET_CACHE, STATIC_CACHE } from "@/lib/offline/storeSchema";
+import {
+  ASSET_CACHE,
+  COPIES_STORE,
+  DB_NAME,
+  META_STORE,
+  STATIC_CACHE,
+} from "@/lib/offline/storeSchema";
 import { installWorker } from "@/lib/offline/worker/install";
 import type {
   CacheLike,
@@ -438,7 +446,9 @@ function navRequest(
   return request;
 }
 
-function boot(options: { store?: SavedCopyStore } = {}) {
+function boot(
+  options: { store?: SavedCopyStore; indexedDB?: Pick<IDBFactory, "deleteDatabase"> } = {},
+) {
   const listeners = new Map<string, (event: unknown) => void>();
   let skipWaitingCalls = 0;
   const scope: WorkerScope = {
@@ -476,6 +486,8 @@ function boot(options: { store?: SavedCopyStore } = {}) {
   installWorker(scope, {
     store,
     cacheStorage: caches,
+    // A database of its own, so a case that never escalates deletes nothing it reads.
+    indexedDB: options.indexedDB ?? new FakeIDBFactory(),
     fetch: net.fetch,
     now: clock.now,
     clients,
@@ -3085,5 +3097,312 @@ describe("a range answer slices the stored body instead of copying it whole", ()
     } finally {
       arrayBuffer.mockRestore();
     }
+  });
+});
+
+// --- A purge the store cannot write fails closed (spec 4.6, Codex R2 A1) -----------------
+
+describe("a purge the store cannot write fails closed (spec 4.6)", () => {
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
+
+  /**
+   * The real IndexedDB store over fake-indexeddb, with a switch that aborts every
+   * purge transaction, as Codex's probe did. A purge is the only read-write
+   * transaction over the copies that writes the generation counter (idbStore.ts
+   * writes `meta` only when G or the next ordinal moves, and beginSave's
+   * transaction covers `meta` alone), so the abort lands on purges and nothing
+   * else: reads, commits, touches and marks keep working.
+   */
+  function abortingPurges() {
+    const factory = new FakeIDBFactory();
+    const store = createIdbStore(factory);
+    const state = { failing: false, aborted: 0 };
+    type ObjectStore = InstanceType<typeof FakeIDBObjectStore>;
+    const put = FakeIDBObjectStore.prototype.put;
+    vi.spyOn(FakeIDBObjectStore.prototype, "put").mockImplementation(function (
+      this: ObjectStore,
+      ...args: Parameters<ObjectStore["put"]>
+    ) {
+      const request = put.apply(this, args);
+      const purging =
+        this.name === META_STORE && this.transaction.objectStoreNames.contains(COPIES_STORE);
+      if (state.failing && purging) {
+        state.aborted += 1;
+        this.transaction.abort();
+      }
+      return request;
+    });
+    return { factory, store, state };
+  }
+
+  /** A factory whose deleteDatabase fails, so the escalation cannot clear storage either. */
+  function failingDeletes() {
+    const names: string[] = [];
+    const factory: Pick<IDBFactory, "deleteDatabase"> = {
+      deleteDatabase(name: string): IDBOpenDBRequest {
+        names.push(name);
+        const request = {
+          onsuccess: null,
+          onerror: null,
+          onblocked: null,
+          error: new DOMException("The database could not be deleted.", "UnknownError"),
+        } as unknown as IDBOpenDBRequest;
+        setImmediate(() => {
+          (request.onerror as ((event: Event) => void) | null)?.(new Event("error"));
+        });
+        return request;
+      },
+    };
+    return { factory, names };
+  }
+
+  /** A worker whose purges abort and whose escalation fails: storage refuses writes, reads still work. */
+  async function brokenStorage(seed: Partial<StoredCopy> = {}) {
+    const { store, state } = abortingPurges();
+    const deletes = failingDeletes();
+    const worker = boot({ store, indexedDB: deletes.factory });
+    await worker.seed({ showId: SHOW, url: U, ...seed });
+    state.failing = true;
+    return { worker, state, deletes };
+  }
+
+  const purgePage = () => htmlResponse(page({ disposition: "purge", showId: SHOW }, "purged"));
+
+  // Every purge path Codex probed: the identity brackets, the purge-show message,
+  // a purge marker message, a purge document, a status route answering gone, a
+  // silent probe, an ensure-saved, the step 5 continuation, and step 1's gone.
+  const PATHS: ReadonlyArray<readonly [string, (worker: Worker) => Promise<unknown>]> = [
+    [
+      "the sign-out bracket",
+      (worker) => {
+        worker.net.on(
+          "/auth/sign-out",
+          reply(() => new Response(null, { status: 303, headers: { location: "/" } })),
+        );
+        return open(worker, "/auth/sign-out", { method: "POST" });
+      },
+    ],
+    [
+      "the Google callback bracket",
+      (worker) => {
+        worker.net.on(
+          "/auth/callback",
+          reply(() => new Response(null, { status: 303, headers: { location: "/" } })),
+        );
+        return open(worker, "/auth/callback?code=abc");
+      },
+    ],
+    ["purge-show", (worker) => worker.ask({ type: "purge-show", showId: SHOW })],
+    [
+      "a purge marker message",
+      (worker) => worker.ask({ type: "marker", disposition: "purge", showId: SHOW, url: U }),
+    ],
+    [
+      "a purge document",
+      (worker) => {
+        worker.net.on(U, reply(purgePage));
+        return open(worker, U);
+      },
+    ],
+    [
+      "a status route answering gone to a check",
+      (worker) => {
+        worker.net.on(STATUS, statusAnswer("gone"));
+        return worker.ask({ type: "marker", disposition: "check", url: U });
+      },
+    ],
+    [
+      "a silent probe",
+      (worker) => {
+        worker.net.on(U, reply(purgePage));
+        return worker.ask({ type: "probe", url: U });
+      },
+    ],
+    [
+      "an ensure-saved",
+      (worker) => {
+        worker.net.on(U, reply(purgePage));
+        return worker.ask({ type: "ensure-saved", url: U, renderedAt: LATER });
+      },
+    ],
+    [
+      "the step 5 continuation",
+      async (worker) => {
+        const gate = deferred<Response>();
+        worker.net.on(U, later(gate));
+        const nav = worker.navigate(U);
+        await worker.clock.advance(8_000);
+        premiseHolds(
+          "the slow fallback served the copy",
+          servedMode(await (await responseOf(nav)).text()) === "slow",
+        );
+        gate.resolve(purgePage());
+        await nav.settled();
+      },
+    ],
+  ];
+
+  test.each(PATHS)(
+    "%s: the copy the purge could not remove is never served afterwards",
+    async (_label, run) => {
+      const { worker, state } = await brokenStorage();
+      await run(worker);
+      premiseHolds("the purge transaction aborted", state.aborted > 0);
+      premiseHolds(
+        "the copy is still stored, so only the worker can keep it from being served",
+        (await worker.store.copyAtUrl(U))?.url === U,
+      );
+      worker.net.on(U, refuse);
+      worker.net.on(STATUS, refuse);
+      expect(await (await open(worker, U)).text()).toBe(notSavedPageHtml());
+    },
+  );
+
+  test("step 1's gone: the ended copy the purge could not remove is never served afterwards", async () => {
+    const { worker, state } = await brokenStorage({ endedAt: START - DAY_MS });
+    worker.net.on(STATUS, statusAnswer("gone"));
+    worker.net.on(U, reply(purgePage));
+    await open(worker, U);
+    premiseHolds("the purge transaction aborted", state.aborted > 0);
+    premiseHolds(
+      "the ended copy is still stored",
+      (await worker.store.copyAtUrl(U))?.endedAt === START - DAY_MS,
+    );
+    // No answer from the status route would serve an ended copy on the phone's own judgement.
+    worker.net.on(STATUS, refuse);
+    worker.net.on(U, refuse);
+    expect(await (await open(worker, U)).text()).toBe(notSavedPageHtml());
+  });
+
+  test("online, a page whose copy could not be purged gets the network's page", async () => {
+    const { worker } = await brokenStorage();
+    await worker.ask({ type: "purge-show", showId: SHOW });
+    // A keep marker for the saved viewer would serve the copy in server-error mode.
+    worker.net.on(
+      U,
+      reply(() =>
+        htmlResponse(page({ disposition: "keep", showId: SHOW, viewer: VIEWER }, "server page")),
+      ),
+    );
+    const text = await (await open(worker, U)).text();
+    expect(text).toContain("server page");
+    expect(servedMode(text)).toBeNull();
+  });
+
+  test("a stored asset of a copy that could not be purged is never served", async () => {
+    const { worker } = await brokenStorage({ assets: [DIAGRAM] });
+    worker.assetCache().seed(DIAGRAM, "stored diagram");
+    await worker.ask({ type: "purge-show", showId: SHOW });
+    premiseHolds(
+      "the copy still lists the asset",
+      (await worker.store.copyAtUrl(U))?.assets.includes(DIAGRAM) === true,
+    );
+    worker.net.on(DIAGRAM, refuse);
+    await expect(responseOf(worker.dispatchFetch(new Request(ORIGIN + DIAGRAM)))).rejects.toThrow();
+  });
+
+  test.each([
+    ["begun before the failed purge", true],
+    ["begun after it", false],
+  ])("a save %s never commits", async (_label, startFirst) => {
+    const { worker } = await brokenStorage({ savedAt: RENDERED });
+    const crewPage = deferred<Response>();
+    worker.net.on(U, later(crewPage));
+    const startSave = async () => {
+      const nav = worker.navigate(U);
+      await settle();
+      premise("the save's page fetch went out", worker.net.callsTo(U).length, 0);
+      return nav;
+    };
+    const nav = startFirst ? await startSave() : null;
+    expect(await worker.ask({ type: "purge-show", showId: SHOW })).toEqual({ outcome: "ack" });
+    const saving = nav ?? (await startSave());
+    crewPage.resolve(htmlResponse(page(save({ renderedAt: LATER }), "new page")));
+    await responseOf(saving);
+    await saving.settled();
+    expect(await worker.store.copyAtUrl(U)).toMatchObject({ savedAt: RENDERED });
+  });
+
+  test.each([
+    [
+      "a fetch event",
+      (worker: Worker) => worker.dispatchFetch(new Request(ORIGIN + CHUNK)).settled(),
+    ],
+    ["a message", (worker: Worker) => worker.ask({ type: "not a message" })],
+  ])(
+    "%s retries the purge; once it succeeds the quarantine ends and a new save is served",
+    async (_label, next) => {
+      const { store, state } = abortingPurges();
+      const worker = boot({ store });
+      await worker.seed({ showId: SHOW, url: U, savedAt: RENDERED });
+      state.failing = true;
+      await worker.ask({ type: "purge-show", showId: SHOW });
+      premiseHolds(
+        "the purge left the copy",
+        (await worker.store.copyAtUrl(U))?.savedAt === RENDERED,
+      );
+
+      state.failing = false;
+      await next(worker);
+      expect(await worker.store.copyAtUrl(U)).toBeNull();
+
+      worker.net.on(
+        U,
+        reply(() => htmlResponse(page(save({ renderedAt: LATER }), "after the retry"))),
+      );
+      await open(worker, U);
+      expect(await worker.store.copyAtUrl(U)).toMatchObject({ savedAt: LATER });
+      worker.net.on(U, refuse);
+      const text = await (await open(worker, U)).text();
+      expect(servedMode(text)).toBe("offline");
+      expect(text).toContain("after the retry");
+    },
+  );
+
+  test("a retry that fails escalates: the database and every fxav- cache go, other caches stay, and the quarantine ends", async () => {
+    const { factory, store, state } = abortingPurges();
+    const deleteDatabase = vi.spyOn(factory, "deleteDatabase");
+    const worker = boot({ store, indexedDB: factory });
+    await worker.seed({ showId: SHOW, url: U, assets: [DIAGRAM] });
+    worker.assetCache().seed(DIAGRAM, "stored diagram");
+    worker.staticCache().seed(CHUNK, "stored chunk");
+    worker.caches.cache("another-app").seed("/elsewhere.js", "theirs");
+    // The worker has its static cache open before the escalation deletes it.
+    await worker.dispatchFetch(new Request(ORIGIN + CHUNK)).settled();
+    premise("the chunk came from the stored cache", 1, worker.net.callsTo(CHUNK).length);
+    state.failing = true;
+    await worker.ask({ type: "purge-show", showId: SHOW });
+    premiseHolds("the purge left the copy", (await worker.store.copyAtUrl(U))?.url === U);
+
+    await worker.ask({ type: "not a message" });
+    expect(deleteDatabase.mock.calls).toEqual([[DB_NAME]]);
+    expect((await factory.databases()).map((db) => db.name)).not.toContain(DB_NAME);
+    expect([...worker.caches.caches.keys()]).toEqual(["another-app"]);
+
+    // The quarantine is over: the next event escalates nothing, and a static file
+    // is stored in the cache that now exists rather than the deleted one.
+    worker.net.on(
+      CHUNK,
+      reply(() => new Response("fresh chunk")),
+    );
+    await worker.dispatchFetch(new Request(ORIGIN + CHUNK)).settled();
+    expect(deleteDatabase).toHaveBeenCalledTimes(1);
+    expect(worker.staticCache().paths()).toEqual([CHUNK]);
+
+    worker.net.on(U, refuse);
+    expect(await (await open(worker, U)).text()).toBe(notSavedPageHtml());
+  });
+
+  test("an escalation that fails keeps the quarantine, and the next event escalates again", async () => {
+    const { worker, deletes } = await brokenStorage();
+    await worker.ask({ type: "purge-show", showId: SHOW });
+    await worker.ask({ type: "not a message" });
+    expect(deletes.names).toEqual([DB_NAME]);
+    await worker.ask({ type: "not a message" });
+    expect(deletes.names).toEqual([DB_NAME, DB_NAME]);
+    worker.net.on(U, refuse);
+    expect(await (await open(worker, U)).text()).toBe(notSavedPageHtml());
   });
 });
