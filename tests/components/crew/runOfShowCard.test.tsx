@@ -32,7 +32,7 @@ import { DaySelectionProvider } from "@/components/crew/daySelection";
 import type { AgendaDay, AgendaExtraction } from "@/lib/agenda/types";
 import { DEFAULT_CARD_REPORT } from "@/lib/crew/cardReportContext";
 import { CREW_SECTION_LABELS, type CrewSectionEntry } from "@/lib/crew/crewSections";
-import { buildDayRowProps } from "@/lib/crew/passModel";
+import { buildDayRowProps, buildPassProps } from "@/lib/crew/passModel";
 import { buildRunCardProps, type RunCardProps } from "@/lib/crew/runOfShowCard";
 import { buildSectionHref } from "@/lib/crew/sectionHref";
 import type { ShowForViewer, Viewer } from "@/lib/data/getShowForViewer";
@@ -601,10 +601,14 @@ describe("run card: copy, header actions and placement (spec §3.1, §6.4, §9.1
     expect(action.querySelector('[data-slot="card-report-trigger"]')).not.toBeNull();
   });
 
+  // Whole-diff review round 2, 2B-5: the case used to supply no pass and check
+  // only that the card preceded the Today body, so a card moved above the pass
+  // still passed. The shell's own day row and pass are mounted with it now.
   it("run card: mounts in compact and wide, between the pass and the Today body", () => {
     for (const wide of [false, true]) {
       vi.stubGlobal("matchMedia", vi.fn(matchMediaStub({ wide })));
-      vi.setSystemTime(at(DAY1, "08:00"));
+      const now = at(DAY1, "08:00");
+      vi.setSystemTime(now);
       const data = showData();
       render(
         <CrewSections
@@ -614,8 +618,13 @@ describe("run card: copy, header actions and placement (spec §3.1, §6.4, §9.1
             today: <div data-testid="body-today">today</div>,
             schedule: <div>schedule</div>,
           }}
+          dayRow={buildDayRowProps(
+            data.show,
+            resolveViewerContext(crewViewer, data).dateRestriction,
+          )}
+          pass={buildPassProps({ data, viewer: crewViewer, today: now })}
           runCard={cardProps(data)}
-          initialNow={at(DAY1, "08:00").getTime()}
+          initialNow={now.getTime()}
         />,
       );
       const block = screen.getByTestId("crew-today-block");
@@ -625,10 +634,21 @@ describe("run card: copy, header actions and placement (spec §3.1, §6.4, §9.1
       );
       const cards = within(block).getAllByTestId("today-run-of-show");
       expect(cards).toHaveLength(1);
-      const order = cards[0]!.compareDocumentPosition(screen.getByTestId("body-today"));
-      expect(order & Node.DOCUMENT_POSITION_FOLLOWING, "the card precedes the Today body").toBe(
-        Node.DOCUMENT_POSITION_FOLLOWING,
+      // Day row, pass, card, Today body: each one once, inside the block, in that order.
+      const sequence = ["crew-day-row", "crew-pass", "today-run-of-show", "body-today"].map(
+        (id) => {
+          const found = within(block).getAllByTestId(id);
+          expect(found, `${id} mounts once in the Today block`).toHaveLength(1);
+          return found[0]!;
+        },
       );
+      for (let i = 1; i < sequence.length; i++) {
+        const [before, after] = [sequence[i - 1]!, sequence[i]!];
+        expect(
+          before.compareDocumentPosition(after) & Node.DOCUMENT_POSITION_FOLLOWING,
+          `${before.dataset.testid} precedes ${after.dataset.testid}`,
+        ).toBe(Node.DOCUMENT_POSITION_FOLLOWING);
+      }
       cleanup();
     }
   });
