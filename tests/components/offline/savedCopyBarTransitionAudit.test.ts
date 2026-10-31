@@ -377,6 +377,13 @@ const DECLARED = [
     marker: /^fadeUnder !== null && !fadeRuns\u0000/,
     treatment: "not a render branch itself; the conjunction inside C27",
   },
+  {
+    id: "C28",
+    what: "the page reserves the bar's height as scroll padding while the visible bar shows",
+    marker: /^view !== null && view\.state !== "hidden"\u0000/,
+    treatment:
+      "not a render branch; scroll padding, not paint. It follows the bar through the fade and goes when the bar leaves",
+  },
 ] as const;
 
 /** Every string literal in the file, with its node, outside comments by construction. */

@@ -18,6 +18,10 @@
  * navigation, so the section crossfade and the avatar menu's enter animation
  * are instant and every rect read is a settled one.
  *
+ * Case 7 is the bar's one accessibility row: a control focused from the keyboard
+ * scrolls out from under the sticky bar, because the bar keeps the page's
+ * `scroll-padding-top` at its own height (WCAG 2.4.11).
+ *
  * Run it with the command crew-offline.spec.ts gives, naming this file instead.
  *
  * Data: one `seedShowWithCrew` show per case, deleted after it. Its dates span
@@ -51,6 +55,13 @@ const PHONE = { width: 390, height: 844 };
 
 /** The narrowest supported width, where the bar's copy wraps. */
 const NARROW = { width: 320, height: 844 };
+
+/**
+ * Wide enough for CrewSubNav's in-flow tab row (`min-[720px]:flex`), which
+ * scrolls with the page and so can pass under the stuck bar. Below 720 px the
+ * tabs are the fixed bottom bar, which never does.
+ */
+const TABLET = { width: 800, height: 844 };
 
 /** How far past the header's bottom the sticky row scrolls (the brief's figure). */
 const SCROLL_PAST_HEADER_PX = 200;
@@ -440,4 +451,100 @@ test("6. the icon keeps its declared size when the copy wraps at 320 px", async 
   );
   expectNear(measured.icon.width, measured.declared.width, "the icon's width");
   expectNear(measured.icon.height, measured.declared.height, "the icon's height");
+});
+
+test("7. a control focused from the keyboard is not left under the bar", async ({
+  crewPage: page,
+  origin,
+  crewProxy: proxy,
+  browserName,
+}) => {
+  await openSavedCopy(page, origin, proxy);
+  await page.setViewportSize(TABLET);
+  await showSchedule(page);
+
+  // Two adjacent section tabs in the in-flow tab row: Tab moves from the first
+  // to the second, which is the control under test.
+  const tabs = page.getByTestId("crew-sub-nav").locator("nav button[data-section]:visible");
+  premise("the in-flow tab row shows at least two tabs", await tabs.count(), 1);
+  const previous = tabs.nth(0);
+  const target = tabs.nth(1);
+
+  // Scroll so the target's top sits at the viewport top, where the stuck bar is.
+  const place = await target.evaluate((node) => {
+    const header = document.querySelector('[data-testid="page-header"]');
+    return {
+      scrollTo: Math.round(node.getBoundingClientRect().top + window.scrollY),
+      headerBottom: (header?.getBoundingClientRect().bottom ?? Number.NaN) + window.scrollY,
+      maxScroll: document.documentElement.scrollHeight - window.innerHeight,
+    };
+  });
+  premise(
+    "the tab row starts below the header, so the bar is stuck when the row reaches the top",
+    place.scrollTo,
+    place.headerBottom + 1,
+  );
+  premise(
+    "the page scrolls far enough to bring the tab row to the top",
+    place.maxScroll + 1,
+    place.scrollTo,
+  );
+  await page.evaluate((y) => window.scrollTo(0, y), place.scrollTo);
+
+  const regionBefore = await boxOf(page, "saved-copy-bar-region");
+  const barBefore = await boxOf(page, "saved-copy-bar");
+  const targetBefore = await target.evaluate((node) => {
+    const r = node.getBoundingClientRect();
+    const at = document.elementFromPoint(r.left + r.width / 2, r.top + r.height / 2);
+    const bar = document.querySelector('[data-testid="saved-copy-bar"]');
+    return {
+      top: r.top,
+      height: r.height,
+      coveredByBar: at !== null && bar !== null && bar.contains(at),
+    };
+  });
+  premiseHolds(
+    `the region is stuck at the viewport top (top ${regionBefore.top})`,
+    Math.abs(regionBefore.top) <= TOLERANCE_PX,
+  );
+  premiseHolds(
+    `the tab's top (${targetBefore.top}) is under the bar, which ends at ${barBefore.bottom}`,
+    targetBefore.top >= barBefore.top - TOLERANCE_PX && targetBefore.top < barBefore.bottom - 1,
+  );
+  premiseHolds(
+    `more than half of the tab (${targetBefore.height} px) is under the bar`,
+    targetBefore.top + targetBefore.height / 2 < barBefore.bottom,
+  );
+  premiseHolds("the bar paints over the tab's centre before focus", targetBefore.coveredByBar);
+
+  // The page reserves the bar's height while it shows: the mechanism under test.
+  const padding = await page.evaluate(() => document.documentElement.style.scrollPaddingTop);
+  expectNear(
+    parseFloat(padding),
+    regionBefore.height,
+    "html scroll-padding-top against the region's height",
+  );
+
+  // Keyboard focus: the previous tab is focused without scrolling, then Tab.
+  const scrollBefore = await page.evaluate(() => window.scrollY);
+  await previous.evaluate((node) => (node as HTMLElement).focus({ preventScroll: true }));
+  premiseHolds(
+    "focusing the previous tab did not scroll the page",
+    (await page.evaluate(() => window.scrollY)) === scrollBefore,
+  );
+  // The key that moves focus to the next control. WebKit on macOS reaches a button
+  // only with Option+Tab (Tab alone stops at text fields, as in Safari by default),
+  // and WebKit elsewhere treats Option+Tab as Tab. Chromium ignores Alt+Tab off macOS.
+  await page.keyboard.press(browserName === "webkit" ? "Alt+Tab" : "Tab");
+  premiseHolds(
+    "Tab moved focus to the target tab",
+    await target.evaluate((node) => node === document.activeElement),
+  );
+
+  const barAfter = await boxOf(page, "saved-copy-bar");
+  const targetAfter = await target.evaluate((node) => node.getBoundingClientRect().top);
+  expect(
+    targetAfter,
+    `the focused tab's top (${targetAfter}) is at or below the bar's bottom (${barAfter.bottom})`,
+  ).toBeGreaterThanOrEqual(barAfter.bottom - TOLERANCE_PX);
 });

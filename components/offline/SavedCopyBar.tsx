@@ -77,7 +77,7 @@
  * `slug` and `shareToken` are accepted for the bar's links (spec 4.7.2).
  */
 import { Check, Clock, RefreshCw, TriangleAlert, WifiOff, type LucideIcon } from "lucide-react";
-import { useEffect, useLayoutEffect, useRef, useState } from "react";
+import { useEffect, useLayoutEffect, useRef, useState, type Ref } from "react";
 
 import { usePrefersReducedMotion } from "@/lib/a11y/usePrefersReducedMotion";
 import {
@@ -90,6 +90,7 @@ import {
 import { postToWorker, serviceWorkerContainer } from "@/lib/offline/client/messaging";
 import { useOnlineStatus } from "@/lib/offline/client/online";
 import { reloadPage } from "@/lib/offline/client/reload";
+import { useScrollPaddingTop } from "@/lib/offline/client/scrollPadding";
 import { readServedCopy, type ServedCopyReading } from "@/lib/offline/client/servedCopy";
 import { cn } from "@/lib/ui/cn";
 
@@ -232,6 +233,7 @@ export function SavedCopyBar({ renderedAt, sheetUnavailable }: SavedCopyBarProps
   const [fadeUnder, setFadeUnder] = useState<string | null>(null);
   // The last committed inputs' key, which the 4-second timer hands the fade.
   const committedInputs = useRef<string | null>(null);
+  const regionRef = useRef<HTMLDivElement | null>(null);
 
   useEffect(() => {
     const first = readServedCopy();
@@ -376,7 +378,19 @@ export function SavedCopyBar({ renderedAt, sheetUnavailable }: SavedCopyBarProps
     }
   }
 
-  return <SavedCopyBarView view={view} fading={fading} onFadeEnd={() => setFadeUnder(null)} />;
+  // The bar is sticky, so while it shows the page's scroll padding reserves its
+  // height: a control focused from the keyboard then scrolls out from under it.
+  const barShown = view !== null && view.state !== "hidden";
+  useScrollPaddingTop(regionRef, barShown);
+
+  return (
+    <SavedCopyBarView
+      ref={regionRef}
+      view={view}
+      fading={fading}
+      onFadeEnd={() => setFadeUnder(null)}
+    />
+  );
 }
 
 export type SavedCopyBarViewProps = {
@@ -386,6 +400,8 @@ export type SavedCopyBarViewProps = {
   fading: boolean;
   /** The bar's own `transitionend`, which ends the fade. */
   onFadeEnd: () => void;
+  /** The live region, which the container measures for the page's scroll padding. */
+  ref?: Ref<HTMLDivElement>;
 };
 
 /**
@@ -393,12 +409,13 @@ export type SavedCopyBarViewProps = {
  * view is `hidden`, the bar inside it. No state and no effects, so a pair of
  * views is a pair of renders.
  */
-export function SavedCopyBarView({ view, fading, onFadeEnd }: SavedCopyBarViewProps) {
+export function SavedCopyBarView({ view, fading, onFadeEnd, ref }: SavedCopyBarViewProps) {
   // `hidden` is the one state with no icon, and it shows nothing.
   const Icon = view === null || view.icon === null ? null : ICONS[view.icon];
 
   return (
     <div
+      ref={ref}
       data-testid="saved-copy-bar-region"
       role="status"
       aria-live="polite"
