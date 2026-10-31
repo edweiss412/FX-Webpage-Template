@@ -498,6 +498,20 @@ describe("CrewSections, wide: nav and stacked sections (spec §5.3)", () => {
     expect(routerPush).not.toHaveBeenCalled();
   });
 
+  it("wide nav: Today focuses the Today block itself, a visible target, never the visually hidden heading (audit P2-6)", () => {
+    renderController("venue");
+    fireEvent.click(
+      within(screen.getByTestId("crew-wide-nav")).getByRole("link", { name: "Today" }),
+    );
+    const block = screen.getByTestId("crew-today-block");
+    // The 1px `sr-only` heading drew its focus ring on a clipped box. The block
+    // carries the ring instead, and keeps its name from that heading.
+    expect(document.activeElement).toBe(block);
+    expect(block).toHaveAttribute("tabindex", "-1");
+    expect(block).toHaveAccessibleName("Today");
+    expect(block.className.split(/\s+/)).not.toContain("sr-only");
+  });
+
   it("wide nav: a click under reduced motion scrolls instantly", () => {
     stubMatchMedia({ wide: true, reduced: true });
     renderController("today");

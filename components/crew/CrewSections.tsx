@@ -363,7 +363,6 @@ export function CrewSections({
   const sheetBodyRef = useRef<HTMLDivElement | null>(null);
   const allSectionsRef = useRef<HTMLDivElement | null>(null);
   const todayRef = useRef<HTMLElement | null>(null);
-  const todayHeadingRef = useRef<HTMLHeadingElement | null>(null);
   const stackRefs = useRef(new Map<CrewSectionId, HTMLElement>());
 
   // ── Wide: scroll-spy, held still while a nav-click glide runs ──────────────
@@ -476,9 +475,11 @@ export function CrewSections({
       beginSuppressedScroll(top);
       window.scrollTo({ top, behavior: reduced ? "auto" : "smooth" });
       if (focus) {
-        const heading =
-          id === "today" ? todayHeadingRef.current : el?.querySelector<HTMLElement>("h2");
-        heading?.focus({ preventScroll: true });
+        // Today has no visible heading (its `h2` is visually hidden, and a ring
+        // on a 1px clipped box is no ring at all, audit P2-6), so the block it
+        // names takes focus: the ring then outlines what the jump landed on.
+        const target = id === "today" ? todayRef.current : el?.querySelector<HTMLElement>("h2");
+        target?.focus({ preventScroll: true });
       }
     },
     [beginSuppressedScroll, reduced],
@@ -846,6 +847,8 @@ export function CrewSections({
                   ref={todayRef}
                   data-testid="crew-today-block"
                   aria-labelledby="crew-today-heading"
+                  // The wide nav's Today jump focuses the block (see scrollWide).
+                  tabIndex={-1}
                   // Compact: one column, the home body under the run card.
                   // Wide: two columns, the day row, pass and run card beside the
                   // home body (quick facts, show notes, Dress code card), each
@@ -855,12 +858,7 @@ export function CrewSections({
                   // make this block the containing block of the fixed copy toast.
                   className="flex flex-col lg:flex-row lg:items-start lg:gap-6"
                 >
-                  <h2
-                    id="crew-today-heading"
-                    ref={todayHeadingRef}
-                    tabIndex={-1}
-                    className="sr-only"
-                  >
+                  <h2 id="crew-today-heading" className="sr-only">
                     {CREW_TODAY_LABEL}
                   </h2>
                   {/* The day row atop the Today block in both modes, then the pass
