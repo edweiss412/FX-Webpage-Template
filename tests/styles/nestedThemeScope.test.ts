@@ -86,7 +86,7 @@ describe("the scan reads only live declarations, in every @theme block", () => {
       if (rule.selector === NESTED_SELECTOR) text = rule.toString();
     });
     expect(CSS.includes(text) && text.length > 0, "PREMISE: the block's own text").toBe(true);
-    const planted = CSS.replace(text, `/* ${text.replaceAll("*/", "* /")} */`);
+    const planted = CSS.replace(text, () => `/* ${text.replaceAll("*/", () => "* /")} */`);
     expect(missingRebindings(planted)).toEqual([`${NESTED_SELECTOR} block not found`]);
   });
 
@@ -100,7 +100,8 @@ describe("the scan reads only live declarations, in every @theme block", () => {
     const nestedStart = CSS.indexOf(`\n${NESTED_SELECTOR} {\n`);
     const row = "  --color-surface-raised: var(--color-surface-raised-runtime);\n";
     const planted =
-      CSS.slice(0, nestedStart) + CSS.slice(nestedStart).replace(row, `  /* ${row.trim()} */\n`);
+      CSS.slice(0, nestedStart) +
+      CSS.slice(nestedStart).replace(row, () => `  /* ${row.trim()} */\n`);
     expect(planted).not.toBe(CSS);
     expect(missingRebindings(planted)).toEqual(["--color-surface-raised"]);
   });
