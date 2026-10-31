@@ -110,7 +110,7 @@ import { CrewAllSections } from "@/components/crew/CrewAllSections";
 import { CrewDayRow } from "@/components/crew/CrewDayRow";
 import { CrewPass } from "@/components/crew/CrewPass";
 import { CrewRunOfShowCard } from "@/components/crew/CrewRunOfShowCard";
-import { DaySelectionProvider } from "@/components/crew/daySelection";
+import { DaySelectionProvider, type DaySelectionApi } from "@/components/crew/daySelection";
 import { CrewClockProvider } from "@/components/crew/useCrewClock";
 import { CrewSectionSheet } from "@/components/crew/CrewSectionSheet";
 import { CrewWideNav, type CrewWideNavItem } from "@/components/crew/CrewWideNav";
@@ -661,6 +661,8 @@ export function CrewSections({
 
   // ── openSectionAndReveal (search's entry point, search spec §6.6) ──────────
   const revealRun = useRef<RevealRun | null>(null);
+  // The day selection's API, from the provider rendered below this component.
+  const daySelection = useRef<DaySelectionApi | null>(null);
   const highlight = useRef<{ el: HTMLElement; timer: number } | null>(null);
   const [revealStatus, setRevealStatus] = useState("");
 
@@ -694,6 +696,14 @@ export function CrewSections({
       setRevealStatus("");
       const id = toOpen(sectionId);
       if (sectionId !== "today" && id === null) return;
+      // A run-of-show line is indexed for the server's day only: the card carries
+      // search targets on that day alone, while it shows the selected day, or in
+      // live the device's day. Select the line's day first, so the line is on the
+      // page when the look below runs (whole-diff review R1-F1).
+      if (sectionId === "today") {
+        const lineDay = runCard?.days.find((d) => d.targets?.includes(targetId));
+        if (lineDay !== undefined) daySelection.current?.selectDay(lineDay.iso);
+      }
       const wide = mode === "wide";
       const inSheet = !wide && id !== null;
       if (id !== null) {
@@ -783,6 +793,7 @@ export function CrewSections({
       pathname,
       reduced,
       requestClose,
+      runCard,
       scrollWide,
       searchParams,
       stopWaiting,
@@ -819,7 +830,7 @@ export function CrewSections({
   return (
     <SectionControllerContext.Provider value={api}>
       <CrewClockProvider initialNow={initialNow}>
-        <DaySelectionProvider days={dayIsos}>
+        <DaySelectionProvider days={dayIsos} apiRef={daySelection}>
           <div
             data-testid="crew-shell-sections"
             data-crew-controller-ready={mode === "ssr" ? undefined : "true"}

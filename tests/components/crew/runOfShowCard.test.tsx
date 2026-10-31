@@ -20,13 +20,13 @@
  * only what the viewer may see").
  */
 import "@testing-library/jest-dom/vitest";
-import { cleanup, fireEvent, render, screen, within } from "@testing-library/react";
-import { isValidElement, type ReactElement, type ReactNode } from "react";
+import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
+import { isValidElement, useEffect, type ReactElement, type ReactNode } from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { CrewDayRow } from "@/components/crew/CrewDayRow";
 import { CrewRunOfShowCard } from "@/components/crew/CrewRunOfShowCard";
-import { CrewSections } from "@/components/crew/CrewSections";
+import { CrewSections, useSectionController } from "@/components/crew/CrewSections";
 import { DaySelectionProvider } from "@/components/crew/daySelection";
 import type { AgendaDay, AgendaExtraction } from "@/lib/agenda/types";
 import { DEFAULT_CARD_REPORT } from "@/lib/crew/cardReportContext";
@@ -253,6 +253,8 @@ const rowTitles = () =>
       '[data-testid="agenda-entry"], [data-testid="timeline-agenda-session"]',
     ),
   ].map((row) => row.textContent ?? "");
+/** The reveal's gone-line copy, typed from the crew search spec, never imported. */
+const REVEAL_GONE = "That line isn't on the page anymore.";
 const marked = () => [...card()!.querySelectorAll('[data-testid="crew-run-next"]')];
 const tapDay = (iso: string) =>
   fireEvent.click(document.querySelector(`[data-testid="crew-day-button"][data-day="${iso}"]`)!);
@@ -677,6 +679,140 @@ async function runCardCarrier(data: ShowForViewer, viewer: Viewer): Promise<stri
   }
   return JSON.stringify(runCard);
 }
+
+describe("run card: a search reveal shows the day its line was indexed for", () => {
+  // Whole-diff review R1-F1. The search index holds the card's lines for the
+  // server's day only (lib/search/sections/today.ts), while the card shows the
+  // selected day, or in live the device clock's day. When those differ, a
+  // reveal used to find no line, do nothing visible, and announce "That line
+  // isn't on the page anymore." about a line one day-row tap away.
+  const controller: { current: ReturnType<typeof useSectionController> | null } = {
+    current: null,
+  };
+  function Capture() {
+    const captured = useSectionController();
+    useEffect(() => {
+      controller.current = captured;
+    });
+    return null;
+  }
+
+  /**
+   * The home under the real controller. The shell built the props at `serverNow`
+   * (the request's clock); the device clock reads `clientNow`.
+   */
+  function renderController(serverNow: Date, clientNow: Date): RunCardProps {
+    // The reveal looks for its line once a frame; frames on the timer clock.
+    vi.stubGlobal("requestAnimationFrame", (cb: FrameRequestCallback) =>
+      window.setTimeout(() => cb(performance.now()), 16),
+    );
+    vi.stubGlobal("cancelAnimationFrame", (id: number) => window.clearTimeout(id));
+    vi.stubGlobal("matchMedia", vi.fn(matchMediaStub({ reducedMotion: true })));
+    vi.setSystemTime(clientNow);
+    const data = showData();
+    const dayRow = buildDayRowProps(
+      data.show,
+      resolveViewerContext(crewViewer, data).dateRestriction,
+    );
+    const run = cardProps(data, crewViewer, serverNow)!;
+    render(
+      <CrewSections
+        initialSection="today"
+        sections={[{ id: "schedule", label: CREW_SECTION_LABELS.schedule, peek: null }]}
+        sectionNodes={{
+          today: (
+            <div data-testid="body-today">
+              <Capture />
+            </div>
+          ),
+          schedule: <div>schedule</div>,
+        }}
+        dayRow={dayRow}
+        runCard={run}
+        initialNow={serverNow.getTime()}
+      />,
+    );
+    return run;
+  }
+
+  /** The search target of `DAY1_ENTRIES[1]` on the server's day, read from the props. */
+  function doorsTarget(run: RunCardProps): string {
+    const day = run.days.find((d) => d.iso === DAY1)!;
+    premiseHolds("the server's day carries search targets", day.targets !== null);
+    premiseHolds(
+      "no other day carries any",
+      run.days.every((d) => d.iso === DAY1 || d.targets === null),
+    );
+    return day.targets![1]!;
+  }
+  const line = (id: string) => document.querySelector<HTMLElement>(`[data-search-target="${id}"]`);
+  const status = () => screen.getByTestId("crew-reveal-status");
+  /**
+   * Tap a day. Under reduced motion (set below) the swap is one commit, so the
+   * outgoing body is gone at once; jsdom never finishes framer's exit, and a
+   * held outgoing body would keep the old day's lines on the page.
+   */
+  async function pickDay(iso: string): Promise<void> {
+    tapDay(iso);
+    await waitFor(() =>
+      expect(card()!.querySelectorAll('[data-testid="crew-run-body"]')).toHaveLength(1),
+    );
+  }
+  const cardSelection = () =>
+    screen.getByTestId("today-run-of-show").getAttribute("data-selection");
+
+  it("run card: after the viewer picks another day, revealing a line selects the server's day and reveals it", async () => {
+    const run = renderController(at(DAY1, "12:00"), at(DAY1, "12:00"));
+    const target = doorsTarget(run);
+    await pickDay(DAY2);
+    expect(present().getAttribute("data-body"), "PREMISE: the card shows the picked day").toBe(
+      DAY2,
+    );
+    expect(line(target), "PREMISE: the line is not on the page").toBeNull();
+
+    act(() => controller.current!.openSectionAndReveal("today", target));
+
+    await waitFor(() => expect(line(target)).toHaveAttribute("data-search-reveal"));
+    expect(line(target)!.textContent).toContain(DAY1_ENTRIES[1]!.title);
+    expect(document.activeElement).toBe(line(target));
+    // The server's day is the device's today here, so the card is back to live.
+    expect(cardSelection()).toBe("live");
+    expect(status()).toHaveTextContent("");
+  });
+
+  it("run card: when the device clock has passed midnight, revealing a line selects the server's day and reveals it", async () => {
+    // The page was served at 11:30 PM on day 1; the tab is read at 12:30 AM.
+    const run = renderController(at(DAY1, "23:30"), at(DAY2, "00:30"));
+    const target = doorsTarget(run);
+    expect(present().getAttribute("data-body"), "PREMISE: live shows the device's day").toBe(DAY2);
+    expect(cardSelection(), "PREMISE: the card is live").toBe("live");
+    expect(line(target), "PREMISE: the line is not on the page").toBeNull();
+
+    act(() => controller.current!.openSectionAndReveal("today", target));
+
+    await waitFor(() => expect(line(target)).toHaveAttribute("data-search-reveal"));
+    expect(line(target)!.textContent).toContain(DAY1_ENTRIES[1]!.title);
+    expect(cardSelection()).toBe(`day:${DAY1}`);
+    expect(status()).toHaveTextContent("");
+  });
+
+  it("run card: a line on no day of the card still announces it is gone, and the selection stays put", async () => {
+    const run = renderController(at(DAY1, "12:00"), at(DAY1, "12:00"));
+    const real = doorsTarget(run);
+    const gone = `${real.slice(0, real.lastIndexOf(":"))}:gone`;
+    premiseHolds(
+      "the absent id is shaped like a run-card target and is on no day",
+      gone.startsWith("today:") && run.days.every((d) => !(d.targets ?? []).includes(gone)),
+    );
+    await pickDay(DAY2);
+
+    act(() => controller.current!.openSectionAndReveal("today", gone));
+
+    await waitFor(() => expect(status()).toHaveTextContent(REVEAL_GONE), { timeout: 3000 });
+    expect(present().getAttribute("data-body"), "the picked day is left as it was").toBe(DAY2);
+    expect(cardSelection()).toBe(`day:${DAY2}`);
+  });
+});
 
 describe("run card: client props carry only what the viewer may see", () => {
   it("run card: a viewer the transport gate excludes gets no load-out entry in the card's props", async () => {

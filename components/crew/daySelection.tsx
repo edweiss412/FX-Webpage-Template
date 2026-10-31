@@ -7,7 +7,9 @@
  * client state only: never written to the URL or to storage, so a reload
  * returns to `live` (documented limit L5). The section controller
  * (`CrewSections`) provides it around the whole page; the day row writes it,
- * and the pass and the run-of-show card read it.
+ * and the pass and the run-of-show card read it. The controller also holds the
+ * API through `apiRef`, so a search reveal of a run-of-show line can select the
+ * day the line was indexed for before it looks for the line.
  *
  * API: `useDaySelection()` returns `{ selection, selectDay(iso), selectLive() }`.
  * Outside a provider it reads `live` and its writers do nothing, so a component
@@ -19,7 +21,15 @@
  * tapping today's button means `live`, is the day row's knowledge (it reads the
  * shared clock); this store holds only what was chosen.
  */
-import { createContext, useContext, useMemo, useState, type ReactNode } from "react";
+import {
+  createContext,
+  useContext,
+  useImperativeHandle,
+  useMemo,
+  useState,
+  type ReactNode,
+  type Ref,
+} from "react";
 
 export type DaySelection = { kind: "live" } | { kind: "day"; iso: string };
 
@@ -41,10 +51,13 @@ const DaySelectionContext = createContext<DaySelectionApi>({
 
 export function DaySelectionProvider({
   days,
+  apiRef,
   children,
 }: {
   /** The day set's ISO dates, as the server built them for the day row. */
   days: readonly string[];
+  /** Receives the same API `useDaySelection()` returns, for a caller above the provider. */
+  apiRef?: Ref<DaySelectionApi>;
   children: ReactNode;
 }) {
   const [chosen, setChosen] = useState<string | null>(null);
@@ -65,6 +78,7 @@ export function DaySelectionProvider({
       selectLive: () => setChosen(null),
     };
   }, [iso, daysKey]);
+  useImperativeHandle(apiRef, () => value, [value]);
 
   return <DaySelectionContext.Provider value={value}>{children}</DaySelectionContext.Provider>;
 }
