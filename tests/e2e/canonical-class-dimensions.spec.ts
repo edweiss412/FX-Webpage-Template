@@ -11,7 +11,7 @@
  *   C5  RightNowHero      `min-h-(--spacing-right-now-min-h)` → `min-h-right-now-min-h`
  *       (the pass replaced the hero and carries the same `min-h-right-now-min-h`, crew page
  *       redesign spec §8 item 2; plan Task 9 renamed the key to `crew-pass-card` and
- *       re-captured it)
+ *       re-captured it; its height was re-captured after commit 84ab5ebaa, see the message below)
  *
  * Both are claimed equivalent because the token carries the same value. That claim is
  * only checkable against a measurement taken BEFORE the fix lands: "width ≤ token" passes
@@ -708,7 +708,9 @@ test.describe("canonical-class sizing deltas do not move geometry (AC-11)", () =
         "rewriting it to match a change erases the only evidence the change was safe. It was " +
         "recaptured deliberately when the step connectors went from 0-width to their token " +
         "width (a move the change intended and the band asserts independently), and when the " +
-        "pass replaced the hero (crew page redesign plan Task 9: a new surface, new key).",
+        "pass replaced the hero (crew page redesign plan Task 9: a new surface, new key), and " +
+        "when the pass stopped cutting its big time (commit 84ab5ebaa: at 390px the time steps " +
+        "down to text-3xl and the facts take two columns, 8px shorter, measured the same in CI).",
     ).toEqual([]);
   });
 });
