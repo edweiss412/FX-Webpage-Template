@@ -244,8 +244,12 @@ function Tile({ fact, onCopy }: { fact: QuickFact; onCopy: (value: string) => vo
           <CopyButton label={copyAction.label} onCopy={() => onCopy(copyAction.value)} />
         </div>
       ) : null}
+      {/* Call, text and email share one row from the 390px phone up: a
+          half-width tile's content box there is 147px, and three 44px targets
+          with 6px gaps take 144 (8px gaps took 148 and wrapped Email alone).
+          Narrower, the row wraps. */}
       {links.length > 0 ? (
-        <div className="mt-auto flex flex-wrap gap-2 pt-1">
+        <div className="mt-auto flex flex-wrap gap-1.5 pt-1">
           {links.map((a) => (
             <a
               key={a.kind}

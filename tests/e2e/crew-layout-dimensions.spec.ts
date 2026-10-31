@@ -740,6 +740,57 @@ test.describe("crew layout dimensions — split-wide ratio + natural height (Tas
     expect(Math.abs(left.height - right.height)).toBeGreaterThan(2);
   });
 
+  // Critique F13 (gate fix X6): at 390 the Who to call tile's three actions
+  // wrapped, leaving Email alone on a second row (the tile's content box is 147px;
+  // three 44px targets and two 8px gaps need 148). They share one row from the
+  // 390 primary phone width up, each still the full tap target.
+  test("quick facts: Who to call's call, text and email share one row at 390, each a full tap target", async ({
+    page,
+  }, testInfo) => {
+    if (testInfo.project.name !== "mobile-safari") return;
+    await page.setViewportSize({ width: 390, height: 844 });
+    const res = await page.goto(`/show/${slug}/${shareToken}`, { waitUntil: "domcontentloaded" });
+    expect(res?.status(), "crew home must render").toBe(200);
+    await expect(page.getByTestId("crew-shell-sections")).toHaveAttribute(
+      "data-crew-controller-ready",
+      "true",
+      { timeout: 30_000 },
+    );
+    const tile = page.locator('[data-testid="crew-quick-fact"][data-fact="contact"]');
+    await expect(tile).toBeVisible();
+    const links = tile.getByRole("link", { name: /^(Call|Text|Email) / });
+    // PREMISE: the seeded primary contact has a phone and an email, so all three render.
+    await expect(links).toHaveCount(3);
+    const tap = await page.evaluate(() => {
+      const probe = document.createElement("div");
+      probe.style.width = "var(--spacing-tap-min)";
+      document.body.appendChild(probe);
+      const px = probe.getBoundingClientRect().width;
+      probe.remove();
+      return px;
+    });
+    expect(tap, "PREMISE: --spacing-tap-min resolves").toBeGreaterThan(0);
+    const rects = await links.evaluateAll((els) =>
+      els.map((el) => {
+        const r = el.getBoundingClientRect();
+        return { top: r.top, width: r.width, height: r.height };
+      }),
+    );
+    for (const r of rects) {
+      expect(r.width, "each action is a full tap target wide").toBeGreaterThanOrEqual(
+        tap - TOL_TIGHT,
+      );
+      expect(r.height, "each action is a full tap target tall").toBeGreaterThanOrEqual(
+        tap - TOL_TIGHT,
+      );
+    }
+    const tops = rects.map((r) => r.top);
+    expect(
+      Math.max(...tops) - Math.min(...tops),
+      `the three actions share one row (tops ${JSON.stringify(tops)})`,
+    ).toBeLessThanOrEqual(TOL_TIGHT);
+  });
+
   // ── Avatar is 40px square (Avatar.tsx `size-10`). Reachable on the Crew
   // section's PersonRow (PersonRow.tsx:145 → <Avatar />). ──
   test("avatar is 40px square", async ({ page }, testInfo) => {
