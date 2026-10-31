@@ -926,7 +926,13 @@ export function scanCandidates(): Candidate[] {
       // by running the guard on it. None of either side's additions is a fault
       // branch, so the 78 is unchanged.
       //
-      // Probed: 796 such ternaries under the derived roots, 78 on a
+      // 796 -> 797 on the crew page redesign gate fixes (X8, X9): the pass's
+      // visually hidden Live label (`body.live ? <span>… : null`, CrewPass) is
+      // new, and the show note's `truncated ? <details>… : <div>…` in HomeSection
+      // replaces the `truncated ? <div>… : null` it held inside the details. None
+      // is a fault branch; 78 kept. Re-derived by running the guard.
+      //
+      // Probed: 797 such ternaries under the derived roots, 78 on a
       // fault-vocabulary guard and unclassifiable. 69 of those 78 sit in
       // `"use client"` files, where the guard is interaction state -- `errorCode`,
       // `state.kind === "error"`, `switchStatus === "error"` -- and not a server-render
