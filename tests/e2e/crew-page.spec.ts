@@ -2565,7 +2565,7 @@ test.describe("the composed home (crew page redesign Task 11)", () => {
   }) => {
     await pinBothClocks(page, SHOW_DAY_1);
     // The header's own date is shown to every viewer by a recorded ruling
-    // (lib/crew/dateSuppression.ts:51-56; Header picks set, then travel in), so it
+    // (lib/crew/dateSuppression.ts:62-67; Header picks set, then travel in), so it
     // is excluded; the fixture's other show days all differ from it.
     const headerDate = SET_DAY;
     const showDates = [TRAVEL_IN, SET_DAY, ...SHOW_DAYS, TRAVEL_OUT].filter(

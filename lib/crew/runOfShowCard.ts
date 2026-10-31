@@ -31,7 +31,9 @@
  * content-addressed (lib/search/entryId.ts), so the two calls agree.
  *
  * Server-safe (pure; no clock reads, `today` is passed in). The client card
- * imports its types only.
+ * imports its types and two runtime constants, `RUN_CARD_ID` and
+ * `RUN_CARD_TITLE`, so this module and everything it imports ships in the
+ * client bundle: keep it free of server-only imports.
  */
 import { runOfShowEntryLine, runOfShowRows } from "@/components/crew/primitives/RunOfShowList";
 import { agendaSessionRowLine } from "@/components/crew/primitives/ShowDayTimelineList";
