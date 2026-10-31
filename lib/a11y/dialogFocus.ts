@@ -280,19 +280,34 @@ export function useDialogFocus(
       }
     }
 
+    // The walk listens on `window`, in the bubble phase, so it runs after
+    // everything inside: React dispatches every onKeyDown from the root
+    // container, or from a portal's container, both ancestors of the dialog. On
+    // the dialog itself it moved focus before a child's own Tab handler ran,
+    // and the handler then read an activeElement that had already moved
+    // (whole-diff review R2-F2). A Tab anything inside already handled, a
+    // child or a dialog nested in this one, arrives cancelled and is left
+    // alone; one stopped on the way never arrives at all.
     function onWalkKeyDown(event: KeyboardEvent) {
-      // A dialog nested inside this one has already moved focus for this Tab.
       if (event.key !== "Tab" || event.defaultPrevented) return;
+      if (!(event.target instanceof Node) || !(container as HTMLElement).contains(event.target)) {
+        return;
+      }
       event.preventDefault();
       const stops = walkStops(container as HTMLElement);
       if (stops.length === 0) return;
       nextStop(stops, document.activeElement, event.shiftKey).focus();
     }
 
-    const listener = walkTabs ? onWalkKeyDown : onKeyDown;
-    container.addEventListener("keydown", listener);
+    if (walkTabs) {
+      window.addEventListener("keydown", onWalkKeyDown);
+      return () => {
+        window.removeEventListener("keydown", onWalkKeyDown);
+      };
+    }
+    container.addEventListener("keydown", onKeyDown);
     return () => {
-      container.removeEventListener("keydown", listener);
+      container.removeEventListener("keydown", onKeyDown);
     };
     // Runs once on mount, plus once per reattachKey change (container node
     // recreated — see the parameter doc). Re-running on ref IDENTITY is still

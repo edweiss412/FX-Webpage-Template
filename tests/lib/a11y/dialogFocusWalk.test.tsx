@@ -23,6 +23,7 @@
 import { afterEach, beforeEach, describe, expect, test } from "vitest";
 import { cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { useRef, type ReactNode } from "react";
+import { createPortal } from "react-dom";
 import { useDialogFocus } from "@/lib/a11y/dialogFocus";
 
 // The browser, as measured (Chromium and WebKit, Playwright 1.59). jsdom
@@ -70,20 +71,26 @@ afterEach(() => {
   }
 });
 
-/** A dialog whose initial focus is a `tabindex="-1"` title, as the crew sheet's is. */
+/**
+ * A dialog whose initial focus is a `tabindex="-1"` title, as the crew sheet's
+ * is. `portal` mounts it in `document.body`, as ReviewModalShell does: React
+ * then dispatches its handlers from <body> instead of the root container.
+ */
 function Dialog({
   testId,
   walk = false,
+  portal = false,
   children,
 }: {
   testId: string;
   walk?: boolean;
+  portal?: boolean;
   children: ReactNode;
 }) {
   const containerRef = useRef<HTMLDivElement | null>(null);
   const titleRef = useRef<HTMLHeadingElement | null>(null);
   useDialogFocus(containerRef, titleRef, undefined, walk ? { walkTabs: true } : undefined);
-  return (
+  const dialog = (
     <div ref={containerRef} role="dialog" aria-modal="true" data-testid={testId}>
       <h2 ref={titleRef} tabIndex={-1} data-testid={`${testId}-title`}>
         Title
@@ -91,6 +98,7 @@ function Dialog({
       {children}
     </div>
   );
+  return portal ? createPortal(dialog, document.body) : dialog;
 }
 
 /**
@@ -397,6 +405,57 @@ describe("walk mode (walkTabs, the crew section sheet): the hook moves focus on 
     }
     expect(opened).toEqual(["un-ignore", "in-link", "outer-summary"]);
   });
+
+  // React 19 dispatches every onKeyDown from the root container (or, for a
+  // portal, its container), an ancestor of the dialog. A trap listening on the
+  // dialog itself therefore moved focus BEFORE a child's own Tab handler ran,
+  // and the handler then read an activeElement that had already moved.
+  for (const portal of [false, true]) {
+    const where = portal ? "portaled to <body>" : "in the root";
+    test(`walk: a child's own Tab handler keeps control, ${where} (R2-F2)`, () => {
+      render(
+        <Dialog testId="d" walk portal={portal}>
+          <button type="button" data-testid="close">
+            Close
+          </button>
+          <ConfirmPopover />
+          <button type="button" data-testid="next-row">
+            Next row
+          </button>
+        </Dialog>,
+      );
+      screen.getByTestId("cancel").focus();
+      tab();
+      expect(active(), "Tab from Cancel").toBe("go");
+      tab();
+      expect(active(), "Tab from Confirm reset").toBe("cancel");
+      tab(true);
+      expect(active(), "Shift+Tab from Cancel").toBe("go");
+      // A Tab no child handles is still the walk's.
+      screen.getByTestId("close").focus();
+      expect(tab(), "the walk takes an unhandled Tab").toBe(true);
+      expect(active()).toBe("cancel");
+    });
+
+    test(`walk: while a reset runs, the child's handler holds focus on its popover, ${where} (R2-F2)`, () => {
+      render(
+        <Dialog testId="d" walk portal={portal}>
+          <button type="button" data-testid="close">
+            Close
+          </button>
+          <ConfirmPopover resolving />
+          <button type="button" data-testid="next-row">
+            Next row
+          </button>
+        </Dialog>,
+      );
+      screen.getByTestId("confirm").focus();
+      tab();
+      expect(active(), "Tab while resolving").toBe("confirm");
+      tab(true);
+      expect(active(), "Shift+Tab while resolving").toBe("confirm");
+    });
+  }
 
   test("walk: a dialog nested inside the sheet keeps its own ends, and the walk carries the Tabs between them", () => {
     render(
