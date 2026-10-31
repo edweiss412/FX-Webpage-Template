@@ -17,6 +17,8 @@ import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 
+import { hexIn, requireRule } from "./_cssDecls";
+
 const css = readFileSync(join(process.cwd(), "app/globals.css"), "utf8");
 
 function relLuminance(hex: string): number {
@@ -34,36 +36,24 @@ function contrast(a: string, b: string): number {
   return (hi + 0.05) / (lo + 0.05);
 }
 
-// Extract a `--token-runtime: #hex;` value from a specific selector block so
-// light and dark are read from their own scopes (not the first match).
-function tokenIn(block: string, token: string): string {
-  const re = new RegExp(`${token}\\s*:\\s*(#[0-9a-fA-F]{6})\\s*;`);
-  const m = block.match(re);
-  if (!m || !m[1]) throw new Error(`token ${token} not found in block`);
-  return m[1];
+// A `--token-runtime: #hex` value from one selector's parsed declarations, so
+// light and dark are read from their own scopes (not the first match), and a
+// commented-out declaration is not read as live: postcss, through
+// tests/styles/_cssDecls.ts (whole-diff review round 2, second pass, 2C-R2-2).
+function tokenIn(block: Map<string, string>, token: string): string {
+  return hexIn(block, token);
 }
 
-function block(selectorStart: string): string {
-  const idx = css.indexOf(selectorStart);
-  if (idx === -1) throw new Error(`selector ${selectorStart} not found`);
-  const open = css.indexOf("{", idx);
-  // Walk to the matching close brace.
-  let depth = 0;
-  for (let i = open; i < css.length; i++) {
-    if (css[i] === "{") depth++;
-    else if (css[i] === "}") {
-      depth--;
-      if (depth === 0) return css.slice(open, i + 1);
-    }
-  }
-  throw new Error(`unbalanced braces after ${selectorStart}`);
+/** A selector's declarations, from the same parse. `@media` blocks by their params. */
+function block(selector: string, media?: string): Map<string, string> {
+  return requireRule(css, selector, media);
 }
 
 // Light values live in the top-level `:root {` block; dark values in the
 // `[data-theme="dark"] {` block (the explicit-toggle scope mirrors the
 // prefers-color-scheme media block verbatim).
-const lightBlock = block(":root {");
-const darkBlock = block('[data-theme="dark"] {');
+const lightBlock = block(":root");
+const darkBlock = block('[data-theme="dark"]');
 
 const MODES = [
   {
@@ -191,7 +181,7 @@ function blend(fg: string, alpha: number, bg: string): string {
 }
 
 describe("accent token contrast floors (2026-07-16 token pass)", () => {
-  const mediaDarkBlock = block("@media (prefers-color-scheme: dark)");
+  const mediaDarkBlock = block(':root:not([data-theme="light"])', "(prefers-color-scheme: dark)");
 
   for (const mode of MODES) {
     const accent = tokenIn(mode.src, "--color-accent-runtime");
@@ -308,9 +298,9 @@ describe("accent token contrast floors (2026-07-16 token pass)", () => {
 
   it("accent-edge is wired: @theme alias present, runtime value in ALL three blocks, dark blocks identical", () => {
     expect(css).toMatch(/--color-accent-edge:\s*var\(--color-accent-edge-runtime\)\s*;/);
-    const lightVal = tokenIn(block(":root {"), "--color-accent-edge-runtime");
+    const lightVal = tokenIn(block(":root"), "--color-accent-edge-runtime");
     const mediaVal = tokenIn(mediaDarkBlock, "--color-accent-edge-runtime");
-    const explicitVal = tokenIn(block('[data-theme="dark"] {'), "--color-accent-edge-runtime");
+    const explicitVal = tokenIn(block('[data-theme="dark"]'), "--color-accent-edge-runtime");
     expect(lightVal).toBe("#7a3d00");
     expect(mediaVal).toBe(explicitVal);
     expect(mediaVal).toBe("#ffa047");
@@ -403,6 +393,24 @@ describe("crew section sheet panel on surface-raised (critique F14)", () => {
     const dark = MODES.find((m) => m.name === "dark")!;
     const raised = tokenIn(dark.src, "--color-surface-raised-runtime");
     expect(relLuminance(raised)).toBeGreaterThan(relLuminance(dark.surface));
+  });
+
+  // Whole-diff review round 2, second pass, 2C-R2-2: the text reader still read a
+  // commented-out declaration as the live value.
+  it("a commented-out dark --color-surface-raised-runtime is not read as live", () => {
+    const value = darkBlock.get("--color-surface-raised-runtime");
+    expect(value, "PREMISE: the live declaration is there to comment out").toMatch(
+      /^#[0-9a-fA-F]{6}$/,
+    );
+    const live = `  --color-surface-raised-runtime: ${value};`;
+    const at = css.indexOf('\n[data-theme="dark"] {\n');
+    const offset = css.indexOf(live, at);
+    expect(offset, "PREMISE: the dark block's line is found").toBeGreaterThan(at);
+    const planted =
+      css.slice(0, offset) + `  /* ${live.trim()} */` + css.slice(offset + live.length);
+    expect(() =>
+      hexIn(requireRule(planted, '[data-theme="dark"]'), "--color-surface-raised-runtime"),
+    ).toThrow(/--color-surface-raised-runtime not found/);
   });
 });
 

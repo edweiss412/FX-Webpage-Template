@@ -2,9 +2,10 @@
  * tests/styles/crewPassContrast.test.ts — contrast pins for the crew pass and
  * the day row (crew page redesign; impeccable gate fixes X4, X7).
  *
- * Reads the LIVE runtime hex values out of app/globals.css (the
- * status-token-contrast pattern), so a token edit that breaks a pairing fails
- * here rather than in a screenshot.
+ * Reads the LIVE runtime hex values out of app/globals.css, parsed with postcss
+ * (tests/styles/_cssDecls.ts), so a token edit that breaks a pairing fails here
+ * rather than in a screenshot, and a commented-out declaration is not read as
+ * live (whole-diff review round 2, second pass, 2C-R2-2).
  *
  * The pass is dark in both themes (spec §4.3 R7): everything inside it reads
  * the DARK runtime values, whatever the page theme.
@@ -12,6 +13,8 @@
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
+
+import { hexIn, requireRule } from "./_cssDecls";
 
 const css = readFileSync(join(process.cwd(), "app/globals.css"), "utf8");
 
@@ -28,26 +31,12 @@ function contrast(a: string, b: string): number {
   return (Math.max(l1, l2) + 0.05) / (Math.min(l1, l2) + 0.05);
 }
 
-/** The body of the first block opening at `selectorStart`, braces balanced. */
-function block(selectorStart: string): string {
-  const idx = css.indexOf(selectorStart);
-  if (idx === -1) throw new Error(`selector ${selectorStart} not found`);
-  const open = css.indexOf("{", idx);
-  let depth = 0;
-  for (let i = open; i < css.length; i++) {
-    if (css[i] === "{") depth++;
-    else if (css[i] === "}" && --depth === 0) return css.slice(open, i + 1);
-  }
-  throw new Error(`unbalanced braces after ${selectorStart}`);
+/** A `--name-runtime` hex in a block's parsed declarations (tests/styles/_cssDecls.ts). */
+function token(decls: Map<string, string>, name: string): string {
+  return hexIn(decls, `${name}-runtime`);
 }
 
-function token(src: string, name: string): string {
-  const m = src.match(new RegExp(`${name}-runtime\\s*:\\s*(#[0-9a-fA-F]{6})\\s*;`));
-  if (!m?.[1]) throw new Error(`${name}-runtime not found`);
-  return m[1];
-}
-
-const dark = block('[data-theme="dark"] {');
+const dark = requireRule(css, '[data-theme="dark"]');
 
 /** WCAG 1.4.11 non-text floor. */
 const GRAPHIC = 3;
@@ -71,7 +60,7 @@ describe("pass progress segments (X7, audit P3-1)", () => {
 });
 
 // The page's own light block (`:root {`), for pairings that live on the page.
-const light = block(":root {");
+const light = requireRule(css, ":root");
 const MODES = [
   { name: "light", src: light },
   { name: "dark", src: dark },
@@ -142,5 +131,22 @@ describe("pass edge on a dark page (X4, critique F6)", () => {
     expect(contrast(token(dark, "--color-border-strong"), bg)).toBeGreaterThan(
       contrast(token(dark, "--color-border"), bg),
     );
+  });
+});
+
+describe("the token reader sees only live declarations (round 2, 2C-R2-2)", () => {
+  it("a commented-out dark --color-surface-raised-runtime is not read", () => {
+    const decl = dark.get("--color-surface-raised-runtime");
+    // PREMISE: the live declaration is there to comment out.
+    expect(decl).toMatch(/^#[0-9a-fA-F]{6}$/);
+    const live = `  --color-surface-raised-runtime: ${decl};`;
+    const at = css.indexOf('\n[data-theme="dark"] {\n');
+    const offset = css.indexOf(live, at);
+    expect(offset, "PREMISE: the dark block's line is found").toBeGreaterThan(at);
+    const planted =
+      css.slice(0, offset) + `  /* ${live.trim()} */` + css.slice(offset + live.length);
+    expect(() =>
+      token(requireRule(planted, '[data-theme="dark"]'), "--color-surface-raised"),
+    ).toThrow(/--color-surface-raised-runtime not found/);
   });
 });
