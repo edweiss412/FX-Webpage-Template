@@ -203,6 +203,10 @@ jobs:
       - name: Print infra-recovery annotations (phantom-gap probe)
         if: always()
         run: node scripts/print-infra-recoveries.mjs --report test-results/phantom-gap-nophantom-report.json
+      # Documented limit (docs/review-rounds/LIMITS.md, LIM-RUNTIME-SKIP-UNORACLED-STEP):
+      # this step writes no report and no oracle reads one, so a runtime
+      # `test.skip()` in a T-NOPHANTOM-CREW case keeps the list and this step
+      # green (probed 2026-10-31: six 1280px legs skipped, exit 0).
       - name: Phantom-gap probe — crew page
         run: pnpm exec playwright test --reporter=list --project=mobile-safari tests/e2e/crew-layout-dimensions.spec.ts -g "T-NOPHANTOM-CREW"
       # The width chain, which is what stops the two standalone steps above from

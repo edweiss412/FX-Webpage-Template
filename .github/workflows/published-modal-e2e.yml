@@ -182,6 +182,9 @@ jobs:
       # reporter prints no annotations, and a failed run's artifact is not where an operator
       # looks first. The printer always exits 0, so `always()` cannot convert a red run green;
       # the Playwright step's own status remains this job's verdict.
+      # Documented limit (docs/review-rounds/LIMITS.md, LIM-RUNTIME-SKIP-UNORACLED-STEP):
+      # nothing reads this report for execution, so a runtime `test.skip()` in any
+      # case above keeps this job green (probed 2026-10-31: 1 skipped, exit 0).
       - name: Print infra-recovery annotations (published-modal)
         if: always()
         run: node scripts/print-infra-recoveries.mjs --report test-results/published-modal-e2e-report.json

@@ -573,3 +573,20 @@ observable, which is dataflow over an open input space with no done condition ou
 **Re-file trigger:** a second INDEPENDENT arc measuring this class as its non-decaying axis, with its
 corpus row. What would NOT settle it: another mirror synced in an effect, which is the refuted
 repair, or a longer reader inventory, which is the fail-open shape.
+
+## LIM-RUNTIME-SKIP-UNORACLED-STEP
+
+**Shape:** A CI step whose only evidence that its cases ran is Playwright's own exit status. A runtime `test.skip(...)` inside a case leaves the collected set unchanged, so every registration guard that replays `--list` stays green, and a skipped case exits 0, so the step stays green while the case asserted nothing. The jobs that close this carry an executed-count oracle reading the run's own json report (`scripts/check-crew-e2e-executed.mjs`, `scripts/check-phantom-gap-executed.mjs` for the diagram step, `scripts/check-app-e2e-executed.mjs`); the steps below carry none.
+
+**Named by:** 1 arc — feat/crew-page-redesign (whole-diff review round 2, finding 2C-2; that arc's corpus is docs/review-rounds/feat/crew-page-redesign/).
+
+**Instances, both predating the arc for every case in them:**
+
+- `.github/workflows/phantom-gap-e2e.yml`, the "Phantom-gap probe — crew page" step (`-g "T-NOPHANTOM-CREW"`, `--reporter=list`, no report): every T-NOPHANTOM-CREW case, the six 1280px legs the arc added among them. The job's oracle reads only `test-results/phantom-gap-diagrams-report.json`. Probe, 2026-10-31: `test.skip(width === 1280, "temporarily disabled")` planted in the per-width case; `playwright test --list --project=mobile-safari tests/e2e/crew-layout-dimensions.spec.ts -g "T-NOPHANTOM-CREW"` reported `Total: 20 tests in 1 file` before and after; the step's own command over the 1280 legs exited 0 with `6 skipped`.
+- `.github/workflows/published-modal-e2e.yml`, its one Playwright step over nine specs: it writes `test-results/published-modal-e2e-report.json`, whose only consumer is `scripts/print-infra-recoveries.mjs`, informational and always exit 0. Probe, 2026-10-31: `test.skip(true, "temporarily disabled")` planted in the closed-fold keyboard case (`tests/e2e/published-review-modal.interactions.spec.ts`); `--list --project=desktop-chromium` reported `Total: 43 tests in 1 file` before and after; running the case exited 0 with `1 skipped`, and the printer on that report exited 0 (`infra-recovery total: 0`). The arc's crew-actions keyboard case (`tests/e2e/published-review-modal.crew-actions.spec.ts`) rides the same step.
+
+**Not repaired in the arc.** The phantom-gap oracle (`scripts/lib/phantomGapExecuted.mjs`) is enrolled in the source-mutation registry at score floor 1 with no accepted survivors, its suite pins `REQUIRED_PAIRS` against a captured report and the live titles, and its CLI's zero-argument path is a workflow contract; reading a second report is a change to that surface, its fixture, its pinned titles and two registered workflow lines, not a small one. The published-modal job has no oracle to extend. The arc's own eight dark geometry cases moved instead into `tests/e2e/crew-page.spec.ts`, which `crew-e2e.yml` runs under its executed-count oracle.
+
+**Owning record:** this index, plus a comment at each step.
+
+**Re-file trigger:** a runtime-skipped case found to have shipped green through either step (its CI run), or a product arc whose case in either step needs execution proof to merge.
