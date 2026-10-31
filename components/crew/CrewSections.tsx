@@ -84,7 +84,8 @@
  * provided here) exposes `openSectionAndReveal(sectionId, targetId)`, the one
  * entry point search calls: compact opens the section's sheet (Today closes
  * it) and centres the `[data-search-target]` line inside the sheet body; wide
- * scrolls the page to the line with the section's scroll margin. Both then
+ * replaces `s` (with the home URL for Today) and scrolls the page to the line
+ * with the section's scroll margin. Both then
  * wait for the line to mount (up to `REVEAL_WAIT_MS`), open every `<details>`
  * around and inside it, focus it and mark it `data-search-reveal` for the
  * highlight in app/globals.css, cleared after `REVEAL_HIGHLIGHT_MS`. A line that
@@ -747,7 +748,16 @@ export function CrewSections({
         } else {
           openSection(id);
         }
-      } else if (!wide && open !== null) {
+      } else if (wide) {
+        // Today is the home: `s` leaves the URL, as the nav's Today jump does,
+        // so a reload stays on the line rather than going back to the section
+        // the page showed before (whole-diff review round 2, 2A-3).
+        window.history.replaceState(
+          forHistory(window.history.state),
+          "",
+          buildHomeHref(pathname, searchParams),
+        );
+      } else if (open !== null) {
         requestClose();
       }
       // Where the line lives: the sheet body (compact), the stacked section

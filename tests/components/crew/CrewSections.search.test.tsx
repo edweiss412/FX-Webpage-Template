@@ -382,6 +382,50 @@ describe("openSectionAndReveal, wide: the page scrolls to the line", () => {
     ).toHaveAttribute("aria-current", "true");
   });
 
+  // Whole-diff review round 2, 2A-3: a Today reveal wrote no history in wide, so
+  // the previous section's `s` stayed in the URL and a reload went back there.
+  it("Venue then Today: each reveal replaces the URL once (never pushes), and Today's leaves it at home with Next's keys left out", async () => {
+    frameOnTimers();
+    const NEXT_KEYS = ["__NA", "_N", "__PRIVATE_NEXTJS_INTERNALS_TREE"];
+    const NEXT_STATE = { __NA: true, _N: 1, __PRIVATE_NEXTJS_INTERNALS_TREE: {} };
+    // The entry as Next leaves it: its own keys plus one of the page's.
+    History.prototype.replaceState.call(window.history, { ...NEXT_STATE, keep: "x" }, "", PATH);
+    // Writes land, with Next's keys copied back as its patched method does, so
+    // each reveal reads the entry the one before it left.
+    replaceStateSpy.mockImplementation(
+      (state: unknown, unused: string, url?: string | URL | null) =>
+        History.prototype.replaceState.call(
+          window.history,
+          { ...(state as object), ...NEXT_STATE },
+          unused,
+          url,
+        ),
+    );
+    renderShell("today");
+
+    act(() => controllerRef.current!.openSectionAndReveal("venue", VENUE_TARGET));
+    await waitFor(() =>
+      expect(within(wideSection("venue")).getByTestId("venue-target")).toHaveAttribute(
+        "data-search-reveal",
+      ),
+    );
+    // PREMISE: the Venue reveal put `s` in the URL, so there is something to leave.
+    expect(replaceStateSpy).toHaveBeenCalledTimes(1);
+    expect(new URLSearchParams(window.location.search).get("s")).toBe("venue");
+
+    act(() => controllerRef.current!.openSectionAndReveal("today", TODAY_TARGET));
+    await waitFor(() =>
+      expect(screen.getByTestId("today-target")).toHaveAttribute("data-search-reveal"),
+    );
+    expect(pushStateSpy).not.toHaveBeenCalled();
+    expect(replaceStateSpy).toHaveBeenCalledTimes(2);
+    const [state, , url] = replaceStateSpy.mock.calls[1]!;
+    expect(url).toBe(PATH);
+    expect(new URLSearchParams(window.location.search).has("s")).toBe(false);
+    for (const key of NEXT_KEYS) expect(state as Record<string, unknown>).not.toHaveProperty(key);
+    expect(state).toEqual({ keep: "x" });
+  });
+
   it("announces a target that never mounts after 1500 ms, and stops looking", () => {
     vi.useFakeTimers();
     frameOnTimers();
