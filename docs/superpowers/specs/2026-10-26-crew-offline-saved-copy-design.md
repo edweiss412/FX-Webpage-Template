@@ -283,20 +283,23 @@ Ratified by the spike (§11): the injected meta produced no hydration warning in
 
 The bar is full width, `sticky top-0`, above section content and below the header, and an open avatar menu paints above it. It renders inside its always-mounted live region (`saved-copy-bar-region`), and the region is the element that carries this placement (Dimensional Invariants below). In the `hidden` state it renders no visible bar; its empty live region stays mounted so the first state change is announced, and adds no height.
 
+**One pinned line, and the full sentence once (owner decision, 2026-10-30, mockup https://claude.ai/artifact/SUYtZFqmmVkGKdPEnNVADj, Q1 Option B).** The region pins one short line: a bold lead, then a plain run. When the state has more to say, the full sentence is a separate block, `saved-copy-bar-detail`, rendered directly after the region and above the crew sections, in normal flow. It shows once at the top of the page, in the bar's tone and with a bottom edge so it reads as the bar's continuation, and it scrolls away under the pinned line. It renders only for a state that has a detail. For a same-day save the pinned line fits on one line at 390 px; it may wrap to two lines at 320 px.
+
 **Inputs.** `mode` (from the meta, §4.7.1; becomes `live` when `renderedAt` differs from its value at mount, which means an RSC refresh brought server content), `online` (`navigator.onLine` plus `online`/`offline` events), `age` (now minus `renderedAt`, re-evaluated every 60 seconds), `sheetUnavailable`, `updating` (a fresh copy is saved and the reload is under way, §4.7.3), `justUpdated` (first 4 seconds after a recovery reload).
 
-**States and exact copy.** `{time}` is the saved time in the phone's local time zone: `2:14 PM` when it is today, otherwise `Fri Oct 24, 6:02 PM`. `{ago}` is `just now` under 1 minute, `N min ago` under 60 minutes, `N hr ago` under 48 hours, then `N days ago`. A saved time in the future reads `just now`. `{lead}` depends on mode: `offline` "**No signal.**", `slow` "**Slow connection.**", `server-error` "**Couldn't load the latest version.**", and a live page with `online` false "**No signal.**".
+**States and exact copy (owner decision, 2026-10-30, Q2 Option 2: the bold part is the age).** `{time}` is the saved time in the phone's local time zone: `2:14 PM` when it is today, otherwise `Fri Oct 24, 6:02 PM`. `{ago}` is `just now` under 1 minute, `N min ago` under 60 minutes, `N hr ago` under 48 hours, then `N days ago`. A saved time in the future reads `just now`. `{cause}` depends on mode: `offline` "No signal.", `slow` "Slow connection.", `server-error` "Couldn't load the latest version.", and a live page with `online` false "No signal.". In the pinned line, bold is marked `**…**`; the rest is plain.
 
-| State | When | Tone token | Icon | Copy |
-|---|---|---|---|---|
-| `hidden` | mode `live`, online, sheet fine, not `justUpdated` | none | none | no visible bar (the empty live region stays mounted) |
-| `saved-fresh` | mode `offline`, `slow` or `server-error`, or mode `live` with `online` false; age under 6 h | `bg-info-bg` | signal-off | {lead} Showing your saved copy from {time} ({ago}). |
-| `saved-old` | same, age 6 h or more | `bg-stale-tint` | clock | {lead} Your saved copy is from {time} ({ago}). Things may have changed since then. |
-| `ended` | mode `ended` | `bg-stale-tint` | clock | **This show has ended.** You're seeing the last version, from {time}. |
-| `sheet-gone` | `sheetUnavailable`, mode `live` | `bg-warning-bg text-warning-text` | alert | **Doug's sheet for this show isn't available in Google Drive anymore.** You're seeing the last version we have. Check with Doug before relying on it. |
-| `sheet-gone-saved` | `sheetUnavailable`, mode `offline`, `slow` or `server-error` | `bg-warning-bg text-warning-text` | alert | **Doug's sheet for this show isn't available in Google Drive anymore.** This is the last version we have, from {time}. Check with Doug before relying on it. |
-| `updating` | `updating` | `bg-info-bg` | sync (spins; static under reduced motion) | **Signal's back.** Loading the latest version. |
-| `updated` | `justUpdated`, none of the above apply | `bg-surface text-status-positive-text` | check | Updated. You're on the latest version. |
+| State | When | Tone token | Icon | Pinned line | In-flow detail (shown once, scrolls away) |
+|---|---|---|---|---|---|
+| `hidden` | mode `live`, online, sheet fine, not `justUpdated` | none | none | no visible bar (the empty live region stays mounted) | none |
+| `saved-fresh` | mode `offline`, `slow` or `server-error`, or mode `live` with `online` false; age under 6 h | `bg-info-bg` | signal-off | **Saved {time}, {ago}.** {cause} | Showing your saved copy. |
+| `saved-old`, with a saved time | same, age 6 h or more | `bg-stale-tint` | clock | **Saved {time}, {ago}.** {cause} | Things may have changed since then. |
+| `saved-old`, no saved time known | same, the save time unusable (guard row below) | `bg-stale-tint` | clock | **{cause}** Showing your saved copy. | none |
+| `ended` | mode `ended` | `bg-stale-tint` | clock | **This show has ended.** | You're seeing the last version, from {time}. Without a time: "You're seeing the last version." |
+| `sheet-gone` | `sheetUnavailable`, mode `live` | `bg-warning-bg text-warning-text` | alert | **Doug's sheet is gone.** Check with Doug. | Doug's sheet for this show isn't available in Google Drive anymore. You're seeing the last version we have. Check with Doug before relying on it. |
+| `sheet-gone-saved` | `sheetUnavailable`, mode `offline`, `slow` or `server-error` | `bg-warning-bg text-warning-text` | alert | **Doug's sheet is gone.** Check with Doug. | Doug's sheet for this show isn't available in Google Drive anymore. This is the last version we have, from {time}. Check with Doug before relying on it. Without a time, ", from {time}" is dropped. |
+| `updating` | `updating` | `bg-info-bg` | sync (spins; static under reduced motion) | **Signal's back.** Loading the latest version. | none |
+| `updated` | `justUpdated`, none of the above apply | `bg-surface text-status-positive-text` | check | Updated. You're on the latest version. | none |
 
 Precedence when several apply: `ended` > `updating` > `sheet-gone-saved` > `sheet-gone` > `saved-old` / `saved-fresh` > `updated` > `hidden`. `updating` outranks the sheet warnings because it lasts only until the reload, which brings the fresh state. A live page with `sheetUnavailable` and `online` false shows `sheet-gone`, since its warning already says the content is the last version.
 
@@ -306,17 +309,17 @@ The wording "isn't available in Google Drive anymore" replaces the mockup's "is 
 
 | Input | Behavior |
 |---|---|
-| `renderedAt` (or the meta's `data-saved-at`) missing, empty, or not a valid date | Copy drops the time and age ("Showing your saved copy." / "This is the last version we have."); tone is the old-copy token, since the age is unknown |
+| `renderedAt` (or the meta's `data-saved-at`) missing, empty, or not a valid date | Copy drops the time and age: a saved state pins "**{cause}** Showing your saved copy." with no detail, and the `ended` and `sheet-gone-saved` details drop ", from {time}". The tone is the old-copy token, since the age is unknown |
 | `renderedAt` in the future | Age reads `just now` |
 | Age exactly 6 h | `saved-old` (the boundary belongs to old) |
 | `navigator.serviceWorker` absent | No registration and no saved copy; the bar still handles `online` false on an open live page |
 | Storage quota error on save | The worker abandons the save, keeps the show's previous copy, and posts `save-failed` to open pages, which log `CREW_OFFLINE_SAVE_FAILED` (§6) |
 
-**Accessibility.** The bar's always-mounted live region carries `role="status"`, `aria-live="polite"`. Text contrast uses `DESIGN.md` §1.2 pairs (text on `info-bg`, `stale-tint`, `warning-bg`). The icon is `aria-hidden`; the bold lead carries the meaning, which satisfies the colour-blind floor in `DESIGN.md` §1. The relative age `({ago})` is visual only (`aria-hidden`), because the 60-second tick rewrites it and a status region re-reads its whole text on every change; the absolute `{time}` stays announced, so the minute tick announces nothing.
+**Accessibility.** The bar's always-mounted live region carries `role="status"`, `aria-live="polite"`. Text contrast uses `DESIGN.md` §1.2 pairs (text on `info-bg`, `stale-tint`, `warning-bg`); the detail uses the same tones. The icon is `aria-hidden`; the words carry the meaning, which satisfies the colour-blind floor in `DESIGN.md` §1. The region also holds the state's detail as `sr-only` text, so each state change announces the whole meaning once (the pinned line, then the detail), and the visible detail block is `aria-hidden`, so browsing does not read it a second time. The relative age (`, {ago}`) is visual only (`aria-hidden`), because the 60-second tick rewrites it and a status region re-reads its whole text on every change; the absolute `{time}` stays announced, so the minute tick announces nothing. While the visible bar shows, `<html>` carries `scroll-padding-top` equal to the region's height, following it as the copy and width change, so a focused control or a scrolled-to target lands below the pinned bar instead of under it (WCAG 2.4.11); it is removed when the bar hides and when the bar unmounts.
 
 ##### Dimensional Invariants
 
-The shell is `flex min-h-0 flex-1 flex-col` (`_CrewShell.tsx`, `data-testid="crew-shell"`). The bar's live region, `saved-copy-bar-region`, is one of its flex children, between `<Header>` and `<CrewSections>`, and the bar is the region's only child while it shows. So the placement classes sit on the region, and the bar fills it.
+The shell is `flex min-h-0 flex-1 flex-col` (`_CrewShell.tsx`, `data-testid="crew-shell"`). The bar's live region, `saved-copy-bar-region`, is one of its flex children, between `<Header>` and `<CrewSections>`, and the bar is the region's only child while it shows. So the placement classes sit on the region, and the bar fills it. The detail, `saved-copy-bar-detail`, is the region's next sibling, another flex child of the shell.
 
 | Parent to child | Relationship | Guaranteed by |
 |---|---|---|
@@ -325,12 +328,14 @@ The shell is `flex min-h-0 flex-1 flex-col` (`_CrewShell.tsx`, `data-testid="cre
 | viewport to `saved-copy-bar-region` | region top stays at the viewport top after scrolling past the header, and the bar paints above section content scrolled under it | `sticky top-0` plus `z-raised` on the region (section content's positioned elements carry no z-index) |
 | avatar menu to `saved-copy-bar-region` | an open avatar menu paints above the bar | `z-raised` is below the menu's `z-dropdown`; a tie would lose, since the header comes first in tree order |
 | `saved-copy-bar` to icon | icon keeps its size when the copy wraps | `flex-none` on the icon |
+| `crew-shell` to `saved-copy-bar-detail` | detail width equals shell width; its height is its own and never grows; its top is the region's bottom | `self-stretch` and `flex-none` on the detail; it is the region's next sibling |
+| viewport to `saved-copy-bar-detail` | the detail is in normal flow: after scrolling past the header plus 200 px its top is above the viewport while the region's top is 0 | no `sticky`, `fixed` or other positioning on the detail (computed `position: static`) |
 
-`tests/e2e/crew-offline-layout.spec.ts` asserts each row with `getBoundingClientRect()` in a real browser (within 0.5 px) at phone width, the icon row at 320 px, where the copy wraps.
+`tests/e2e/crew-offline-layout.spec.ts` asserts each row with `getBoundingClientRect()` in a real browser (within 0.5 px) at phone width. The pinned line is measured at one line at 390 px and at most two at 320 px; the icon row is measured at 320 px and again at 240 px, below the supported width, where the pinned line must wrap.
 
 ##### Transition Inventory
 
-The bar is a pure function of its inputs, so any input change can move it between any two states. Eight states give 28 unordered pairs. Every pair is **instant (no animation)** in both directions, except one: `updated` to `hidden` when the 4-second window ends fades out over 200 ms (instant under `prefers-reduced-motion`). `updating` to `updated` crosses a page reload, so it is a new document, not an animated transition.
+The bar is a pure function of its inputs, so any input change can move it between any two states. Eight states give 28 unordered pairs. Every pair is **instant (no animation)** in both directions, except one: `updated` to `hidden` when the 4-second window ends fades out over 200 ms (instant under `prefers-reduced-motion`). `updating` to `updated` crosses a page reload, so it is a new document, not an animated transition. The in-flow detail comes and goes with its state in the same render, instantly; it never fades, because `updated`, the one state that does, has no detail.
 
 | | saved-fresh | saved-old | ended | sheet-gone | sheet-gone-saved | updating | updated |
 |---|---|---|---|---|---|---|---|
