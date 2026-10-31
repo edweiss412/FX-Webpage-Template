@@ -392,34 +392,30 @@ export const COLLAPSE_CENSUS: readonly CollapseCensusRow[] = [
     reason:
       "an interactive Link whose selected state was carried by bg-surface, shadow-tile and a text tone, all of which flatten or drop; its label is static across both paths and aria-current renders nothing, so the selected fill is what repairs it",
   },
+  // ── Carrier survives: something non-chromatic changes too. ──
+  // The day row's two pressed-state buttons were repair rows until the UI-gate
+  // re-run (critique N6) gave the pressed day a selection bar, an ::after box the
+  // unpressed day does not have: a shape, which forcing keeps (the bar paints
+  // HighlightText there, app/globals.css), so the pair no longer collapses and
+  // the scanner no longer reports it. The aria-pressed Highlight fill still
+  // applies to both buttons.
   {
     site: "components/crew/CrewDayRow.tsx:128",
-    disposition: "repaired",
-    binding: {
-      locator: '[data-testid="crew-day-now"]',
-      toggle: "tapping a day, then Now, when today is not in the day set",
-      bound: false,
-    },
+    disposition: "carrier-survives",
     reason:
-      "crew day row's Now button; pressed and unpressed differ only in fill, border and text colour, its text is Now either way, so the aria-pressed Highlight fill is what repairs it",
+      "crew day row's Now button; pressed, it carries the selection bar under its label (an ::after box the unpressed button lacks), which survives forcing, and the aria-pressed Highlight fill still applies",
   },
   {
     site: "components/crew/CrewDayRow.tsx:144",
-    disposition: "repaired",
-    binding: {
-      locator: '[data-testid="crew-day-button"]',
-      toggle: "tapping another day in the crew day row",
-      bound: false,
-    },
+    disposition: "carrier-survives",
     reason:
-      "crew day button; the pressed day differs only in fill, border and text colour (the Today word follows the clock, not the selection), so the aria-pressed Highlight fill is what repairs it",
+      "crew day button; pressed, it carries the selection bar under its label (an ::after box the unpressed day lacks), which survives forcing, and the aria-pressed Highlight fill still applies",
   },
-  // ── Carrier survives: something non-chromatic changes too. ──
   {
     site: "components/crew/CrewDayRow.tsx:158",
     disposition: "carrier-survives",
     reason:
-      "the weekday caption inside a crew day button; the button itself carries the pressed state, as aria-pressed (the forced-colors Highlight fill repaired at CrewDayRow.tsx:144), and the caption inherits HighlightText on it",
+      "the weekday caption inside a crew day button; the button itself carries the pressed state, as aria-pressed (the forced-colors Highlight fill at CrewDayRow.tsx:144, and its selection bar), and the caption inherits HighlightText on it",
   },
   {
     site: "components/crew/CrewDayRow.tsx:167",

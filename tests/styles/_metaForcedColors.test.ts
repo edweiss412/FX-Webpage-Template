@@ -473,8 +473,10 @@ describe("forced-colors state collapse (Arm 1)", () => {
     const repaired = COLLAPSE_CENSUS.filter((r) => r.disposition === "repaired");
     // 12 -> 11 with the crew sub-nav tab: the wide nav item that replaced it keeps
     // a weight delta, so it never collapsed and needs no repair row. 11 -> 13 with
-    // the crew day row's two pressed-state buttons (plan Task 8).
-    expect(repaired, "the repair set the pass owes AC-4").toHaveLength(13);
+    // the crew day row's two pressed-state buttons (plan Task 8). 13 -> 11 when
+    // the pressed day gained its selection bar (UI-gate re-run, critique N6): a
+    // shape that survives forcing, so the two rows are carrier-survives now.
+    expect(repaired, "the repair set the pass owes AC-4").toHaveLength(11);
   });
 
   it("gives every repair row a binding, and says which are not yet browser-bound", () => {
@@ -507,7 +509,7 @@ describe("forced-colors state collapse (Arm 1)", () => {
     // caught in the first draft of spec §8 limit 9: a number describing what the
     // test was meant to do rather than what it does.
     //
-    // The other eleven are proved at the CSS level only, and limit 9 names what
+    // The other ten are proved at the CSS level only, and limit 9 names what
     // each still needs. That limit's original blocker did not survive contact:
     // `/admin` is reachable here, it just needs the `signInAs` step every other
     // admin spec takes.
