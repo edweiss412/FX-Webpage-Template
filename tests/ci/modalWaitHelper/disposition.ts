@@ -369,7 +369,9 @@ export const DISPOSITION_RULES: DispositionRule[] = [
       reason:
         "a URL handed to a local wrapper that itself delegates through the helper; the wrapper is the open site, this line is its caller",
     },
-    expectedCount: 4,
+    // 4 -> 5: published-review-modal.interactions.spec.ts opens its closed-fold
+    // show through the file's own `openModal` (the R2-F1 focus-trap case).
+    expectedCount: 5,
     match: (c) => /\bopenModal\(|^url:/.test(c.matchLineText),
   },
 
