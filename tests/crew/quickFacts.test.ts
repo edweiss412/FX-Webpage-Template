@@ -208,6 +208,19 @@ describe("contact fact actions follow field validity", () => {
     const [fact] = selectQuickFacts(["contact"], show, CREW);
     expect(fact?.lines).toEqual([{ text: "Venue contact" }]);
   });
+
+  // Spec §4.5: the value is the "name and kind label". The kind is why a crew
+  // member calls this person, so a named contact keeps it as a second line.
+  it.each([
+    ["venue", "Venue contact"],
+    ["in_house_av", "In-house AV"],
+  ] as const)("names a %s contact and keeps its kind label as a second line", (kind, label) => {
+    const show = fullShow();
+    show.contacts[0]!.kind = kind;
+    const name = show.contacts[0]!.name!;
+    const [fact] = selectQuickFacts(["contact"], show, CREW);
+    expect(fact?.lines).toEqual([{ text: name }, { text: label }]);
+  });
 });
 
 describe("address fact", () => {

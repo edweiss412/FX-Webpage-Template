@@ -101,10 +101,15 @@ export function reservationForNight(
   return [...matches].sort((a, b) => a.ordinal - b.ordinal)[0] ?? null;
 }
 
-function contactLabel(contact: ContactRow): string {
+/**
+ * The Who to call value, "name and kind label" (spec §4.5): the name, then the
+ * kind on its own line, since the kind is why a crew member would call. A
+ * nameless contact is the kind label alone.
+ */
+function contactLines(contact: ContactRow): QuickFactLine[] {
+  const kind = contact.kind === "in_house_av" ? "In-house AV" : "Venue contact";
   const name = present(contact.name);
-  if (name !== null) return name;
-  return contact.kind === "in_house_av" ? "In-house AV" : "Venue contact";
+  return name === null ? [{ text: kind }] : [{ text: name }, { text: kind }];
 }
 
 function resolveFact(
@@ -176,7 +181,7 @@ function resolveFact(
       }
       const email = present(contact.email);
       if (email !== null) actions.push({ kind: "email", href: `mailto:${email}` });
-      return { id, label: "Who to call", lines: [{ text: contactLabel(contact) }], actions };
+      return { id, label: "Who to call", lines: contactLines(contact), actions };
     }
     case "parking": {
       if (!viewer.transportVisible) return null;
