@@ -707,6 +707,64 @@ test.describe("crew wide nav (spec §5.3)", () => {
     expect(await page.evaluate(() => history.length), "replaced, not pushed").toBe(length);
   });
 
+  // Audit P2-3 / critique F8 (spec §4.1 amendment 2026-10-30): the wide header
+  // gave the search field more width than the show title, so a 47-character title
+  // truncated at 1280 and 1024 with no way to read it. The title now takes the
+  // larger share, the status pill moves to the date line, and the h1 carries the
+  // full title as `title`. Measured with the crew viewer's full header (search,
+  // theme switch, identity chip), the tightest row the header has.
+  test("header: at 1024px and 1280px the seeded show title fits its row whole, the status pill sits on the date line, and the h1 names the full title", async ({
+    page,
+  }) => {
+    await signOut(page);
+    await expect(async () => {
+      const res = await page.goto(`${route}?gate=skip`, { waitUntil: "domcontentloaded" });
+      expect(res?.status(), `${route}?gate=skip must render`).toBe(200);
+      await expect(page.getByTestId("picker-interstitial-root")).toBeVisible({ timeout: 15_000 });
+    }).toPass({ timeout: 90_000 });
+    await page.locator('[data-testid="picker-roster-row"]').first().click();
+    const root = page.getByTestId("crew-shell-sections");
+    await expect(root).toHaveAttribute("data-crew-controller-ready", "true", { timeout: 30_000 });
+    for (const width of [1024, 1280]) {
+      await page.setViewportSize({ width, height: 800 });
+      await expect(root).toHaveAttribute("data-crew-mode", "wide");
+      const header = page.getByTestId("page-header");
+      await expect(header.getByTestId("header-status-pill")).toBeVisible();
+      const r = await page.evaluate(() => {
+        const head = document.querySelector('[data-testid="page-header"]')!;
+        const h1 = head.querySelector("h1")!;
+        const pill = head
+          .querySelector('[data-testid="header-status-pill"]')!
+          .getBoundingClientRect();
+        const date = head.querySelector("time")!.getBoundingClientRect();
+        const title = h1.getBoundingClientRect();
+        return {
+          text: h1.textContent,
+          titleAttr: h1.getAttribute("title"),
+          truncated: h1.scrollWidth > h1.clientWidth,
+          pillTop: pill.top,
+          pillBottom: pill.bottom,
+          titleBottom: title.bottom,
+          dateTop: date.top,
+          dateBottom: date.bottom,
+          dateRight: date.right,
+          pillLeft: pill.left,
+        };
+      });
+      // PREMISE: the seeded title is long enough to have truncated (47 characters).
+      expect(r.text!.length, JSON.stringify(r)).toBeGreaterThan(40);
+      expect(r.truncated, `${width}: the title is cut: ${JSON.stringify(r)}`).toBe(false);
+      expect(r.titleAttr, "the h1 names the full title").toBe(r.text);
+      // The pill sits under the title, beside the date.
+      expect(r.pillTop, `${width}: ${JSON.stringify(r)}`).toBeGreaterThanOrEqual(
+        r.titleBottom - 0.5,
+      );
+      expect(r.pillTop).toBeLessThan(r.dateBottom);
+      expect(r.pillBottom).toBeGreaterThan(r.dateTop);
+      expect(r.pillLeft).toBeGreaterThanOrEqual(r.dateRight - 0.5);
+    }
+  });
+
   // Crew page redesign Task 7 (spec §4.1): in wide mode the header's search slot
   // sits between the title and the identity chip, on the title's row. The chip
   // exists only for a crew member the picker resolved, so this case leaves the

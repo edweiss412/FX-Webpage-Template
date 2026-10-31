@@ -12,7 +12,10 @@
  * spec §4.1), which changes the header itself: the eyebrow joins client and
  * venue, the theme switch mounts for every viewer, and the row wraps so search's
  * field can sit under the title on phones and beside it at 1024px. They pin the
- * no-search markup of THAT header now. That an absent or null `search` adds no
+ * no-search markup of THAT header now. Re-recorded again the same day for the
+ * invariant-8 fixes (audit P2-3, critique F8): the wide title block is a grid
+ * holding the status pill on the date line, the h1 carries `title`, and the
+ * search caps at `max-w-sm`. That an absent or null `search` adds no
  * element at all, not even a wrapper, is pinned by
  * tests/components/layout/crewHeader.test.tsx ("search slot: renders nothing,
  * no wrapper, when given none").
@@ -53,11 +56,11 @@ describe("Header without the search slot (markup unchanged)", () => {
           class="mx-auto flex w-full max-w-[1200px] flex-wrap items-baseline justify-between gap-x-6 gap-y-3 px-4 py-3 sm:gap-y-4 sm:px-8 sm:py-4 lg:h-full lg:flex-nowrap lg:items-center lg:py-0"
         >
           <div
-            class="min-w-0 flex-1"
+            class="min-w-0 flex-1 lg:grid lg:flex-[2_1_0%] lg:grid-cols-[auto_minmax(0,1fr)] lg:items-center lg:gap-x-2 lg:gap-y-1"
             data-testid="page-header-title-block"
           >
             <p
-              class="text-xs font-medium uppercase tracking-eyebrow text-text-subtle lg:truncate"
+              class="text-xs font-medium uppercase tracking-eyebrow text-text-subtle lg:col-span-2 lg:truncate"
               data-testid="page-header-eyebrow"
             >
               Acme Corp
@@ -74,15 +77,16 @@ describe("Header without the search slot (markup unchanged)", () => {
               Hilton Chicago
             </p>
             <div
-              class="flex flex-wrap items-center gap-x-2 gap-y-1 lg:flex-nowrap mt-1"
+              class="flex flex-wrap items-center gap-x-2 gap-y-1 lg:contents mt-1"
             >
               <h1
-                class="text-base font-semibold leading-tight tracking-tight text-text-strong sm:text-lg lg:min-w-0 lg:truncate"
+                class="text-base font-semibold leading-tight tracking-tight text-text-strong sm:text-lg lg:col-span-2 lg:min-w-0 lg:truncate"
+                title="Spring Gala 2026"
               >
                 Spring Gala 2026
               </h1>
               <span
-                class="shrink-0"
+                class="shrink-0 lg:order-last lg:justify-self-start"
                 data-testid="header-status-pill"
               >
                 <span>
@@ -91,7 +95,7 @@ describe("Header without the search slot (markup unchanged)", () => {
               </span>
             </div>
             <p
-              class="mt-1 text-xs text-text-subtle"
+              class="mt-1 text-xs text-text-subtle lg:mt-0"
             >
               <time
                 class="font-medium text-text"
@@ -156,11 +160,11 @@ describe("Header without the search slot (markup unchanged)", () => {
           class="mx-auto flex w-full max-w-[1200px] flex-wrap items-baseline justify-between gap-x-6 gap-y-3 px-4 py-3 sm:gap-y-4 sm:px-8 sm:py-4 lg:h-full lg:flex-nowrap lg:items-center lg:py-0"
         >
           <div
-            class="min-w-0 flex-1"
+            class="min-w-0 flex-1 lg:grid lg:flex-[2_1_0%] lg:grid-cols-[auto_minmax(0,1fr)] lg:items-center lg:gap-x-2 lg:gap-y-1"
             data-testid="page-header-title-block"
           >
             <p
-              class="text-xs font-medium uppercase tracking-eyebrow text-text-subtle lg:truncate"
+              class="text-xs font-medium uppercase tracking-eyebrow text-text-subtle lg:col-span-2 lg:truncate"
               data-testid="page-header-eyebrow"
             >
               Acme Corp
@@ -177,12 +181,13 @@ describe("Header without the search slot (markup unchanged)", () => {
               Hilton Chicago
             </p>
             <h1
-              class="text-base font-semibold leading-tight tracking-tight text-text-strong sm:text-lg lg:truncate mt-1"
+              class="text-base font-semibold leading-tight tracking-tight text-text-strong sm:text-lg lg:col-span-2 lg:mt-0 lg:truncate mt-1"
+              title="Spring Gala 2026"
             >
               Spring Gala 2026
             </h1>
             <p
-              class="mt-1 text-xs text-text-subtle"
+              class="mt-1 text-xs text-text-subtle lg:mt-0"
             >
               <time
                 class="font-medium text-text"

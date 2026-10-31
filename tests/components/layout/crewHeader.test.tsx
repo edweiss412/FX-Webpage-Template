@@ -270,6 +270,22 @@ describe("crew header row (spec §3.2)", () => {
   });
 });
 
+describe("crew header title (audit P2-3, critique F8)", () => {
+  it("title: the h1 carries the full show title as `title`, with and without a status pill", () => {
+    // One-line truncation stays the wide header's fallback (DESIGN.md §9); the
+    // attribute is how a cut title can still be read whole.
+    for (const statusPill of [undefined, <span key="p">Show day 1 of 2</span>]) {
+      const { unmount } = render(
+        <Header show={showWith(CLIENT, VENUE)} {...(statusPill ? { statusPill } : {})} />,
+      );
+      const h1 = within(headerEl()).getByRole("heading", { level: 1 });
+      expect(h1).toHaveAttribute("title", h1.textContent!);
+      expect(h1.textContent!.length).toBeGreaterThan(0);
+      unmount();
+    }
+  });
+});
+
 describe("crew header search slot (spec §4.1, §1.2)", () => {
   it("search slot: renders the node it is given inside the header, after the title and before the identity chip, in neither the title block nor the right slot", () => {
     render(

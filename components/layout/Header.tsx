@@ -34,6 +34,11 @@
  *     nav's sticky offset and every stacked section's scroll margin read too.
  *     Its content is centred in the bar on one row, and the eyebrow and the
  *     title truncate to one line each so a long show title cannot grow it.
+ *     The title block takes twice the search slot's share and the search
+ *     caps at `max-w-sm`, the status pill sits on the date line, and the h1
+ *     carries the full title as `title` (audit P2-3, spec §4.1 amendment
+ *     2026-10-30), so truncation is the fallback for a title longer than the
+ *     row, not the norm.
  *     Below 1024px it is the in-flow header it always was.
  *   - Status slot: an empty element directly under the header bar, for the
  *     offline project to fill. Its parent (the crew shell's flex column) has
@@ -118,11 +123,22 @@ export function Header({ show, identityChip, statusPill, search }: HeaderProps) 
             search node the row is the single line it always was. `gap-y`
             equals the padding the search row used to carry under the title. */}
         <div className="mx-auto flex w-full max-w-[1200px] flex-wrap items-baseline justify-between gap-x-6 gap-y-3 px-4 py-3 sm:gap-y-4 sm:px-8 sm:py-4 lg:h-full lg:flex-nowrap lg:items-center lg:py-0">
-          <div data-testid="page-header-title-block" className="min-w-0 flex-1">
+          {/* Wide: a two-column grid (the date's width, then the rest), so the
+              status pill can leave the title's line for the date's (audit P2-3):
+              eyebrow and title span both columns, then the date and the pill
+              share the last row. The title row's wrapper becomes `contents`
+              there, its h1 and pill placed by the grid; DOM order (title, pill,
+              date) is the reading order in both modes. The block takes twice
+              the search slot's share of the row, so a long title fits whole
+              where it can; one-line truncation stays the fallback. */}
+          <div
+            data-testid="page-header-title-block"
+            className="min-w-0 flex-1 lg:grid lg:flex-[2_1_0%] lg:grid-cols-[auto_minmax(0,1fr)] lg:items-center lg:gap-x-2 lg:gap-y-1"
+          >
             {hasEyebrow ? (
               <p
                 data-testid="page-header-eyebrow"
-                className="text-xs font-medium uppercase tracking-eyebrow text-text-subtle lg:truncate"
+                className="text-xs font-medium uppercase tracking-eyebrow text-text-subtle lg:col-span-2 lg:truncate"
               >
                 {client}
                 {client !== null && venue !== null ? (
@@ -141,12 +157,18 @@ export function Header({ show, identityChip, statusPill, search }: HeaderProps) 
               // Pill present (crew page): h1 + pill share a flex title row. The
               // mt-1 (when an eyebrow is above) lives on this wrapper.
               <div
-                className={`flex flex-wrap items-center gap-x-2 gap-y-1 lg:flex-nowrap ${hasEyebrow ? "mt-1" : ""}`}
+                className={`flex flex-wrap items-center gap-x-2 gap-y-1 lg:contents ${hasEyebrow ? "mt-1" : ""}`}
               >
-                <h1 className="text-base font-semibold leading-tight tracking-tight text-text-strong sm:text-lg lg:min-w-0 lg:truncate">
+                <h1
+                  title={show.title}
+                  className="text-base font-semibold leading-tight tracking-tight text-text-strong sm:text-lg lg:col-span-2 lg:min-w-0 lg:truncate"
+                >
                   {show.title}
                 </h1>
-                <span data-testid="header-status-pill" className="shrink-0">
+                <span
+                  data-testid="header-status-pill"
+                  className="shrink-0 lg:order-last lg:justify-self-start"
+                >
                   {statusPill}
                 </span>
               </div>
@@ -155,7 +177,8 @@ export function Header({ show, identityChip, statusPill, search }: HeaderProps) 
               // carrying its own mt-1 only under an eyebrow — preserving the
               // M4-D3 rebalance contract (no orphan eyebrow whitespace).
               <h1
-                className={`text-base font-semibold leading-tight tracking-tight text-text-strong sm:text-lg lg:truncate${
+                title={show.title}
+                className={`text-base font-semibold leading-tight tracking-tight text-text-strong sm:text-lg lg:col-span-2 lg:mt-0 lg:truncate${
                   hasEyebrow ? " mt-1" : ""
                 }`}
               >
@@ -163,7 +186,7 @@ export function Header({ show, identityChip, statusPill, search }: HeaderProps) 
               </h1>
             )}
             {date ? (
-              <p className="mt-1 text-xs text-text-subtle">
+              <p className="mt-1 text-xs text-text-subtle lg:mt-0">
                 <time dateTime={date} className="font-medium text-text">
                   {formatHeaderDate(date)}
                 </time>
@@ -173,7 +196,7 @@ export function Header({ show, identityChip, statusPill, search }: HeaderProps) 
           {search !== undefined && search !== null ? (
             <div
               data-testid="page-header-search"
-              className="order-last basis-full lg:order-0 lg:max-w-xl lg:grow lg:basis-0 lg:self-center"
+              className="order-last basis-full lg:order-0 lg:max-w-sm lg:grow lg:basis-0 lg:self-center"
             >
               {search}
             </div>
