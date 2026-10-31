@@ -788,122 +788,6 @@ describe("agenda viewer code (spec 4.8)", () => {
     expect(fetchMock.mock.calls).toEqual([workerFetch(), workerFetch()]);
   });
 
-  // Codex R3 C: the agenda opened during the first visit, before the worker
-  // controlled the page, so the viewer's chunks and stylesheet loaded outside
-  // it. The registrar's later import reuses those modules and fetches nothing,
-  // so, once a worker controls the page, it fetches every same-origin
-  // /_next/static/ file the page has loaded, through that worker.
-  /** Resource timing entries for `urls`, as the browser lists what the page loaded. */
-  function stubLoadedResources(urls: readonly string[]): void {
-    const entries = urls.map(
-      (name) => ({ name, entryType: "resource" }) as unknown as PerformanceEntry,
-    );
-    vi.spyOn(performance, "getEntriesByType").mockImplementation((type: string) =>
-      type === "resource" ? entries : [],
-    );
-  }
-
-  /** What the page loaded before control: the viewer's files, and some it must leave alone. */
-  function viewerLoadedBeforeControl() {
-    const origin = window.location.origin;
-    const loader = `${origin}/_next/static/chunks/agenda-loader.11aa.js`;
-    const viewer = `${origin}/_next/static/chunks/agenda-viewer.22bb.js`;
-    const stylesheet = `${origin}/_next/static/chunks/agenda-viewer.33cc.css`;
-    const versioned = `${origin}/_next/static/chunks/app.44dd.js?dpl=abc`;
-    stubLoadedResources([
-      loader,
-      viewer,
-      stylesheet,
-      // The same file twice, and once with a fragment: one fetch.
-      viewer,
-      `${viewer}#again`,
-      versioned,
-      // The pdf.js worker the prefetch fetches anyway: not twice.
-      `${origin}${agenda.WORKER_SRC}`,
-      // Another origin, and same-origin files outside /_next/static/: left alone.
-      "https://cdn.example.com/_next/static/chunks/agenda-viewer.22bb.js",
-      `${origin}/api/asset/diagram/demo/rev-1/stage.png`,
-      `${origin}/fonts/inter-var.woff2`,
-      `${origin}/show/demo-show/abc123`,
-    ]);
-    return { loader, viewer, stylesheet, versioned };
-  }
-
-  /** One fetch of a loaded file through the worker, under the prefetch's deadline. */
-  function loadedFetch(url: string): unknown[] {
-    return [url, { signal: expect.any(AbortSignal) }];
-  }
-
-  test("the viewer's files the page loaded before a worker controlled it are fetched through the worker once it does", async () => {
-    const { container } = installServiceWorker({ controlled: false });
-    installStorage();
-    const { loader, viewer, stylesheet, versioned } = viewerLoadedBeforeControl();
-
-    render(<SavedCopyRegistrar {...BASE} hasAgenda />);
-    await settle();
-    // Nothing yet: no worker would store them.
-    expect(fetchMock).not.toHaveBeenCalled();
-
-    takeControl(container);
-    await settle();
-    expect(fetchMock.mock.calls).toEqual([
-      workerFetch(),
-      loadedFetch(loader),
-      loadedFetch(viewer),
-      loadedFetch(stylesheet),
-      loadedFetch(versioned),
-    ]);
-
-    // Done once each arrived whole: a later online event fetches nothing.
-    act(() => {
-      window.dispatchEvent(new Event("online"));
-    });
-    await settle();
-    expect(fetchMock).toHaveBeenCalledTimes(5);
-  });
-
-  test.each([
-    ["answers 404", () => new Response("missing", { status: 404 })],
-    ["has a body that fails mid-stream", () => new Response(failingBody(), { status: 200 })],
-  ] as const)(
-    "the prefetch is not done while a file the page loaded %s: the next online event fetches them all again",
-    async (_label, failing) => {
-      installServiceWorker({ controlled: true });
-      installStorage();
-      const { loader, viewer, stylesheet, versioned } = viewerLoadedBeforeControl();
-      let stylesheetFetches = 0;
-      fetchMock.mockImplementation((url: string) => {
-        if (url !== stylesheet) return Promise.resolve(new Response(""));
-        stylesheetFetches += 1;
-        return Promise.resolve(stylesheetFetches === 1 ? failing() : new Response(""));
-      });
-      const all = [
-        workerFetch(),
-        loadedFetch(loader),
-        loadedFetch(viewer),
-        loadedFetch(stylesheet),
-        loadedFetch(versioned),
-      ];
-
-      render(<SavedCopyRegistrar {...BASE} hasAgenda />);
-      await settle();
-      expect(fetchMock.mock.calls).toEqual(all);
-
-      act(() => {
-        window.dispatchEvent(new Event("online"));
-      });
-      await settle();
-      expect(fetchMock.mock.calls).toEqual([...all, ...all]);
-
-      // All arrived whole the second time: done.
-      act(() => {
-        window.dispatchEvent(new Event("online"));
-      });
-      await settle();
-      expect(fetchMock).toHaveBeenCalledTimes(10);
-    },
-  );
-
   test("a rejected viewer import is tried again on the next online event", async () => {
     vi.resetModules();
     const loads = { loader: 0 };
@@ -1029,6 +913,163 @@ describe("agenda viewer code (spec 4.8)", () => {
       await restoreAgendaMocks();
     }
   });
+});
+
+// Codex R3 C, then the coordinator's follow-up: code a page loaded before any
+// worker controlled it (the agenda opened while the first visit's worker was
+// installing, any lazily loaded component) never passed through the worker,
+// and importing it again fetches nothing. On every controlled crew page, agenda
+// or not, the registrar fetches each same-origin /_next/static/ file the page
+// has loaded, once, through the worker that now controls it.
+describe("static files loaded before control (spec 4.8)", () => {
+  /** Resource timing entries for `urls`, as the browser lists what the page loaded. */
+  function stubLoadedResources(urls: readonly string[]): void {
+    const entries = urls.map(
+      (name) => ({ name, entryType: "resource" }) as unknown as PerformanceEntry,
+    );
+    vi.spyOn(performance, "getEntriesByType").mockImplementation((type: string) =>
+      type === "resource" ? entries : [],
+    );
+  }
+
+  /** Files the page loads from elsewhere, or that are not the build's static files: left alone. */
+  function notStatic(origin: string): string[] {
+    return [
+      "https://cdn.example.com/_next/static/chunks/lightbox.55ee.js",
+      `${origin}/api/asset/diagram/demo/rev-1/stage.png`,
+      `${origin}/fonts/inter-var.woff2`,
+      `${origin}/show/demo-show/abc123`,
+    ];
+  }
+
+  /** A lazily loaded component's files, loaded before control, on a show with no agenda. */
+  function lazyComponentLoadedBeforeControl() {
+    const origin = window.location.origin;
+    const chunk = `${origin}/_next/static/chunks/lightbox.55ee.js`;
+    const stylesheet = `${origin}/_next/static/chunks/lightbox.66ff.css`;
+    const versioned = `${origin}/_next/static/chunks/app.44dd.js?dpl=abc`;
+    stubLoadedResources([
+      chunk,
+      stylesheet,
+      // The same file twice, and once with a fragment: one fetch.
+      chunk,
+      `${chunk}#again`,
+      versioned,
+      ...notStatic(origin),
+    ]);
+    return [chunk, stylesheet, versioned];
+  }
+
+  /** One fetch of a loaded file through the worker, under the prefetch's deadline. */
+  function loadedFetch(url: string): unknown[] {
+    return [url, { signal: expect.any(AbortSignal) }];
+  }
+
+  test("on a show with no agenda, the files the page loaded before a worker controlled it are fetched through the worker once it does, once per page load", async () => {
+    const { container } = installServiceWorker({ controlled: false });
+    installStorage();
+    const files = lazyComponentLoadedBeforeControl();
+
+    const { rerender } = render(<SavedCopyRegistrar {...BASE} />);
+    await settle();
+    // Nothing yet: no worker would store them.
+    expect(fetchMock).not.toHaveBeenCalled();
+
+    takeControl(container);
+    await settle();
+    expect(fetchMock.mock.calls).toEqual(files.map(loadedFetch));
+
+    // Done once each arrived whole: an online event, a new render time and a
+    // remount fetch nothing more in this page load.
+    act(() => {
+      window.dispatchEvent(new Event("online"));
+    });
+    await settle();
+    rerender(<SavedCopyRegistrar {...BASE} renderedAt={SECOND} />);
+    await settle();
+    cleanup();
+    render(<SavedCopyRegistrar {...BASE} />);
+    await settle();
+    expect(fetchMock).toHaveBeenCalledTimes(files.length);
+  });
+
+  test("with the kill switch on, nothing is fetched; the same page with it off fetches the files", async () => {
+    installServiceWorker({ controlled: true });
+    installStorage();
+    const files = lazyComponentLoadedBeforeControl();
+
+    render(<SavedCopyRegistrar {...BASE} disabled />);
+    await settle();
+    expect(fetchMock).not.toHaveBeenCalled();
+
+    cleanup();
+    render(<SavedCopyRegistrar {...BASE} />);
+    await settle();
+    expect(fetchMock.mock.calls).toEqual(files.map(loadedFetch));
+  });
+
+  test("on a show with an agenda, the viewer's files loaded before control are fetched beside the pdf.js worker", async () => {
+    const { container } = installServiceWorker({ controlled: false });
+    installStorage();
+    const origin = window.location.origin;
+    const loader = `${origin}/_next/static/chunks/agenda-loader.11aa.js`;
+    const viewer = `${origin}/_next/static/chunks/agenda-viewer.22bb.js`;
+    const stylesheet = `${origin}/_next/static/chunks/agenda-viewer.33cc.css`;
+    // The agenda opened before control, so pdf.js loaded its worker file too:
+    // the re-store fetches it as a file the page loaded, and the agenda prefetch
+    // by the URL the viewer assigns. The second answer is a worker cache hit.
+    const pdfWorker = `${origin}${agenda.WORKER_SRC}`;
+    stubLoadedResources([loader, viewer, stylesheet, viewer, pdfWorker, ...notStatic(origin)]);
+
+    render(<SavedCopyRegistrar {...BASE} hasAgenda />);
+    await settle();
+    expect(fetchMock).not.toHaveBeenCalled();
+
+    takeControl(container);
+    await settle();
+    const urls = fetchMock.mock.calls.map(([url]) => String(url)).sort();
+    expect(urls).toEqual([agenda.WORKER_SRC, loader, viewer, stylesheet, pdfWorker].sort());
+    expect(fetchMock.mock.calls.every(([, init]) => init?.signal instanceof AbortSignal)).toBe(
+      true,
+    );
+  });
+
+  test.each([
+    ["answers 404", () => new Response("missing", { status: 404 })],
+    ["has a body that fails mid-stream", () => new Response(failingBody(), { status: 200 })],
+  ] as const)(
+    "the re-store is not done while a file the page loaded %s: the next online event fetches them all again",
+    async (_label, failing) => {
+      installServiceWorker({ controlled: true });
+      installStorage();
+      const files = lazyComponentLoadedBeforeControl();
+      const stylesheet = files[1];
+      let stylesheetFetches = 0;
+      fetchMock.mockImplementation((url: string) => {
+        if (url !== stylesheet) return Promise.resolve(new Response(""));
+        stylesheetFetches += 1;
+        return Promise.resolve(stylesheetFetches === 1 ? failing() : new Response(""));
+      });
+      const all = files.map(loadedFetch);
+
+      render(<SavedCopyRegistrar {...BASE} />);
+      await settle();
+      expect(fetchMock.mock.calls).toEqual(all);
+
+      act(() => {
+        window.dispatchEvent(new Event("online"));
+      });
+      await settle();
+      expect(fetchMock.mock.calls).toEqual([...all, ...all]);
+
+      // All arrived whole the second time: done.
+      act(() => {
+        window.dispatchEvent(new Event("online"));
+      });
+      await settle();
+      expect(fetchMock).toHaveBeenCalledTimes(2 * files.length);
+    },
+  );
 });
 
 describe("no service worker container", () => {

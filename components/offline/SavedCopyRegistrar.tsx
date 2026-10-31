@@ -24,20 +24,23 @@
  *   worker saves the page as the server renders it now, not as it was. This is
  *   the client action of the `save` marker (plan section 1, item 5): the first
  *   visit's save and every later one.
+ * - Once a worker controls the page, online and idle, it fetches through that
+ *   worker every same-origin `/_next/static/` file the page has loaded, each
+ *   once (spec 4.8). Code a page loaded before any worker controlled it (an
+ *   agenda opened while the first visit's worker was installing, a lazily
+ *   loaded component) never passed through the worker, and importing it again
+ *   fetches nothing, so this is how it reaches the static cache (Codex R3 C).
  * - When the show has an agenda it loads the agenda viewer's code and the
  *   pdf.js worker that code configures, online, idle and once a worker controls
  *   the page, so both pass through the worker into its static cache and an
- *   agenda nobody opened still opens offline (spec 4.8). An agenda opened
- *   before any worker controlled the page loaded its code outside the worker,
- *   and importing it again fetches nothing, so the prefetch also fetches every
- *   same-origin `/_next/static/` file the page has loaded, through the worker
- *   (Codex R3 C). The worker stores each file as its body passes through, so
- *   the prefetch reads every body to its end before it counts as done. A
- *   prefetch that could not run (offline at idle) or failed (an import that
- *   rejects, a worker fetch that fails or answers other than ok, a body that
- *   fails or has not arrived whole AGENDA_PREFETCH_TIMEOUT_MS after the fetches
- *   were sent) is tried again on the next `online` event; one that succeeded is
- *   not repeated in this page load.
+ *   agenda nobody opened still opens offline (spec 4.8).
+ * - The worker stores each file as its body passes through, so both of those
+ *   read every body to its end before they count as done. One that could not
+ *   run (offline at idle) or failed (an import that rejects, a fetch that fails
+ *   or answers other than ok, a body that fails or has not arrived whole by its
+ *   deadline, PREFETCH_TIMEOUT_MS after the fetches were sent) is tried again
+ *   on the next `online` event; one that succeeded is not repeated in this page
+ *   load.
  * - A failed registration and a `save-failed` broadcast from the worker are
  *   logged with source `client.crew` (spec 6), the source crew components use
  *   and the client-error route accepts. Neither is shown: nothing here renders
@@ -81,11 +84,12 @@ const ENSURE_SAVED_THROTTLE_MS = 10_000;
 const ENSURE_SAVED_REPLY_TIMEOUT_MS = 20_000;
 
 /**
- * How long the agenda prefetch waits for the pdf.js worker file and the static
- * files the page loaded, headers and bodies, before it counts as failed, aborts
- * the fetches and leaves the next `online` event to try again (spec 4.8).
+ * How long a prefetch through the worker (the static re-store, or the agenda's
+ * pdf.js worker file) waits for its files, headers and bodies, before it counts
+ * as failed, aborts the fetches still out and leaves the next `online` event to
+ * try again (spec 4.8).
  */
-const AGENDA_PREFETCH_TIMEOUT_MS = 60_000;
+const PREFETCH_TIMEOUT_MS = 60_000;
 
 /**
  * Where there is no requestIdleCallback (WebKit), the work runs in the first
@@ -95,13 +99,33 @@ const IDLE_FALLBACK_DELAY_MS = 0;
 
 /** Once per page load, however often the registrar mounts (spec 4.7.7, 4.8). */
 let persistRequested = false;
-/** The agenda prefetch: `done` once it succeeded in this page load, `running` while one is out. */
-let agendaPrefetch: "idle" | "running" | "done" = "idle";
 
-/** Test seam: a new page load. */
-export function __resetSavedCopyRegistrarForTests(): void {
-  persistRequested = false;
-  agendaPrefetch = "idle";
+/**
+ * Work done once per page load, online: `done` once it succeeded, `running`
+ * while one is out, so at most one is out at a time, and back to idle when it
+ * fails, which leaves the next attempt free to run.
+ */
+type OncePerPageLoad = { run: () => void; reset: () => void };
+
+function oncePerPageLoad(work: () => Promise<void>): OncePerPageLoad {
+  let state: "idle" | "running" | "done" = "idle";
+  return {
+    run() {
+      if (state !== "idle" || !navigator.onLine) return;
+      state = "running";
+      void work().then(
+        () => {
+          state = "done";
+        },
+        () => {
+          state = "idle";
+        },
+      );
+    },
+    reset() {
+      state = "idle";
+    },
+  };
 }
 
 /** Runs `work` when the page is idle; the returned function cancels it. */
@@ -206,33 +230,15 @@ async function readThrough(url: string, signal: AbortSignal): Promise<void> {
   await response.arrayBuffer();
 }
 
-/**
- * Loads the viewer's code through the loader AgendaEmbed's sheet uses
- * (components/agenda/loadAgendaPdfViewer.ts), so the worker stores the very
- * chunks the sheet asks for, then fetches the pdf.js worker from the URL the
- * viewer assigns (components/agenda/pdfWorkerSrc.ts), and every static file the
- * page had already loaded: the viewer's chunks and stylesheet when the agenda
- * was opened before a worker controlled the page, which the import above found
- * loaded and so did not fetch again (Codex R3 C). No `import()` of the viewer
- * of its own: Turbopack gives each import() site its own loader chunk. And
- * never `import("react-pdf")`: in the production build that loaded a second
- * copy of react-pdf's index, which reset pdf.js's worker URL to the relative
- * `pdf.worker.mjs` for the whole page.
- */
-async function prefetchAgendaViewer(): Promise<void> {
-  await loadAgendaPdfViewer();
-  const { PDF_WORKER_SRC } = await import("@/components/agenda/pdfWorkerSrc");
-  const pdfWorker = new URL(PDF_WORKER_SRC, window.location.href).href;
-  const loaded = loadedStaticFiles().filter((url) => url !== pdfWorker);
+/** Reads every one of `urls` through, all within PREFETCH_TIMEOUT_MS; past it, aborts the rest and rejects. */
+async function readAllThrough(urls: readonly string[]): Promise<void> {
   const controller = new AbortController();
-  const read = Promise.all(
-    [PDF_WORKER_SRC, ...loaded].map((url) => readThrough(url, controller.signal)),
-  );
+  const read = Promise.all(urls.map((url) => readThrough(url, controller.signal)));
   await new Promise<void>((resolve, reject) => {
     const timer = window.setTimeout(() => {
       controller.abort();
-      reject(new Error("the agenda viewer's files did not arrive in time"));
-    }, AGENDA_PREFETCH_TIMEOUT_MS);
+      reject(new Error("the files did not arrive in time"));
+    }, PREFETCH_TIMEOUT_MS);
     read.then(
       () => {
         window.clearTimeout(timer);
@@ -246,18 +252,62 @@ async function prefetchAgendaViewer(): Promise<void> {
   });
 }
 
-/** At most one prefetch out at a time; a failed one leaves the next attempt free to run. */
-function prefetchAgendaViewerOnce(): void {
-  if (agendaPrefetch !== "idle" || !navigator.onLine) return;
-  agendaPrefetch = "running";
-  void prefetchAgendaViewer().then(
-    () => {
-      agendaPrefetch = "done";
-    },
-    () => {
-      agendaPrefetch = "idle";
-    },
-  );
+/**
+ * Every static file the page has loaded, read through the worker that now
+ * controls it, so a file loaded before control reaches the static cache. The
+ * worker serves one it holds from its cache, and stores one it lacks as it
+ * serves it (spec 4.8).
+ */
+async function restoreLoadedStatics(): Promise<void> {
+  const files = loadedStaticFiles();
+  if (files.length > 0) await readAllThrough(files);
+}
+
+const staticRestore = oncePerPageLoad(restoreLoadedStatics);
+
+/**
+ * Loads the viewer's code through the loader AgendaEmbed's sheet uses
+ * (components/agenda/loadAgendaPdfViewer.ts), so the worker stores the very
+ * chunks the sheet asks for, then fetches the pdf.js worker from the URL the
+ * viewer assigns (components/agenda/pdfWorkerSrc.ts). A viewer the page loaded
+ * before a worker controlled it is already loaded, so the import fetches
+ * nothing; the static re-store above stores its files. No `import()` of the
+ * viewer of its own: Turbopack gives each import() site its own loader chunk.
+ * And never `import("react-pdf")`: in the production build that loaded a
+ * second copy of react-pdf's index, which reset pdf.js's worker URL to the
+ * relative `pdf.worker.mjs` for the whole page.
+ */
+async function prefetchAgendaViewer(): Promise<void> {
+  await loadAgendaPdfViewer();
+  const { PDF_WORKER_SRC } = await import("@/components/agenda/pdfWorkerSrc");
+  await readAllThrough([PDF_WORKER_SRC]);
+}
+
+const agendaPrefetch = oncePerPageLoad(prefetchAgendaViewer);
+
+/** Test seam: a new page load. */
+export function __resetSavedCopyRegistrarForTests(): void {
+  persistRequested = false;
+  staticRestore.reset();
+  agendaPrefetch.reset();
+}
+
+/**
+ * Runs `task` once the page is idle, and again whenever the phone comes back
+ * online, until the returned function stops it. The task itself decides
+ * whether there is anything left to do.
+ */
+function whenIdleAndOnline(task: () => void): () => void {
+  let cancelIdle = whenIdle(task);
+  const onOnline = (): void => {
+    cancelIdle();
+    cancelIdle = whenIdle(task);
+  };
+  window.addEventListener("online", onOnline);
+  return () => {
+    cancelIdle();
+    window.removeEventListener("online", onOnline);
+  };
 }
 
 function isSaveFailed(data: unknown): boolean {
@@ -414,20 +464,16 @@ export function SavedCopyRegistrar({ renderedAt, disabled, hasAgenda }: SavedCop
     requestEnsureSaved(state, renderedAt);
   }, [disabled, controlled, renderedAt, mountRenderedAt]);
 
+  // The phone back online: a re-store or a prefetch that never ran, or failed,
+  // runs once the page is idle again.
+  useEffect(() => {
+    if (disabled || !controlled) return;
+    return whenIdleAndOnline(staticRestore.run);
+  }, [disabled, controlled]);
+
   useEffect(() => {
     if (disabled || !hasAgenda || !controlled) return;
-    let cancelIdle = whenIdle(prefetchAgendaViewerOnce);
-    // The phone back online: a prefetch that never ran, or failed, runs once the
-    // page is idle again.
-    const onOnline = (): void => {
-      cancelIdle();
-      cancelIdle = whenIdle(prefetchAgendaViewerOnce);
-    };
-    window.addEventListener("online", onOnline);
-    return () => {
-      cancelIdle();
-      window.removeEventListener("online", onOnline);
-    };
+    return whenIdleAndOnline(agendaPrefetch.run);
   }, [disabled, hasAgenda, controlled]);
 
   return null;
