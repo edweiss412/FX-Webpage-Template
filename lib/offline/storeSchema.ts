@@ -25,3 +25,12 @@ export const STATICS_STORE = "statics";
 export const CACHE_PREFIX = "fxav-";
 export const ASSET_CACHE = `${CACHE_PREFIX}assets-v${SCHEMA_VERSION}`;
 export const STATIC_CACHE = `${CACHE_PREFIX}static-v${SCHEMA_VERSION}`;
+
+/**
+ * Where a purge the database could not write is recorded (spec 4.6): a Cache
+ * Storage entry, so it does not depend on the failing database and survives a
+ * worker restart. Not versioned: a worker of any schema must honour it.
+ */
+export const QUARANTINE_CACHE = `${CACHE_PREFIX}quarantine`;
+/** The marker entry's key, a root-relative URL nothing else requests. */
+export const QUARANTINE_KEY = "/__fxav-offline/quarantine";

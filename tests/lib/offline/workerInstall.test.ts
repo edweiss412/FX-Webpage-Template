@@ -21,6 +21,8 @@ import {
   COPIES_STORE,
   DB_NAME,
   META_STORE,
+  QUARANTINE_CACHE,
+  QUARANTINE_KEY,
   STATIC_CACHE,
 } from "@/lib/offline/storeSchema";
 import { installWorker } from "@/lib/offline/worker/install";
@@ -447,7 +449,12 @@ function navRequest(
 }
 
 function boot(
-  options: { store?: SavedCopyStore; indexedDB?: Pick<IDBFactory, "deleteDatabase"> } = {},
+  options: {
+    store?: SavedCopyStore;
+    indexedDB?: Pick<IDBFactory, "deleteDatabase">;
+    /** Another worker's Cache Storage: this one is that worker restarted. */
+    caches?: FakeCacheStorage;
+  } = {},
 ) {
   const listeners = new Map<string, (event: unknown) => void>();
   let skipWaitingCalls = 0;
@@ -461,7 +468,7 @@ function boot(
     },
   };
   const store = options.store ?? createMemoryStore();
-  const caches = new FakeCacheStorage();
+  const caches = options.caches ?? new FakeCacheStorage();
   const net = new FakeNetwork();
   const clock = new Clock();
   const clients = new FakeClients();
@@ -3169,12 +3176,20 @@ describe("a purge the store cannot write fails closed (spec 4.6)", () => {
     return { factory, store, state };
   }
 
-  /** A factory whose deleteDatabase fails, so the escalation cannot clear storage either. */
-  function failingDeletes() {
+  /**
+   * A factory whose deleteDatabase fails, so the escalation cannot clear storage
+   * either; after `failures` calls it hands the delete to `real`.
+   */
+  function failingDeletes(
+    options: { real?: Pick<IDBFactory, "deleteDatabase">; failures?: number } = {},
+  ) {
     const names: string[] = [];
     const factory: Pick<IDBFactory, "deleteDatabase"> = {
       deleteDatabase(name: string): IDBOpenDBRequest {
         names.push(name);
+        if (options.real !== undefined && names.length > (options.failures ?? Infinity)) {
+          return options.real.deleteDatabase(name);
+        }
         const request = {
           onsuccess: null,
           onerror: null,
@@ -3357,6 +3372,11 @@ describe("a purge the store cannot write fails closed (spec 4.6)", () => {
     expect(await worker.store.copyAtUrl(U)).toMatchObject({ savedAt: RENDERED });
   });
 
+  /** The quarantine marker's entry in Cache Storage, or null when there is none. */
+  function markerEntry(worker: Worker): unknown {
+    return worker.caches.caches.get(QUARANTINE_CACHE)?.entries.get(ORIGIN + QUARANTINE_KEY) ?? null;
+  }
+
   test.each([
     [
       "a fetch event",
@@ -3366,10 +3386,7 @@ describe("a purge the store cannot write fails closed (spec 4.6)", () => {
   ])(
     "%s retries the purge; once it succeeds the quarantine ends and a new save is served",
     async (_label, next) => {
-      const { store, state } = abortingPurges();
-      const worker = boot({ store });
-      await worker.seed({ showId: SHOW, url: U, savedAt: RENDERED });
-      state.failing = true;
+      const { worker, state } = await brokenStorage({ savedAt: RENDERED });
       await worker.ask({ type: "purge-show", showId: SHOW });
       premiseHolds(
         "the purge left the copy",
@@ -3393,48 +3410,173 @@ describe("a purge the store cannot write fails closed (spec 4.6)", () => {
     },
   );
 
-  test("a retry that fails escalates: the database and every fxav- cache go, other caches stay, and the quarantine ends", async () => {
-    const { factory, store, state } = abortingPurges();
-    const deleteDatabase = vi.spyOn(factory, "deleteDatabase");
-    const worker = boot({ store, indexedDB: factory });
-    await worker.seed({ showId: SHOW, url: U, assets: [DIAGRAM] });
+  // A1 amendment (security review): the browser can stop the worker before any
+  // later event arrives, so the escalation runs in the failing event itself.
+  test.each([
+    [
+      "a message",
+      async (worker: Worker) => {
+        const sent = worker.post({ type: "purge-show", showId: SHOW });
+        await sent.extended();
+        sent.close();
+      },
+    ],
+    [
+      "a fetch event",
+      async (worker: Worker) => {
+        worker.net.on(
+          U,
+          reply(() => htmlResponse(page({ disposition: "purge", showId: SHOW }, "purged"))),
+        );
+        await worker.navigate(U).extended();
+      },
+    ],
+  ])(
+    "a purge that fails in %s escalates within that event's waitUntil: the database and every fxav- cache go, other caches stay, the marker goes last",
+    async (_label, failInOneEvent) => {
+      const { factory, store, state } = abortingPurges();
+      const deleteDatabase = vi.spyOn(factory, "deleteDatabase");
+      const worker = boot({ store, indexedDB: factory });
+      await worker.seed({ showId: SHOW, url: U, assets: [DIAGRAM] });
+      worker.assetCache().seed(DIAGRAM, "stored diagram");
+      worker.staticCache().seed(CHUNK, "stored chunk");
+      worker.caches.cache("another-app").seed("/elsewhere.js", "theirs");
+      // The worker has its static cache open before the escalation deletes it.
+      await worker.dispatchFetch(new Request(ORIGIN + CHUNK)).settled();
+      premise("the chunk came from the stored cache", 1, worker.net.callsTo(CHUNK).length);
+      state.failing = true;
+
+      await failInOneEvent(worker);
+      premise("the purge transaction aborted", state.aborted, 0);
+      expect(deleteDatabase.mock.calls).toEqual([[DB_NAME]]);
+      expect((await factory.databases()).map((db) => db.name)).not.toContain(DB_NAME);
+      expect([...worker.caches.caches.keys()]).toEqual(["another-app"]);
+
+      // The quarantine is over: the next event escalates nothing, and a static file
+      // is stored in the cache that now exists rather than the deleted one.
+      worker.net.on(
+        CHUNK,
+        reply(() => new Response("fresh chunk")),
+      );
+      await worker.dispatchFetch(new Request(ORIGIN + CHUNK)).settled();
+      expect(deleteDatabase).toHaveBeenCalledTimes(1);
+      expect(worker.staticCache().paths()).toEqual([CHUNK]);
+
+      worker.net.on(U, refuse);
+      expect(await (await open(worker, U)).text()).toBe(notSavedPageHtml());
+    },
+  );
+
+  test("an escalation that fails keeps the quarantine and its marker, and every later event tries again", async () => {
+    const { worker, deletes } = await brokenStorage({ assets: [DIAGRAM] });
     worker.assetCache().seed(DIAGRAM, "stored diagram");
     worker.staticCache().seed(CHUNK, "stored chunk");
-    worker.caches.cache("another-app").seed("/elsewhere.js", "theirs");
-    // The worker has its static cache open before the escalation deletes it.
-    await worker.dispatchFetch(new Request(ORIGIN + CHUNK)).settled();
-    premise("the chunk came from the stored cache", 1, worker.net.callsTo(CHUNK).length);
-    state.failing = true;
     await worker.ask({ type: "purge-show", showId: SHOW });
-    premiseHolds("the purge left the copy", (await worker.store.copyAtUrl(U))?.url === U);
-
-    await worker.ask({ type: "not a message" });
-    expect(deleteDatabase.mock.calls).toEqual([[DB_NAME]]);
-    expect((await factory.databases()).map((db) => db.name)).not.toContain(DB_NAME);
-    expect([...worker.caches.caches.keys()]).toEqual(["another-app"]);
-
-    // The quarantine is over: the next event escalates nothing, and a static file
-    // is stored in the cache that now exists rather than the deleted one.
-    worker.net.on(
-      CHUNK,
-      reply(() => new Response("fresh chunk")),
-    );
-    await worker.dispatchFetch(new Request(ORIGIN + CHUNK)).settled();
-    expect(deleteDatabase).toHaveBeenCalledTimes(1);
+    expect(deletes.names).toEqual([DB_NAME]);
+    // The database stayed, so nothing it depends on went: not the marker, not the files.
+    expect(markerEntry(worker)).not.toBeNull();
+    expect(worker.assetCache().paths()).toEqual([DIAGRAM]);
     expect(worker.staticCache().paths()).toEqual([CHUNK]);
 
+    await worker.ask({ type: "not a message" });
+    expect(deletes.names).toEqual([DB_NAME, DB_NAME]);
+    await worker.dispatchFetch(new Request(ORIGIN + CHUNK)).settled();
+    expect(deletes.names).toEqual([DB_NAME, DB_NAME, DB_NAME]);
+    expect(markerEntry(worker)).not.toBeNull();
     worker.net.on(U, refuse);
     expect(await (await open(worker, U)).text()).toBe(notSavedPageHtml());
   });
 
-  test("an escalation that fails keeps the quarantine, and the next event escalates again", async () => {
-    const { worker, deletes } = await brokenStorage();
+  test("an escalation that failed at first succeeds on a later event, and only then does the marker go", async () => {
+    const { factory, store, state } = abortingPurges();
+    const deletes = failingDeletes({ real: factory, failures: 1 });
+    const worker = boot({ store, indexedDB: deletes.factory });
+    await worker.seed({ showId: SHOW, url: U });
+    state.failing = true;
     await worker.ask({ type: "purge-show", showId: SHOW });
-    await worker.ask({ type: "not a message" });
-    expect(deletes.names).toEqual([DB_NAME]);
+    premiseHolds("the first escalation failed", deletes.names.length === 1);
+    expect(markerEntry(worker)).not.toBeNull();
+
     await worker.ask({ type: "not a message" });
     expect(deletes.names).toEqual([DB_NAME, DB_NAME]);
-    worker.net.on(U, refuse);
-    expect(await (await open(worker, U)).text()).toBe(notSavedPageHtml());
+    expect((await factory.databases()).map((db) => db.name)).not.toContain(DB_NAME);
+    expect(worker.caches.caches.has(QUARANTINE_CACHE)).toBe(false);
+  });
+
+  test("the marker is written at the failure and deleted only once a purge succeeds", async () => {
+    const { worker, state } = await brokenStorage();
+    premiseHolds("no marker before any failure", markerEntry(worker) === null);
+    await worker.ask({ type: "purge-show", showId: SHOW });
+    expect(markerEntry(worker)).not.toBeNull();
+
+    // A retry that fails again leaves it.
+    await worker.ask({ type: "not a message" });
+    expect(markerEntry(worker)).not.toBeNull();
+
+    state.failing = false;
+    await worker.ask({ type: "not a message" });
+    expect(await worker.store.copyAtUrl(U)).toBeNull();
+    expect(worker.caches.caches.has(QUARANTINE_CACHE)).toBe(false);
+  });
+
+  test.each([
+    ["its first fetch", false],
+    ["its activation, then its first fetch", true],
+  ])(
+    "a worker restarted after a failed purge reads the marker by %s and serves no copy",
+    async (_label, activate) => {
+      const { factory, store, state } = abortingPurges();
+      const first = boot({ store, indexedDB: failingDeletes().factory });
+      await first.seed({ showId: SHOW, url: U });
+      state.failing = true;
+      await first.ask({ type: "purge-show", showId: SHOW });
+      premiseHolds("the marker was written", markerEntry(first) !== null);
+
+      // The browser stops the worker and starts it again: fresh worker state over
+      // the same database and the same Cache Storage, which still refuse writes.
+      const restarted = boot({
+        store: createIdbStore(factory),
+        indexedDB: failingDeletes().factory,
+        caches: first.caches,
+      });
+      premiseHolds(
+        "the copy the purge could not remove is still stored",
+        (await restarted.store.copyAtUrl(U))?.url === U,
+      );
+      if (activate) {
+        await restarted.lifecycle("activate");
+        expect(markerEntry(restarted)).not.toBeNull();
+      }
+      restarted.net.on(U, refuse);
+      expect(await (await open(restarted, U)).text()).toBe(notSavedPageHtml());
+    },
+  );
+
+  test("a restarted worker whose storage writes again ends the inherited quarantine by purging every copy", async () => {
+    const { factory, store, state } = abortingPurges();
+    const first = boot({ store, indexedDB: failingDeletes().factory });
+    await first.seed({ showId: SHOW, url: U });
+    await first.seed({ showId: SHOW_B, url: B_URL });
+    state.failing = true;
+    await first.ask({ type: "purge-show", showId: SHOW });
+
+    state.failing = false;
+    const restarted = boot({
+      store: createIdbStore(factory),
+      indexedDB: failingDeletes().factory,
+      caches: first.caches,
+    });
+    // Which purge failed died with the first worker, so the retry purges them all.
+    await restarted.ask({ type: "not a message" });
+    expect(await restarted.store.listCopies()).toEqual([]);
+    expect(restarted.caches.caches.has(QUARANTINE_CACHE)).toBe(false);
+
+    restarted.net.on(
+      U,
+      reply(() => htmlResponse(page(save({ renderedAt: LATER }), "after the restart"))),
+    );
+    await open(restarted, U);
+    restarted.net.on(U, refuse);
+    expect(await (await open(restarted, U)).text()).toContain("after the restart");
   });
 });

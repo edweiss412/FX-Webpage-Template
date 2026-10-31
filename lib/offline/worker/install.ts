@@ -12,9 +12,10 @@
  *   before any wait (a status check, a page fetch) is still stored there.
  * - Every save takes its generation and ordinal (`beginSave`) before its fetch
  *   is sent, so a purge that lands while the fetch is in flight voids it.
- * - A purge the store cannot write fails closed: the worker quarantines itself
- *   in memory, serving no copy and committing no save, until a retried purge
- *   or the escalation succeeds (spec 4.6).
+ * - A purge the store cannot write fails closed: the worker quarantines itself,
+ *   in memory and in a Cache Storage marker, serving no copy and committing no
+ *   save, and escalates at once, until a purge or the escalation succeeds
+ *   (spec 4.6).
  * - A fault inside the handlers serves the network, or the not-saved page when
  *   the network fails too; never a copy. Bookkeeping writes (`touchOpened`, the
  *   sweep, broadcasts) are best effort, so a full or failing store cannot stop
@@ -64,7 +65,14 @@ import type {
   SavedCopyStore,
   StoredCopy,
 } from "@/lib/offline/store";
-import { ASSET_CACHE, CACHE_PREFIX, DB_NAME, STATIC_CACHE } from "@/lib/offline/storeSchema";
+import {
+  ASSET_CACHE,
+  CACHE_PREFIX,
+  DB_NAME,
+  QUARANTINE_CACHE,
+  QUARANTINE_KEY,
+  STATIC_CACHE,
+} from "@/lib/offline/storeSchema";
 import type {
   CacheLike,
   CacheStorageLike,
@@ -401,6 +409,7 @@ export function installWorker(scope: WorkerScope, deps: WorkerDeps): void {
     mode: ServeMode,
   ): Promise<Response | null> {
     const now = deps.now();
+    await markerChecked();
     // The eviction order only: a full or failing store must not stop the serve.
     await store.touchOpened(refOf(copy), now).catch(() => undefined);
     const current = await store.copyAtUrl(url);
@@ -443,7 +452,7 @@ export function installWorker(scope: WorkerScope, deps: WorkerDeps): void {
   // A purge whose write fails, by a rejected promise or an aborted or errored
   // transaction (idbStore.ts rejects on both), fails closed (spec 4.6).
 
-  /** The scopes whose purge the store could not write. While any is left, the worker is quarantined. */
+  /** The scopes whose purge the store could not write, in memory. */
   const unpurged: PurgeScope[] = [];
 
   /**
@@ -452,19 +461,81 @@ export function installWorker(scope: WorkerScope, deps: WorkerDeps): void {
    */
   let memoryGeneration = 0;
 
+  /**
+   * The quarantine marker in Cache Storage, as this worker last read or wrote it.
+   * `unknown` until the startup read succeeds, and quarantined meanwhile: a
+   * worker restarted after a failed purge must not serve before it has looked.
+   */
+  let marker: "unknown" | "absent" | "present" = "unknown";
+  let markerReading: Promise<void> | null = null;
+
+  /** Set by a failed purge: the recovery escalates at once, without retrying first. */
+  let escalateNow = false;
+
   /** The recovery in progress, so events arriving during it do not start another. */
   let recovering: Promise<void> | null = null;
 
   /** No saved copy or stored asset is served, and no save commits (spec 4.6). */
   function quarantined(): boolean {
-    return unpurged.length > 0;
+    return unpurged.length > 0 || marker !== "absent";
+  }
+
+  /**
+   * Settles once the marker has been read. Read at startup, and awaited by
+   * activate and by every path that serves, saves or lists, so the first fetch
+   * waits for it. A read that fails leaves it unknown, and the next caller reads
+   * again.
+   */
+  function markerChecked(): Promise<void> {
+    if (marker !== "unknown") return Promise.resolve();
+    markerReading ??= readMarker().finally(() => {
+      markerReading = null;
+    });
+    return markerReading;
+  }
+
+  async function readMarker(): Promise<void> {
+    try {
+      const names = await deps.cacheStorage.keys();
+      const present =
+        names.includes(QUARANTINE_CACHE) &&
+        (await (await deps.cacheStorage.open(QUARANTINE_CACHE)).match(absolute(QUARANTINE_KEY))) !==
+          undefined;
+      // A failed purge in this life may have written it while this read ran.
+      if (marker === "unknown") marker = present ? "present" : "absent";
+    } catch {
+      // Still unknown, so still quarantined.
+    }
+  }
+
+  /** Records the quarantine outside the database whose writes failed. */
+  async function writeMarker(): Promise<void> {
+    try {
+      const cache = await deps.cacheStorage.open(QUARANTINE_CACHE);
+      await cache.put(absolute(QUARANTINE_KEY), new Response("quarantined"));
+      marker = "present";
+    } catch {
+      // Memory still holds the quarantine; a restart now loses it (spec 9).
+    }
+  }
+
+  /** The marker goes last, once the purges or the escalation have succeeded. */
+  async function deleteMarker(): Promise<boolean> {
+    try {
+      await deps.cacheStorage.delete(QUARANTINE_CACHE);
+      marker = "absent";
+      return true;
+    } catch {
+      return false;
+    }
   }
 
   /**
    * Advances G and removes what the scope names; returns once the store has
    * done so. The files only those copies used go in a sweep queued behind it,
-   * which every event handler waits for under waitUntil (`sweepsDone`). Never
-   * rejects: a write that fails quarantines the worker and removes nothing.
+   * which every event handler waits for under waitUntil (`backgroundDone`).
+   * Never rejects: a write that fails quarantines the worker, removes nothing,
+   * and starts the escalation, which the same event's waitUntil waits for.
    */
   async function purge(scope: PurgeScope): Promise<readonly StoredCopy[]> {
     try {
@@ -474,32 +545,39 @@ export function installWorker(scope: WorkerScope, deps: WorkerDeps): void {
     } catch {
       memoryGeneration += 1;
       unpurged.push(scope);
+      escalateNow = true;
+      void recover();
       return [];
     }
   }
 
-  /** While quarantined, every fetch event and message retries the purges the worker is waiting on. */
+  /** While quarantined, every fetch event and message retries: the backstop to an escalation that failed. */
   function retryWhileQuarantined(event: ExtendableEvent): void {
     if (quarantined()) event.waitUntil(recover());
   }
 
   /**
-   * Retries each failed purge in order. One that fails again escalates; the
-   * quarantine ends once every scope has been purged or the escalation succeeds.
+   * Ends the quarantine if it can. The marker is written first. After a failed
+   * purge the escalation runs at once; otherwise each failed purge is retried in
+   * order, and one that fails again escalates. Only then is the marker deleted.
+   * A quarantine read from the marker names no scope (an earlier life of the
+   * worker failed it), so its retry purges every copy.
    */
   function recover(): Promise<void> {
     recovering ??= (async () => {
       try {
-        while (unpurged.length > 0) {
-          try {
-            await store.purge(unpurged[0] as PurgeScope);
-          } catch {
-            // Every copy lived in the database the escalation deletes.
-            if (await escalate()) unpurged.length = 0;
-            return;
-          }
-          unpurged.shift();
-          void sweep();
+        await markerChecked();
+        while (quarantined()) {
+          if (unpurged.length === 0) unpurged.push({ by: "all" });
+          await writeMarker();
+          const escalating = escalateNow;
+          escalateNow = false;
+          const purged = !escalating && (await retryPurges());
+          // Every copy lived in the database the escalation deletes.
+          if (!purged && !(await escalate())) return;
+          unpurged.length = 0;
+          // A purge that failed while this ran goes round again.
+          if (!(await deleteMarker())) return;
         }
       } finally {
         recovering = null;
@@ -508,16 +586,33 @@ export function installWorker(scope: WorkerScope, deps: WorkerDeps): void {
     return recovering;
   }
 
+  /** Retries each failed purge in order; false at the first that fails again. */
+  async function retryPurges(): Promise<boolean> {
+    while (unpurged.length > 0) {
+      try {
+        await store.purge(unpurged[0] as PurgeScope);
+      } catch {
+        return false;
+      }
+      unpurged.shift();
+      void sweep();
+    }
+    return true;
+  }
+
   /**
-   * Deletes the store's database, then every fxav- cache. True once both are
-   * gone. The store retires on the version change (idbStore.ts), so from then
-   * on nothing is read or written until the browser restarts the worker.
+   * Deletes the store's database, then every fxav- cache but the marker's. True
+   * once both are gone. The store retires on the version change (idbStore.ts),
+   * so from then on nothing is read or written until the browser restarts the
+   * worker.
    */
   async function escalate(): Promise<boolean> {
     try {
       await deleteDatabase();
       for (const name of await deps.cacheStorage.keys()) {
-        if (name.startsWith(CACHE_PREFIX)) await deps.cacheStorage.delete(name);
+        if (name.startsWith(CACHE_PREFIX) && name !== QUARANTINE_CACHE) {
+          await deps.cacheStorage.delete(name);
+        }
       }
       return true;
     } catch {
@@ -541,6 +636,7 @@ export function installWorker(scope: WorkerScope, deps: WorkerDeps): void {
 
   /** A save's ticket, taken before its fetch is sent: in quarantine it can never commit. */
   async function beginSave(): Promise<Ticket> {
+    await markerChecked();
     const generation = quarantined() ? null : memoryGeneration;
     return { token: await store.beginSave(), memoryGeneration: generation };
   }
@@ -563,6 +659,11 @@ export function installWorker(scope: WorkerScope, deps: WorkerDeps): void {
   /** Settles once every sweep queued so far has run. */
   function sweepsDone(): Promise<void> {
     return sweeping;
+  }
+
+  /** What an event waits for after its handler: the queued sweeps, and a recovery a failed purge started. */
+  function backgroundDone(): Promise<unknown> {
+    return Promise.all([sweeping, recovering]);
   }
 
   /**
@@ -1046,6 +1147,7 @@ export function installWorker(scope: WorkerScope, deps: WorkerDeps): void {
    */
   async function isListed(path: string): Promise<boolean> {
     try {
+      await markerChecked();
       const copies = await store.listCopies();
       return copies.some((copy) => copy.assets.includes(path)) && !quarantined();
     } catch {
@@ -1182,7 +1284,7 @@ export function installWorker(scope: WorkerScope, deps: WorkerDeps): void {
       handled
         .then((result) => result.background)
         .catch(() => undefined)
-        .then(sweepsDone),
+        .then(backgroundDone),
     );
   }
 
@@ -1195,6 +1297,10 @@ export function installWorker(scope: WorkerScope, deps: WorkerDeps): void {
     }
   }
 
+  // At startup: a worker the browser restarted after a failed purge is quarantined
+  // from its first event (spec 4.6).
+  void markerChecked();
+
   scope.addEventListener("install", (event) => {
     event.waitUntil(scope.skipWaiting());
   });
@@ -1203,7 +1309,8 @@ export function installWorker(scope: WorkerScope, deps: WorkerDeps): void {
     event.waitUntil(
       (async () => {
         try {
-          const current = new Set([STATIC_CACHE, ASSET_CACHE]);
+          await markerChecked();
+          const current = new Set([STATIC_CACHE, ASSET_CACHE, QUARANTINE_CACHE]);
           for (const name of await deps.cacheStorage.keys()) {
             if (name.startsWith(CACHE_PREFIX) && !current.has(name))
               await deps.cacheStorage.delete(name);
@@ -1257,8 +1364,9 @@ export function installWorker(scope: WorkerScope, deps: WorkerDeps): void {
       answer(parsePageMessage(event.data))
         .catch((): WorkerReply => ({ outcome: "failed" }))
         .then((reply) => port?.postMessage(reply))
-        // A purge replies once the store has removed the copy; its sweep runs after.
-        .then(sweepsDone),
+        // A purge replies once the store has removed the copy; its sweep, or the
+        // escalation of a purge that failed, runs after.
+        .then(backgroundDone),
     );
   });
 }
