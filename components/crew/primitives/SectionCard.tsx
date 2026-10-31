@@ -68,9 +68,13 @@ export function SectionCard({ icon, title, action, headingLevel = 3, children }:
               <Heading
                 data-slot="section-card-title"
                 // The card title is a search group heading (spec §2.3): the
-                // `group` a card's search entries name.
+                // `group` a card's search entries name. It wraps rather than
+                // truncates: beside the header actions ("In sheet" and the report
+                // button) a one-line title was cut to "CREW SCHE…" in a 320px
+                // sheet and "CREW S…" in the 1024 wide column, losing the card's
+                // name (UI-gate re-run, critique N2; the run card's X10 class).
                 data-search-group=""
-                className="truncate text-xs font-medium uppercase tracking-eyebrow text-text-subtle"
+                className="min-w-0 wrap-break-word text-xs font-medium uppercase tracking-eyebrow text-text-subtle"
               >
                 {title}
               </Heading>

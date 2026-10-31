@@ -826,6 +826,52 @@ test.describe("crew layout dimensions — split-wide ratio + natural height (Tas
     }
   });
 
+  // UI-gate re-run, critique N2 (the X10 class swept): a card title truncated
+  // beside its header actions ("In sheet" and the report button): "CREW SCHE…" and
+  // "ROOM DETAI…" in the sheets at 320, "CREW S…" in the 1024 wide column. The
+  // title is the card's name and its search group, so it wraps instead. Every
+  // card title the seeded show renders: each section's sheet at 320 and 390, and
+  // every stacked section at 1024 and 1280.
+  test("card titles: no SectionCard title is cut, in a sheet at 320 and 390 or in the wide column at 1024 and 1280", async ({
+    page,
+  }, testInfo) => {
+    if (testInfo.project.name !== "mobile-safari") return; // single-writer: mobile-safari only
+    const readTitles = (scope: string) =>
+      page.evaluate((sel) => {
+        const root = document.querySelector(sel);
+        if (root === null) return [];
+        return [...root.querySelectorAll<HTMLElement>('[data-slot="section-card-title"]')]
+          .filter((el) => el.getClientRects().length > 0)
+          .map((el) => ({
+            text: el.textContent,
+            scrollWidth: el.scrollWidth,
+            clientWidth: el.clientWidth,
+            overflow: getComputedStyle(el).textOverflow,
+          }));
+      }, scope);
+    const cut = (titles: Awaited<ReturnType<typeof readTitles>>) =>
+      titles.filter((t) => t.scrollWidth > t.clientWidth + TOL_TIGHT || t.overflow === "ellipsis");
+    let seen = 0;
+    for (const width of [320, 390]) {
+      await page.setViewportSize({ width, height: 844 });
+      for (const section of ["schedule", "venue", "travel", "crew", "gear"]) {
+        await gotoSection(page, section);
+        const titles = await readTitles('[data-testid="crew-section-sheet-body"]');
+        seen += titles.length;
+        expect(cut(titles), `${width}px ${section}: ${JSON.stringify(titles)}`).toEqual([]);
+      }
+    }
+    for (const width of [1024, 1280]) {
+      await page.setViewportSize({ width, height: 900 });
+      await gotoSection(page, "today");
+      const titles = await readTitles('[data-testid="crew-wide-stack"]');
+      seen += titles.length;
+      expect(cut(titles), `${width}px: ${JSON.stringify(titles)}`).toEqual([]);
+    }
+    // PREMISE: the walk read real titles, the ones that were cut among them.
+    expect(seen).toBeGreaterThan(20);
+  });
+
   // ── Avatar is 40px square (Avatar.tsx `size-10`). Reachable on the Crew
   // section's PersonRow (PersonRow.tsx:145 → <Avatar />). ──
   test("avatar is 40px square", async ({ page }, testInfo) => {
