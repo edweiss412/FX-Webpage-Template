@@ -374,3 +374,52 @@ Step 2, green: add exactly the classes and token spec §8 names, row by row: day
 2. **Design record.** `DESIGN.md` amendments per spec §3.3 (section sheet exception, crew left nav), committed as `docs(design): record crew sheet and left nav`; `pnpm heavy pnpm vitest run tests/docs` stays green.
 3. **Help screenshots.** Regenerate `public/help/screenshots/crew-preview-{today,gear,schedule}-mobile-{light,dark}.webp` through the pinned-image `screenshots-regen` workflow (`gh workflow run screenshots-regen.yml --ref feat/crew-page-redesign`), never from a dev host; the PR's `screenshots-drift` job must pass.
 4. The invariant-8 UI gate runs on the PR A diff before the cross-model diff review; its findings and dispositions are recorded here, with the closeout marker line, in the gate-run commit. Then the whole-diff cross-model review to APPROVE, real CI green on every required check, `gh pr merge --merge`, and local `main` fast-forwarded to `0  0`.
+
+## 12. Invariant-8 UI quality gate
+
+Run by the orchestrator on `feat/crew-page-redesign` at 56d67a6ec (the full PR A UI diff of Tasks 1-13 plus the `DESIGN.md` amendment), with the setup gates (the impeccable context load of PRODUCT.md and DESIGN.md, then the register read: impeccable 4.5.0 has no product register file, so the Operate register) and each half in its own context: critique 28/40, audit 13/20. Both halves measured on a live dev server at 320, 390, 768, 1024 and 1280, both themes, the crew route and the admin preview route; the detector found nothing in the changed files. Then re-run, scoped to the fix diff and the loading skeletons (56d67a6ec..f6654e7c0) at f6654e7c0: critique 31/40, audit 17/20; all 22 first-run fixes (X1-X10, Y1-Y12) resolved, the focus-trap repair leaves every admin dialog behaving as on main, and the re-run found 0 P0, 1 P1, 3 P2 and 7 P3 (rows 27-37, overlaps merged). Its fixes landed in b0f7554cf..8728afbfd.
+
+Neither half could render the run-of-show card or the Dress code card in a browser (no seeded show has either); the fix pass rendered both from fixtures and the re-run checked them.
+
+| # | Pass | Tier | Where | Finding | Disposition |
+|---|---|---|---|---|---|
+| 1 | both | P1 | CrewPass.tsx | The pass cut off the show time (AM/PM lost at 1024), labels and the strike time (audit P1-1, P2-1; critique F1). | Fixed: 84ab5ebaa, d3a7c3d3c. The big time and time cells never truncate, labels never truncate, other values clamp at two lines; spec §4.3 amended on its line (overridable). |
+| 2 | audit | P1 | Header.tsx, globals.css | The sticky wide header hid keyboard focus on Shift+Tab (WCAG 2.4.11). | Fixed: 6118d42b4 (scroll padding from the header height). |
+| 3 | both | P1 | Header.tsx, PreviewBanner.tsx | On the admin preview route the preview banner covered the sticky crew header and its focusable controls (audit P1-3, critique F3). | Fixed: 6118d42b4 (the banner publishes its height; header, nav and scroll padding add it). |
+| 4 | audit | P1 | globals.css | Forced colors: the selected day and the current nav item rendered their text invisible; the admin top bar's current link had the same fault. | Fixed: 2c958a29c (one `forced-color-adjust: none` selected-state rule, verified on rendered pixels); DESIGN.md §17. |
+| 5 | both | P2 | passModel.ts, CrewPass.tsx | The pass eyebrow showed the raw roster role and lost its position code (audit P2-2, critique F2). | Fixed: 84ab5ebaa, d3a7c3d3c (wraps, clamps at three lines). |
+| 6 | both | P2 | Header.tsx | The wide header truncated the show title (audit P2-3, critique F8). | Fixed: 48484c597 (title gets the larger share, status pill moves to the date line, `title` attribute). |
+| 7 | audit | P2 | SectionCard.tsx, CrewSections.tsx | Heading levels were flat: card titles at the same level as their section (WCAG 1.3.1). | Fixed: 48a733742 (card titles one level under their section, swept to the Diagrams tile, Agenda and gear rooms). |
+| 8 | audit | P2 | CrewSectionSheet.tsx | Closing a deep-linked sheet dropped focus to body. | Fixed: e04ed4ac9 (focus returns to the section's row). |
+| 9 | audit | P2 | CrewSections.tsx | The wide nav's Today jump focused a 1px hidden heading. | Fixed: bc46f63fd. |
+| 10 | critique | P2 | CrewSectionSheet.tsx | Closing one section and quickly opening another showed the old body under the new title. | Fixed: b35bbb2b5; spec §7 amended on its line with the compound row. |
+| 11 | critique | P2 | CrewDayRow.tsx | After the show the day row scrolled the pressed Now out of view. | Fixed: 165aed6ad. |
+| 12 | critique | P2 | CrewPass.tsx, CrewDayRow.tsx, globals.css | In dark the pass stopped being the focal point; the pressed day outshone it. | Fixed: d3bbd50fc (dark pass edge, quieter pressed day, new tokens with contrast pins). |
+| 13 | critique | P2 | CrewSections.tsx | The wide Today block left a void under the pass with no run of show. | Fixed: f3938834c. |
+| 14 | critique | P2 | quickFacts.ts | Who to call dropped the contact's role (spec §4.5). | Fixed: 75a006857. |
+| 15 | audit | P3 | CrewPass.tsx, globals.css | Inactive progress segments vanished in forced colors. | Fixed: 5367f7d82, 2c958a29c. |
+| 16 | audit | P3 | CrewPass.tsx, CrewDayRow.tsx | The live dot had no "Live" text; a day change was silent. | Fixed: fe92a4b32. |
+| 17 | audit | P3 | HomeSection.tsx | Show notes that fit still rendered as empty disclosures. | Fixed: b43b399f1. |
+| 18 | audit | P3 | CrewDayRow.tsx | Day-row overflow has no edge cue. | Accepted: behaviour follows spec §4.2. |
+| 19 | audit | P3 | CrewSectionSheet.tsx | The sheet's inert sweep inerted Next's route announcer. | Fixed: 5adcaf34f. |
+| 20 | critique | P3 | HomeSection.tsx, CrewQuickFacts.tsx | Three heading idioms on the home; Show notes nests bordered cards. | Accepted: spec §5.1 keeps today's Show notes and Dress code renderings through PR A and PR B; PR C revisits them. Heading levels fixed in row 7. |
+| 21 | critique | P3 | Header.tsx | The header date is unlabeled. | Accepted: who sees the header date is a recorded ruling (`lib/crew/dateSuppression.ts`); unchanged presentation. |
+| 22 | critique | P3 | CrewQuickFacts.tsx | The contact buttons wrapped at 390. | Fixed: dff9f2676. The Crew section's glyph icons filed as BL-CREW-SECTION-GLYPH-ICONS. |
+| 23 | critique | P3 | CrewSectionSheet.tsx | The sheet panel had no lift in dark. | Fixed: ca10bc82d. |
+| 24 | critique | P3 | CrewWideNav.tsx | The nav indicator animated `height`. | Fixed: 571765ef7 (transform only). |
+| 25 | fix pass | P2 | CrewRunOfShowCard.tsx | Found while rendering the run card from a fixture: its title truncated at every width. | Fixed: 1a8e5784f ("Full schedule" moves to the card's foot). |
+| 26 | critique | out of diff | Section.tsx, PersonRow.tsx | Diagrams heading contrast; Crew section role lines raw and truncated. | Filed: BL-DIAGRAMS-HEADING-FAINT-CONTRAST, BL-CREW-ROLE-LINE-RAW-TRUNCATED (4a98c2147). |
+
+| 27 | re-run audit | P1 | CrewSections.tsx | From 1024px a Today-block search target (run-of-show line, show note, dress code) scrolled under the sticky header, fully hidden (WCAG 2.4.11); the reveal e2e passed because `toBeInViewport()` ignores what covers an element. | Fixed: 2bc77cdc1 (every reveal and nav-jump target clears the header, banner and focus ring; the e2e now checks the target is not covered). |
+| 28 | re-run audit | P2 | CrewSectionSheet.tsx | Closing a deep-linked sheet focused the All-sections row with `preventScroll`, off screen. | Fixed: d934b5d7d (the focused row is brought into view). |
+| 29 | re-run audit | P3 | CrewSections.tsx | The focus ring's top 5px sat under the sticky header after a jump. | Fixed: 2bc77cdc1 (same change as row 27). |
+| 30 | re-run both | P3 | CrewLoadingSkeleton.tsx | The loading skeleton still jumped (+86px at 390, +92 on the preview route at 390, +29 on the preview route at 1280). | Fixed: d67f3c071 (lands within the case tolerance at 390 and 1280 on the crew and preview routes; the case now covers the preview route). |
+| 31 | re-run both | P3 | CrewQuickFacts.tsx | Who to call put Email alone on a second row at 320, 360, 375 and 1024. | Fixed: 568087acd (one row at every width). |
+| 32 | re-run both | P3 | CrewSearchField.tsx | The search placeholder was cut mid-word at 1024. | Fixed: a8d776258. |
+| 33 | re-run critique | P2 | passModel.ts, CrewPass.tsx, quickFacts.ts | The pass's Dress code cell and tile ignored the day's phase. | Fixed: 01ae2f44d (the cell and tile show the attire for the day's phase; with no phase labels the whole value shows). |
+| 34 | re-run critique | P2 | SectionCard.tsx | Card titles truncated beside "In sheet" and the report button (class of row 25). | Fixed: 064e4f507 (titles wrap beside their header actions; swept every SectionCard caller). |
+| 35 | re-run critique | P3 | CrewSections.tsx | The wide Today block leaves about 350px empty in its right column when a run of show is present. | Accepted: PR C rebuilds this block when it moves the Dress code card out (spec §5.1). |
+| 36 | re-run critique | P3 | CrewDayRow.tsx, globals.css | In dark the pressed day differed only by a 1px edge. | Fixed: a77f7cfe8 (an accent selection bar on the pressed day, contrast pinned). |
+| 37 | re-run critique | P3 | Header.tsx | At 1024+ the status pill beside the unlabeled set date read as if the date were today's. | Fixed: 9f766288e (the status pill moves to the eyebrow line; the date stays visible per the ruling), 8728afbfd (the eyebrow carries client and venue whole as `title` where the line truncates). |
+
+impeccable-gate: critique=RAN audit=RAN p0=0 p1=5 dispositions=recorded
