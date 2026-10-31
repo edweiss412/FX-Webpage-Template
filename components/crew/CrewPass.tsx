@@ -56,6 +56,7 @@ import {
   spokenDate,
   type PassDay,
   type PassFact,
+  type PassFactId,
   type PassProps,
   type PassTime,
 } from "@/lib/crew/passModel";
@@ -313,6 +314,14 @@ function PresentBody({
   );
 }
 
+/**
+ * The fact cells whose value is a time. A time is never cut (a cut "12:0…" reads
+ * as noon or midnight), so these wrap in full; every other value clamps at two
+ * lines, its full text one tap away in its section (spec §4.3, amended
+ * 2026-10-30).
+ */
+const TIME_FACTS: ReadonlySet<PassFactId> = new Set<PassFactId>(["strike", "loadIn"]);
+
 function TimeBlock({
   time,
   testId,
@@ -328,15 +337,23 @@ function TimeBlock({
     <div
       data-testid={testId}
       data-label={time.label}
-      className={cn("flex min-w-0 flex-col", align === "end" ? "items-end text-right" : null)}
+      className={cn(
+        "flex min-w-0 flex-col",
+        align === "end" ? "ml-auto items-end text-right" : null,
+      )}
     >
       <span className="text-xs font-semibold uppercase tracking-eyebrow text-text-subtle">
         {time.label}
       </span>
+      {/* Never truncated: the time is free text from the sheet, so its length is
+          not bounded. The big time steps down a size with the pass's own width,
+          so a typical "4/21 @ 7:30 AM" fits on one line from the 288px pass of a
+          320px window up; anything longer wraps, balanced, rather than lose its
+          meridiem. */}
       <span
         className={cn(
-          "mt-1 max-w-full truncate font-bold tabular-nums text-text-strong",
-          size === "big" ? "text-4xl" : "text-lg",
+          "mt-1 max-w-full font-bold tabular-nums text-balance wrap-break-word text-text-strong",
+          size === "big" ? "text-2xl @xs/pass:text-3xl @sm/pass:text-4xl" : "text-lg",
         )}
       >
         {time.time}
@@ -350,7 +367,14 @@ function BodyView({ body, eyebrowRight }: { body: PassBody; eyebrowRight: string
   return (
     <>
       <div className="flex flex-1 flex-col p-5">
-        <div data-testid="crew-pass-eyebrow-row" className="flex items-start justify-between gap-3">
+        {/* The role side wraps under the day label when the two do not fit one
+            line, and then clamps at two: the role renders as the sheet writes
+            it (spec §9.2), and on a real roster that is a long string whose
+            trailing position code is the part that matters. */}
+        <div
+          data-testid="crew-pass-eyebrow-row"
+          className="flex flex-wrap items-start justify-between gap-x-3 gap-y-1"
+        >
           <p
             data-testid="crew-pass-eyebrow"
             className="flex shrink-0 items-center gap-2 text-xs font-semibold uppercase tracking-eyebrow-strong text-text-subtle"
@@ -367,7 +391,7 @@ function BodyView({ body, eyebrowRight }: { body: PassBody; eyebrowRight: string
           {eyebrowRight ? (
             <p
               data-testid="crew-pass-eyebrow-right"
-              className="min-w-0 truncate text-xs font-semibold uppercase tracking-eyebrow text-text-subtle"
+              className="line-clamp-2 min-w-0 text-balance wrap-break-word text-xs font-semibold uppercase tracking-eyebrow text-text-subtle"
             >
               {eyebrowRight}
             </p>
@@ -398,7 +422,8 @@ function BodyView({ body, eyebrowRight }: { body: PassBody; eyebrowRight: string
         ) : null}
 
         {hasTimes ? (
-          <div className="mt-3 flex items-end justify-between gap-4">
+          // Strike drops under the big time when the two do not fit one line.
+          <div className="mt-3 flex flex-wrap items-end justify-between gap-x-4 gap-y-3">
             {body.bigTime ? (
               <TimeBlock time={body.bigTime} testId="crew-pass-big-time" align="start" size="big" />
             ) : (
@@ -448,16 +473,25 @@ function BodyView({ body, eyebrowRight }: { body: PassBody; eyebrowRight: string
             <div className="mx-5 border-t border-dashed border-border-strong" />
             <span className="absolute -top-2.5 -right-2.5 size-5 rounded-pill bg-(--pass-notch)" />
           </div>
+          {/* Two columns until the pass is wide enough for three readable cells
+              (`@lg/pass`, the pass's own width, never the viewport: the pass is
+              a phone-width card in the wide layout's half column too). Labels
+              and times wrap in full; other values clamp at two lines. */}
           <dl
             data-testid="crew-pass-facts"
-            className="grid grid-cols-3 gap-x-3 gap-y-4 px-5 pt-4 pb-5"
+            className="grid grid-cols-2 gap-x-3 gap-y-4 px-5 pt-4 pb-5 @lg/pass:grid-cols-3"
           >
             {body.facts.map((fact) => (
               <div key={fact.id} data-fact={fact.id} className="min-w-0">
-                <dt className="truncate text-xs font-semibold uppercase tracking-eyebrow text-text-subtle">
+                <dt className="wrap-break-word text-xs font-semibold uppercase tracking-eyebrow text-text-subtle">
                   {fact.label}
                 </dt>
-                <dd className="mt-0.5 truncate text-sm font-semibold text-text-strong">
+                <dd
+                  className={cn(
+                    "mt-0.5 wrap-break-word text-sm font-semibold text-text-strong",
+                    TIME_FACTS.has(fact.id) ? "text-balance tabular-nums" : "line-clamp-2",
+                  )}
+                >
                   {fact.value}
                 </dd>
               </div>
@@ -616,7 +650,9 @@ export function CrewPass(props: PassProps) {
         className={cn(
           // One grid cell: a crossfade stacks the outgoing and incoming bodies in
           // it, so the card is the taller of the two and never collapses mid-fade.
-          "grid w-full overflow-hidden rounded-md border border-border text-text shadow-tile",
+          // `@container/pass`: the big time's size and the fact grid's columns
+          // read the pass's own width.
+          "@container/pass grid w-full overflow-hidden rounded-md border border-border text-text shadow-tile",
           "min-h-right-now-min-h",
           degraded ? "bg-stale-tint" : "bg-surface-raised",
         )}

@@ -433,10 +433,24 @@ describe("pass: layout", () => {
     }
     expect(factValue("room")).toBe(ROOM);
     expect(factValue("dressCode")).toBe(DRESS);
-    // Each value is one line with an ellipsis (spec §4.3 item 5).
-    for (const dd of body().querySelectorAll("[data-fact] dd")) expect(dd).toHaveClass("truncate");
-    for (const cell of body().querySelectorAll("[data-fact]")) expect(cell).toHaveClass("min-w-0");
-    expect(q("crew-pass-facts")).toHaveClass("grid-cols-3");
+    // Spec §4.3 item 5, amended 2026-10-30: labels never truncate; a time
+    // (Strike, Load in) wraps in full; every other value clamps at two lines.
+    // The real-browser half (nothing measured as cut at 320 to 1280) is
+    // tests/e2e/crew-page.spec.ts "pass: no time, label or role is cut".
+    const TIMES = new Set(["strike", "loadIn"]);
+    for (const cell of body().querySelectorAll<HTMLElement>("[data-fact]")) {
+      expect(cell).toHaveClass("min-w-0");
+      expect(cell.querySelector("dt")).not.toHaveClass("truncate");
+      const dd = cell.querySelector("dd")!;
+      expect(dd).not.toHaveClass("truncate");
+      if (TIMES.has(cell.dataset.fact!)) expect(dd).not.toHaveClass("line-clamp-2");
+      else expect(dd).toHaveClass("line-clamp-2");
+    }
+    // PREMISE: the fixture holds a time cell and a text cell, so both arms ran.
+    expect(factIds()).toEqual(expect.arrayContaining(["strike", "room"]));
+    // Two columns until the pass's own width holds three (a container query).
+    expect(q("crew-pass-facts")).toHaveClass("grid-cols-2", "@lg/pass:grid-cols-3");
+    expect(screen.getByTestId("crew-pass")).toHaveClass("@container/pass");
   });
 
   it("pass: a show day whose own anchor is absent renders no big time, never another day's", () => {

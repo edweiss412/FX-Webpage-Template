@@ -1909,6 +1909,121 @@ test.describe("the pass (crew page redesign Task 9)", () => {
     await expect(pass.locator("[data-fact]").first()).toBeVisible();
   });
 
+  // Audit P1-1 / P2-1 / P2-2, critique F1 / F2 (spec §4.3, amended 2026-10-30): at
+  // 320 the big time read "4/21 @ 7:3…", at 1024 it lost its meridiem, at 390 the
+  // labels and the strike time were cut ("HOTEL TON…", "4/22 @ 12:0…"), and the
+  // role's trailing position code was never visible. The viewer is the seed's
+  // crew member with the LONGEST role, so the eyebrow carries the worst real case.
+  test("pass: no time, label or role is cut at 320, 390, 1024 or 1280; other values clamp at two lines", async ({
+    page,
+  }) => {
+    // not-subject-to-meta: test-local fixture lookup (see lookupSeededShow).
+    const { data: crew, error } = await admin
+      .from("crew_members")
+      .select("id, role")
+      .eq("show_id", showId);
+    if (error) throw new Error(`pass sizing: crew lookup FAILED: ${error.message}`);
+    const viewer = [...(crew ?? [])]
+      .filter((c) => typeof c.role === "string" && c.role.trim().length > 0)
+      .sort((a, b) => (b.role as string).trim().length - (a.role as string).trim().length)[0];
+    if (!viewer) throw new Error("pass sizing: the seed needs a crew member with a role");
+
+    type Box = {
+      what: string;
+      text: string;
+      cut: boolean;
+      lines: number;
+    };
+    /** Every text box of the settled body, with whether its overflow clips it. */
+    const readBoxes = () =>
+      page.evaluate(() => {
+        const body = document.querySelector('[data-testid="crew-pass-body"]:not([data-exiting])')!;
+        const box = (what: string, el: Element | null): Box[] => {
+          if (!(el instanceof HTMLElement)) return [];
+          const style = getComputedStyle(el);
+          // Cut = the box's overflow is not visible on an axis AND its content
+          // overflows that axis: an ellipsis or a clamp is hiding text.
+          const cutX = style.overflowX !== "visible" && el.scrollWidth > el.clientWidth + 0.5;
+          const cutY = style.overflowY !== "visible" && el.scrollHeight > el.clientHeight + 0.5;
+          const lineHeight = Number.parseFloat(style.lineHeight);
+          return [
+            {
+              what,
+              text: el.textContent!.trim(),
+              cut: cutX || cutY,
+              lines: Math.round(el.getBoundingClientRect().height / lineHeight),
+            },
+          ];
+        };
+        type Box = { what: string; text: string; cut: boolean; lines: number };
+        const out: Box[] = [
+          ...box("role", body.querySelector('[data-testid="crew-pass-eyebrow-right"]')),
+          ...box(
+            "big time",
+            body.querySelector('[data-testid="crew-pass-big-time"] > :last-child'),
+          ),
+          ...box("strike", body.querySelector('[data-testid="crew-pass-strike"] > :last-child')),
+        ];
+        for (const cell of body.querySelectorAll<HTMLElement>("[data-fact]")) {
+          out.push(...box(`${cell.dataset.fact} label`, cell.querySelector("dt")));
+          out.push(...box(`${cell.dataset.fact} value`, cell.querySelector("dd")));
+        }
+        return out;
+      });
+
+    const NEVER_CUT = (b: Box) =>
+      b.what === "role" ||
+      b.what === "big time" ||
+      b.what === "strike" ||
+      b.what.endsWith(" label") ||
+      b.what === "strike value" ||
+      b.what === "loadIn value";
+
+    await pinBothClocks(page, SHOW_DAY_1);
+    const seen = new Set<string>();
+    let roleWrapped = false;
+    for (const width of [320, 390, 1024, 1280]) {
+      await page.setViewportSize({ width, height: 900 });
+      await gotoPass(page, `/admin/show/${slug}/preview/${viewer.id}`);
+      // Live (show day 1: Strike is a cell) and the last show day (Strike sits
+      // at the big time's edge).
+      const bodies: Box[][] = [await readBoxes()];
+      await page.locator(`[data-testid="crew-day-button"][data-day="${SHOW_DAY_2}"]`).click();
+      await expect(page.getByTestId("crew-pass")).toHaveAttribute(
+        "data-selection",
+        `day:${SHOW_DAY_2}`,
+      );
+      await expect
+        .poll(() => page.locator('[data-testid="crew-pass-body"]').count(), { timeout: 5_000 })
+        .toBe(1);
+      bodies.push(await readBoxes());
+
+      for (const boxes of bodies) {
+        for (const b of boxes) {
+          seen.add(b.what);
+          const where = `${b.what} "${b.text}" at ${width}px`;
+          if (NEVER_CUT(b)) expect(b.cut, `${where} is cut`).toBe(false);
+          else expect(b.lines, `${where} runs past two lines`).toBeLessThanOrEqual(2);
+          if (b.what === "role" && b.lines > 1) roleWrapped = true;
+        }
+      }
+    }
+    // PREMISES: every surface the defect cut was read, and the role was long
+    // enough to need its second line somewhere, so the clamp branch ran.
+    for (const what of [
+      "role",
+      "big time",
+      "strike",
+      "strike label",
+      "strike value",
+      "room label",
+      "room value",
+    ]) {
+      expect(seen, `${what} was measured`).toContain(what);
+    }
+    expect(roleWrapped, "the longest seeded role wraps at some measured width").toBe(true);
+  });
+
   test("pass: a day switch is a crossfade: mid-transition both bodies are mounted at opacity strictly between 0 and 1, and the run card crossfades its rows with it", async ({
     page,
   }) => {
