@@ -376,9 +376,10 @@ A small self-contained HTML page embedded in the worker (no Next chunks; inline 
 
 - Heading: "No signal, and this show isn't saved on this phone yet."
 - Body: "Open this link once while you have signal or wifi. After that it works here even with no signal."
-- Small: "This page reloads by itself when signal comes back."
+- Button: "Try again", at least 44 px tall, in the app's secondary-action style (surface fill, `text-faint` outline, the app's focus ring). It calls `location.reload()`.
+- Small: "This page reloads by itself once it can reach the server."
 
-It reloads on the `online` event. It is also what a phone sees with no signal after its copy was wiped.
+It also retries by itself: every 30 seconds while `navigator.onLine` is true (the bar's probe cadence, §4.7.3), when the tab becomes visible again (`visibilitychange`), and on the `online` event. A retry is `fetch(location.href, { cache: "no-store" })`, and the page reloads only when the response is ok. The fetch is not a navigation, so the worker passes it to the network. A phone that reports a connection but carries no data therefore keeps this page rather than flashing the browser's error page, and the note promises only what the page can do: `online` alone never fires on venue wifi with a dead uplink. It is also what a phone sees with no signal after its copy was wiped.
 
 #### 4.7.6 Actions offline
 

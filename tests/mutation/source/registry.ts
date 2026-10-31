@@ -2627,7 +2627,11 @@ export const GUARD_SURFACES: GuardSurface[] = [
     // 293/520/580/595 -> 340/581/644/659, same columns, same operators, same
     // reasons. A stale row here is not cosmetic — it is what left
     // `logical-connector:&&>||` reported as an unaccepted survivor on main's
-    // nightly (run 31933821808).
+    // nightly (run 31933821808). Re-derived 2026-10-30 after the not-saved
+    // page's EXPLICIT_INCLUDES row (feat/crew-offline-saved-copy) added eight
+    // lines above every site: 368/736/759/894/909 -> 376/744/767/902/917, same
+    // columns, same operators, same reasons, checked with enumerateSites on
+    // both trees.
     accepted: [
       // The JSX initializer narrowing is NOT equivalent, and the argument that
       // said it was rested on a false claim about the TypeScript API: probed,
@@ -2643,40 +2647,40 @@ export const GUARD_SURFACES: GuardSurface[] = [
       // differ and `<=` cannot decide anything `<` did not. Same class
       // taskContract carries four of.
       {
-        siteId: "relational-boundary:368:14:<><=",
+        siteId: "relational-boundary:376:14:<><=",
         kind: "equivalent",
         reason:
           "universeFiles' comparator reaches this `<` only when the two entry names differ, so `<=` cannot change the ordering",
       },
       {
-        siteId: "integer-literal:368:26:1>2",
+        siteId: "integer-literal:376:26:1>2",
         kind: "equivalent",
         reason: "comparator magnitude is unread — Array.sort consumes the sign only",
       },
       {
-        siteId: "integer-literal:368:30:1>2",
+        siteId: "integer-literal:376:30:1>2",
         kind: "equivalent",
         reason: "same comparator, positive branch; the sign is unchanged",
       },
       {
-        siteId: "relational-boundary:894:50:<><=",
+        siteId: "relational-boundary:902:50:<><=",
         kind: "equivalent",
         reason:
           "the site comparator reaches this `<` only when the files differ, because `a.file === b.file` is tested first",
       },
       {
-        siteId: "integer-literal:894:62:1>2",
+        siteId: "integer-literal:902:62:1>2",
         kind: "equivalent",
         reason: "comparator magnitude is unread — sign only",
       },
       {
-        siteId: "integer-literal:894:66:1>2",
+        siteId: "integer-literal:902:66:1>2",
         kind: "equivalent",
         reason: "same comparator, positive branch; the sign is unchanged",
       },
       // ---- equivalent: the flip cannot change which branch is taken -------
       {
-        siteId: "logical-connector:909:38:||>&&",
+        siteId: "logical-connector:917:38:||>&&",
         kind: "equivalent",
         reason:
           "the operands are never independently true: a site is `unclassified` if and only if its value is null, because the push sites guarantee it — so `||` and `&&` select the same rows",
@@ -2689,13 +2693,13 @@ export const GUARD_SURFACES: GuardSurface[] = [
       // root" case, which was written for it after the first attempt passed
       // against the mutant for an accidental reason (unequal offsets).
       {
-        siteId: "statement-removal:736:3:resolverMemo = { key, resolve };>(removed)",
+        siteId: "statement-removal:744:3:resolverMemo = { key, resolve };>(removed)",
         kind: "equivalent",
         reason:
           "removing the memo WRITE only stops the cache from ever being populated: every scan then builds its own program and returns the same answer, so the mutation is observable in wall clock alone",
       },
       {
-        siteId: "statement-removal:759:5:parsed.set(key, sf);>(removed)",
+        siteId: "statement-removal:767:5:parsed.set(key, sf);>(removed)",
         kind: "equivalent",
         reason:
           "same shape one level down — the parse cache is re-populated per lookup instead of once, and ts.createSourceFile is a pure function of (name, text), so every consumer sees an identical tree",

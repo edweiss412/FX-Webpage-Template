@@ -816,6 +816,7 @@ realtime reconnect backoff.
 | `submitTimeoutMs` | 30000 | `components/shared/ReportModal.tsx` |
 | `PENDING_TIMEOUT_MS` | 8000 | `components/shared/pendingTimeout.ts` |
 | `ARM_REVERT_MS` | 4000 | `lib/admin/destructiveConfirm.ts` |
+| `RETRY_INTERVAL_MS` | 30000 | `lib/offline/notSavedPage.ts` |
 | `COPY_FEEDBACK_RESET_MS` | 2000 | `lib/ui/copyFeedback.ts` |
  | `ANNOUNCE_DELAY_MS` | 400 | `components/admin/wizard/DraftRestoredNote.tsx` |
  | `DRAFT_RESTORED_NOTE_MS` | 5000 | `components/admin/wizard/DraftRestoredNote.tsx` |

@@ -183,6 +183,14 @@ export const EXPLICIT_INCLUDES: readonly { readonly file: string; readonly reaso
       "it. Without this include the delay resolves to nothing scanned and both call sites report " +
       "`unclassified` — the constant would be less visible in §5.5 than the bare literal it replaced.",
   },
+  {
+    file: "lib/offline/notSavedPage.ts",
+    reason:
+      "RETRY_INTERVAL_MS is how often the not-saved page retries while a crew member waits on it " +
+      "with no signal: interaction timing, set to the saved-copy bar's PROBE_INTERVAL_MS. It lives " +
+      "in lib/ because the page is a self-contained document the service worker serves, so its " +
+      "one script is a string built there, not a component.",
+  },
 ];
 
 /**

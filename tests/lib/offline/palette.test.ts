@@ -56,14 +56,20 @@ function splitByDarkMedia(rules: CSSRule[]): { top: CSSStyleRule[]; dark: CSSSty
   return { top: rules.filter(isStyleRule), dark: Array.from(media.cssRules).filter(isStyleRule) };
 }
 
-/** `#rrggbb` or jsdom's normalized `rgb(r, g, b)` as "r,g,b", so the two spellings compare. */
+/**
+ * `#rrggbb`, jsdom's normalized `rgb(r, g, b)`, or `rgba(r, g, b, a)` as "r,g,b" or
+ * "r,g,b,a", so the spellings compare. The alpha is kept: the dark focus ring is a
+ * translucent token, and a copy that dropped its alpha would be a different colour.
+ */
 function channels(color: string): string {
   const text = color.trim();
   const hex = /^#([0-9a-f]{2})([0-9a-f]{2})([0-9a-f]{2})$/i.exec(text);
   if (hex !== null) return [hex[1], hex[2], hex[3]].map((h) => parseInt(h as string, 16)).join(",");
   const rgb = /^rgb\(\s*(\d+),\s*(\d+),\s*(\d+)\s*\)$/.exec(text);
   if (rgb !== null) return [rgb[1], rgb[2], rgb[3]].join(",");
-  throw new Error(`not a #rrggbb or rgb() color: ${color}`);
+  const rgba = /^rgba\(\s*(\d+),\s*(\d+),\s*(\d+),\s*(\d*\.?\d+)\s*\)$/.exec(text);
+  if (rgba !== null) return [rgba[1], rgba[2], rgba[3], Number(rgba[4])].join(",");
+  throw new Error(`not a #rrggbb, rgb() or rgba() color: ${color}`);
 }
 
 // --- app/globals.css -------------------------------------------------------------
@@ -146,6 +152,25 @@ const PAGE_COLORS = [
     selector: "small",
     property: "color",
     token: "--color-text-subtle-runtime",
+  },
+  {
+    role: "button fill",
+    selector: "button",
+    property: "background-color",
+    token: "--color-surface-runtime",
+  },
+  { role: "button text", selector: "button", property: "color", token: "--color-text-runtime" },
+  {
+    role: "button outline",
+    selector: "button",
+    property: "border-color",
+    token: "--color-text-faint-runtime",
+  },
+  {
+    role: "button focus ring",
+    selector: "button:focus-visible",
+    property: "outline-color",
+    token: "--color-focus-ring-runtime",
   },
 ] as const;
 

@@ -38,6 +38,7 @@ import {
   NOT_SAVED_BODY,
   NOT_SAVED_HEADING,
   NOT_SAVED_NOTE,
+  NOT_SAVED_RETRY,
   assertServerUnderTest,
   crewUrlPath,
   expect,
@@ -512,6 +513,7 @@ test("10. a show with no saved copy gets the not-saved page, which reloads when 
   await expect(page.getByRole("heading", { level: 1, name: NOT_SAVED_HEADING })).toBeVisible();
   await expect(page.getByText(NOT_SAVED_BODY, { exact: true })).toBeVisible();
   await expect(page.getByText(NOT_SAVED_NOTE, { exact: true })).toBeVisible();
+  await expect(page.getByRole("button", { name: NOT_SAVED_RETRY, exact: true })).toBeVisible();
   // Show A's copy is still there: B has none of its own, and A's is never served for it.
   const copies = (await readSavedCopies(page)).copies.map((copy) => copy.showId);
   expect(copies).toEqual([showA.showId]);

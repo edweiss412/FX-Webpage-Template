@@ -17,7 +17,10 @@ import { notSavedPageHtml } from "@/lib/offline/notSavedPage";
 const HEADING = "No signal, and this show isn't saved on this phone yet.";
 const BODY =
   "Open this link once while you have signal or wifi. After that it works here even with no signal.";
-const NOTE = "This page reloads by itself when signal comes back.";
+const NOTE = "This page reloads by itself once it can reach the server.";
+const RETRY_LABEL = "Try again";
+/** The retry cadence, the bar's probe interval (spec 4.7.3, 4.7.5). */
+const RETRY_INTERVAL_MS = 30_000;
 const EM_DASH = "\u2014"; // spelled as an escape so this file holds no em dash itself
 
 // jsdom ships no type declarations and @types/jsdom is not a dependency here, so a
@@ -27,7 +30,12 @@ type JsdomWindow = Window & typeof globalThis;
 type JsdomApi = {
   JSDOM: new (
     html: string,
-    options?: { runScripts?: "dangerously"; url?: string; virtualConsole?: unknown },
+    options?: {
+      runScripts?: "dangerously";
+      url?: string;
+      virtualConsole?: unknown;
+      beforeParse?: (window: JsdomWindow) => void;
+    },
   ) => { window: JsdomWindow };
   VirtualConsole: new () => {
     on(event: "jsdomError", listener: (error: JsdomError) => void): unknown;
@@ -75,6 +83,7 @@ describe("copy", () => {
   const ROWS = [
     { tag: "h1", text: HEADING },
     { tag: "p", text: BODY },
+    { tag: "button", text: RETRY_LABEL },
     { tag: "small", text: NOTE },
   ];
 
@@ -87,13 +96,13 @@ describe("copy", () => {
     expect(isOnScreen(window, element)).toBe(true);
   });
 
-  test("the three strings are everything the page says, in reading order", () => {
+  test("the four strings are everything the page says, in reading order", () => {
     const { document } = load();
     const body = document.body.cloneNode(true) as HTMLElement;
     for (const code of body.querySelectorAll("script, style")) code.remove();
     const said = (body.textContent ?? "").replace(/\s+/g, " ").trim();
     premise("the page says something", said.length, 0);
-    expect(said).toBe([HEADING, BODY, NOTE].join(" "));
+    expect(said).toBe([HEADING, BODY, RETRY_LABEL, NOTE].join(" "));
   });
 
   describe("the on-screen check rejects every way to hold a string without showing it", () => {
@@ -164,6 +173,7 @@ const ALLOWED: Readonly<Record<string, readonly string[]>> = {
   main: [],
   h1: [],
   p: [],
+  button: ["type"],
   small: [],
   script: [],
 };
@@ -257,21 +267,46 @@ describe("no em dash", () => {
   });
 });
 
-// --- Reloading when signal returns -------------------------------------------------
+// --- Retrying: the button, the interval, the tab coming back, the online event ---
+
+type Retry = {
+  window: JsdomWindow;
+  navigations: string[];
+  other: string[];
+  /** Every fetch the page made, as its arguments. */
+  fetches: Array<{ url: unknown; init: unknown }>;
+  /** Every interval the page scheduled; `run` calls one tick of it. */
+  intervals: Array<{ ms: number; run: () => void }>;
+  setOnline(value: boolean): void;
+  setVisibility(value: "visible" | "hidden"): void;
+};
+
+/** A settled turn of the event loop, so the page's fetch chain has run to its end. */
+async function settle(): Promise<void> {
+  for (let i = 0; i < 3; i++) await new Promise((resolve) => setImmediate(resolve));
+}
 
 /**
  * Loads `html` with scripts running and reports every navigation jsdom was asked
  * to make. jsdom cannot navigate, so `location.reload()` surfaces as a "Not
  * implemented: navigation" error on its virtual console; that is the observable.
  * Anything else the page throws lands in `other`.
+ *
+ * jsdom has no fetch, no controllable connection and no visibility, so they are
+ * stubbed before the page's script runs: `fetch` answers with `answer` and is
+ * recorded, `navigator.onLine` and `document.visibilityState` read the values
+ * the test sets, and `setInterval` records its callback for the test to tick.
  */
-function loadAndWatch(html: string): {
-  window: JsdomWindow;
-  navigations: string[];
-  other: string[];
-} {
+function loadAndWatch(
+  html: string,
+  answer: () => Promise<{ ok: boolean }> = async () => ({ ok: true }),
+): Retry {
   const navigations: string[] = [];
   const other: string[] = [];
+  const fetches: Retry["fetches"] = [];
+  const intervals: Retry["intervals"] = [];
+  let online = true;
+  let visibility: "visible" | "hidden" = "visible";
   const virtualConsole = new VirtualConsole();
   virtualConsole.on("jsdomError", (error) => {
     if (error.type === "not-implemented" && /^Not implemented: navigation/.test(error.message)) {
@@ -284,12 +319,97 @@ function loadAndWatch(html: string): {
     runScripts: "dangerously",
     url: "https://example.test/show/saved-copy-test/share-token",
     virtualConsole,
+    beforeParse(target) {
+      Object.defineProperty(target.navigator, "onLine", { configurable: true, get: () => online });
+      Object.defineProperty(target.document, "visibilityState", {
+        configurable: true,
+        get: () => visibility,
+      });
+      Object.assign(target, {
+        fetch: (url: unknown, init: unknown) => {
+          fetches.push({ url, init });
+          return answer();
+        },
+        setInterval: (run: () => void, ms: number) => {
+          intervals.push({ ms, run });
+          return intervals.length;
+        },
+      });
+    },
   });
   opened.push(window);
-  return { window, navigations, other };
+  return {
+    window,
+    navigations,
+    other,
+    fetches,
+    intervals,
+    setOnline: (value) => {
+      online = value;
+    },
+    setVisibility: (value) => {
+      visibility = value;
+    },
+  };
 }
 
-describe("reloads when signal comes back", () => {
+/** The page's one stylesheet, as jsdom parsed it. */
+function theOnlyStyleSheet(window: JsdomWindow, document: Document): CSSStyleSheet {
+  const styles = document.querySelectorAll("style");
+  expect(styles).toHaveLength(1);
+  const sheet = (styles[0] as HTMLStyleElement).sheet;
+  premiseHolds("jsdom parsed the page's stylesheet", sheet instanceof window.CSSStyleSheet);
+  return sheet as CSSStyleSheet;
+}
+
+/** The page's one retry interval, at the bar's probe cadence. */
+function retryInterval(page: Retry): { ms: number; run: () => void } {
+  expect(page.intervals).toHaveLength(1);
+  const interval = page.intervals[0]!;
+  expect(interval.ms).toBe(RETRY_INTERVAL_MS);
+  return interval;
+}
+
+const PAGE_URL = "https://example.test/show/saved-copy-test/share-token";
+
+describe("the Try again button", () => {
+  test("is the page's one button, a plain button and on screen", () => {
+    const { window, document } = load();
+    const buttons = document.querySelectorAll("button");
+    expect(buttons).toHaveLength(1);
+    const button = buttons[0] as HTMLButtonElement;
+    // Not a submit button: there is no form, and a default type is one edit away from one.
+    expect(button.getAttribute("type")).toBe("button");
+    expect(button.textContent?.trim()).toBe(RETRY_LABEL);
+    expect(isOnScreen(window, button)).toBe(true);
+  });
+
+  test("is at least 44 px tall, and its keyboard focus draws a ring", () => {
+    const { window, document } = load();
+    const button = document.querySelector("button") as HTMLButtonElement;
+    expect(window.getComputedStyle(button).minHeight).toBe("44px");
+    const sheet = theOnlyStyleSheet(window, document);
+    const ring = Array.from(sheet.cssRules).filter(
+      (rule): rule is CSSStyleRule =>
+        rule instanceof window.CSSStyleRule && rule.selectorText === "button:focus-visible",
+    );
+    expect(ring).toHaveLength(1);
+    expect(ring[0]!.style.getPropertyValue("outline-style")).toBe("solid");
+    expect(parseFloat(ring[0]!.style.getPropertyValue("outline-width"))).toBeGreaterThanOrEqual(2);
+  });
+
+  test("a tap reloads the page at once, without asking the network first", async () => {
+    const page = loadAndWatch(notSavedPageHtml());
+    const button = page.window.document.querySelector("button") as HTMLButtonElement;
+    button.click();
+    await settle();
+    expect(page.other).toEqual([]);
+    expect(page.fetches).toEqual([]);
+    expect(page.navigations).toHaveLength(1);
+  });
+});
+
+describe("retrying by itself", () => {
   test("the observation channel sees a reload", () => {
     const { window, navigations } = loadAndWatch("<!doctype html><body></body>");
     // Runs a fixed one-line script inside the throwaway jsdom window (runScripts is on),
@@ -298,23 +418,86 @@ describe("reloads when signal comes back", () => {
     expect(navigations).toHaveLength(1);
   });
 
-  test("loading the page does not reload it", () => {
-    const { navigations, other } = loadAndWatch(notSavedPageHtml());
-    expect(other).toEqual([]);
-    expect(navigations).toEqual([]);
+  test("loading the page neither fetches nor reloads", async () => {
+    const page = loadAndWatch(notSavedPageHtml());
+    await settle();
+    expect(page.other).toEqual([]);
+    expect(page.fetches).toEqual([]);
+    expect(page.navigations).toEqual([]);
   });
 
-  test("the online event reloads it once", () => {
-    const { window, navigations, other } = loadAndWatch(notSavedPageHtml());
-    window.dispatchEvent(new window.Event("online"));
-    expect(other).toEqual([]);
-    expect(navigations).toHaveLength(1);
+  test("a retry asks for this page past every cache, and reloads when the answer is ok", async () => {
+    const page = loadAndWatch(notSavedPageHtml());
+    retryInterval(page).run();
+    await settle();
+    expect(page.fetches).toEqual([{ url: PAGE_URL, init: { cache: "no-store" } }]);
+    expect(page.other).toEqual([]);
+    expect(page.navigations).toHaveLength(1);
   });
 
-  test("the offline event does not", () => {
-    const { window, navigations, other } = loadAndWatch(notSavedPageHtml());
-    window.dispatchEvent(new window.Event("offline"));
-    expect(other).toEqual([]);
-    expect(navigations).toEqual([]);
+  test("the interval retries only while the phone reports a connection", async () => {
+    const page = loadAndWatch(notSavedPageHtml());
+    const interval = retryInterval(page);
+    page.setOnline(false);
+    interval.run();
+    interval.run();
+    await settle();
+    expect(page.fetches).toEqual([]);
+    expect(page.navigations).toEqual([]);
+
+    page.setOnline(true);
+    interval.run();
+    await settle();
+    expect(page.fetches).toHaveLength(1);
+    expect(page.navigations).toHaveLength(1);
+  });
+
+  test.each([
+    ["the fetch fails", async () => Promise.reject(new TypeError("Failed to fetch"))],
+    ["the answer is not ok", async () => ({ ok: false })],
+  ] as const)(
+    "no reload when %s, so a dead connection never shows the browser's error page",
+    async (_name, answer) => {
+      const page = loadAndWatch(notSavedPageHtml(), answer);
+      retryInterval(page).run();
+      page.window.dispatchEvent(new page.window.Event("online"));
+      await settle();
+      expect(page.fetches).toHaveLength(2);
+      expect(page.other).toEqual([]);
+      expect(page.navigations).toEqual([]);
+    },
+  );
+
+  test("the tab coming back into view retries; going out of view does not", async () => {
+    const page = loadAndWatch(notSavedPageHtml());
+    const { document } = page.window;
+    page.setVisibility("hidden");
+    document.dispatchEvent(new page.window.Event("visibilitychange"));
+    await settle();
+    expect(page.fetches).toEqual([]);
+
+    page.setVisibility("visible");
+    document.dispatchEvent(new page.window.Event("visibilitychange"));
+    await settle();
+    expect(page.fetches).toHaveLength(1);
+    expect(page.navigations).toHaveLength(1);
+  });
+
+  test("the online event retries once", async () => {
+    const page = loadAndWatch(notSavedPageHtml());
+    page.window.dispatchEvent(new page.window.Event("online"));
+    await settle();
+    expect(page.other).toEqual([]);
+    expect(page.fetches).toHaveLength(1);
+    expect(page.navigations).toHaveLength(1);
+  });
+
+  test("the offline event does not", async () => {
+    const page = loadAndWatch(notSavedPageHtml());
+    page.window.dispatchEvent(new page.window.Event("offline"));
+    await settle();
+    expect(page.other).toEqual([]);
+    expect(page.fetches).toEqual([]);
+    expect(page.navigations).toEqual([]);
   });
 });

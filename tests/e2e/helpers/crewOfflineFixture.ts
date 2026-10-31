@@ -52,7 +52,8 @@ export { expect };
 export const NOT_SAVED_HEADING = "No signal, and this show isn't saved on this phone yet.";
 export const NOT_SAVED_BODY =
   "Open this link once while you have signal or wifi. After that it works here even with no signal.";
-export const NOT_SAVED_NOTE = "This page reloads by itself when signal comes back.";
+export const NOT_SAVED_NOTE = "This page reloads by itself once it can reach the server.";
+export const NOT_SAVED_RETRY = "Try again";
 
 /** Server actions (selectIdentity, the realtime refresh) on a cold production server. */
 const AFTER_SERVER_ACTION = { timeout: 30_000 };
