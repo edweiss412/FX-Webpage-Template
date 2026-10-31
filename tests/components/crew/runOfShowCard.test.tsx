@@ -561,7 +561,8 @@ describe('run card: the "Next" marker (spec §4.4, §6A L1, §9.2)', () => {
 describe("run card: copy, header actions and placement (spec §3.1, §6.4, §9.1, §9.2)", () => {
   it('run card: titled "Run of show", the last line is the sheet entry\'s own title', () => {
     renderHome(showData(), crewViewer, at(DAY1, "06:00"));
-    expect(within(card()!).getByText("Run of show").tagName).toBe("H2");
+    // An h3: the card sits in the Today block, under its h2 (audit P2-4).
+    expect(within(card()!).getByText("Run of show").tagName).toBe("H3");
     const rows = rowTitles();
     expect(rows.at(-1)).toContain(DAY1_ENTRIES.at(-1)!.title);
     expect(card()!.textContent).not.toContain("Show ends");

@@ -62,6 +62,35 @@ describe("<SectionCard>", () => {
   });
 });
 
+describe("<SectionCard> heading level (audit P2-4)", () => {
+  // Every crew page card sits under an h2: a stacked section's heading in the
+  // wide layout, the sheet's title, or the Today block's. So a card title is an
+  // h3 unless its caller says otherwise; at h2 it read as a sibling of the very
+  // section that holds it.
+  const level = (headingLevel?: 2 | 3 | 4) =>
+    render(
+      <SectionCard title="Where" {...(headingLevel === undefined ? {} : { headingLevel })}>
+        <p>body</p>
+      </SectionCard>,
+    ).container.querySelector('[data-slot="section-card-title"]')!.tagName;
+
+  test("the title is an h3 by default", () => {
+    expect(level()).toBe("H3");
+  });
+
+  test("a caller can set the level, and the title keeps its search-group hook at each", () => {
+    for (const [given, tag] of [
+      [2, "H2"],
+      [3, "H3"],
+      [4, "H4"],
+    ] as const) {
+      cleanup();
+      expect(level(given)).toBe(tag);
+      expect(document.querySelector(`${tag}[data-search-group]`)).not.toBeNull();
+    }
+  });
+});
+
 describe("<KeyValueRows>", () => {
   // Fixture: two present rows, two sentinel/empty rows that must be omitted.
   const rows = [

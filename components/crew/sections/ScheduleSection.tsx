@@ -179,7 +179,7 @@ export function ScheduleSection({
         aria-labelledby="agenda-heading"
         className="flex min-w-0 flex-col gap-3"
       >
-        <h2
+        <h3
           id="agenda-heading"
           // The heading names every agenda line (their search group); with no
           // agenda line rendered it is plain chrome.
@@ -188,7 +188,7 @@ export function ScheduleSection({
           className="text-sm font-semibold text-text-strong"
         >
           {AGENDA_GROUP}
-        </h2>
+        </h3>
         <AgendaEmbed
           showId={showId}
           agendaLinks={agendaLinks}

@@ -231,7 +231,7 @@ describe("agenda fold — refresh reconciliation (spec §5.2)", () => {
 
     // Every row is still present, labelled, and counted -- nothing vanishes when nothing is open.
     expect(container.querySelectorAll("details")).toHaveLength(3);
-    expect(container.querySelectorAll("summary h3")).toHaveLength(3);
+    expect(container.querySelectorAll("summary h4")).toHaveLength(3);
     for (const i of [0, 1, 2]) {
       const c = container.querySelector(`[data-testid="agenda-day-count-${i}"]`);
       expect(c, `row ${i} keeps its count while collapsed`).not.toBeNull();

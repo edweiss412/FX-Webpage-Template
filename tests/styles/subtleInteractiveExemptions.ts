@@ -221,8 +221,9 @@ export const SUBTLE_INTERACTIVE_EXEMPTIONS: readonly SubtleExemption[] = [
   {
     file: "components/crew/AgendaScheduleBlock.tsx",
     // 107 -> 116 on feat/crew-show-search (Schedule search entries): search-marker props and shared row helpers moved
-    // lines around it. Same `<summary>`, same token.
-    line: 116,
+    // lines around it. Same `<summary>`, same token. 116 -> 117 on the invariant-8
+    // fixes (audit P2-4): the header comment's heading levels grew a line. Same `<summary>`.
+    line: 117,
     tag: "summary",
     token: "text-text-subtle",
     family: "summary-disclosure",

@@ -163,6 +163,65 @@ test.describe("crew wide nav (spec §5.3)", () => {
     expect(stacked).toEqual(ADMIN_SECTIONS);
   });
 
+  test("headings: every card title sits one level under the heading of the section that holds it, and no level is skipped", async ({
+    page,
+  }) => {
+    // Audit P2-4. The wide stack is one document: a card titled "Where" sat at h2
+    // beside the "Venue" h2 that holds it, so heading navigation could not tell a
+    // section from a card inside it. The outline is read off the rendered page,
+    // every section body included, rather than off a fixture.
+    await load(page, "?s=today");
+    const outline = await page.evaluate(() => {
+      const main = document.querySelector('[data-testid="page-container"]')!;
+      const level = (h: Element) => Number(h.tagName[1]);
+      const headings = [...main.querySelectorAll("h1, h2, h3, h4, h5, h6")];
+      const problems: string[] = [];
+      // 1. Each stacked section's own heading is an h2, and every other heading
+      //    inside it is deeper. Same for the Today block.
+      const sections = [
+        ...main.querySelectorAll(
+          '[data-testid="crew-wide-section"], [data-testid="crew-today-block"]',
+        ),
+      ];
+      for (const section of sections) {
+        const own = document.getElementById(section.getAttribute("aria-labelledby")!)!;
+        if (level(own) !== 2) problems.push(`section heading ${own.textContent} is h${level(own)}`);
+        for (const h of section.querySelectorAll("h1, h2, h3, h4, h5, h6")) {
+          if (h !== own && level(h) <= level(own)) {
+            problems.push(`"${h.textContent?.trim()}" h${level(h)} inside "${own.textContent}"`);
+          }
+        }
+      }
+      // 2. Inside a card, every heading but the title is deeper than the title.
+      for (const card of main.querySelectorAll('[data-testid="section-card"]')) {
+        const title = card.querySelector('[data-slot="section-card-title"]');
+        if (!title) continue;
+        for (const h of card.querySelectorAll("h1, h2, h3, h4, h5, h6")) {
+          if (h !== title && level(h) <= level(title)) {
+            problems.push(
+              `"${h.textContent?.trim()}" h${level(h)} inside card "${title.textContent}"`,
+            );
+          }
+        }
+      }
+      // 3. Document order never skips a level going down.
+      let prev = 1;
+      for (const h of headings) {
+        if (level(h) > prev + 1) problems.push(`"${h.textContent?.trim()}" skips from h${prev}`);
+        prev = level(h);
+      }
+      return {
+        problems,
+        sections: sections.length,
+        cards: main.querySelectorAll('[data-slot="section-card-title"]').length,
+      };
+    });
+    // PREMISE: the walk reached the Today block, the stacked sections and their cards.
+    expect(outline.sections, JSON.stringify(outline)).toBeGreaterThan(3);
+    expect(outline.cards, JSON.stringify(outline)).toBeGreaterThan(3);
+    expect(outline.problems).toEqual([]);
+  });
+
   test("wide nav: ?s=today loads at the top of the page", async ({ page }) => {
     await load(page, "?s=today");
     await expect.poll(() => page.evaluate(() => window.scrollY)).toBe(0);

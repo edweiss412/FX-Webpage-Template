@@ -7,7 +7,13 @@
  * (DESIGN.md §3/§4: `rounded-md border border-border bg-surface p-tile-pad`)
  * so crew sections read as the same family as the M4 tiles.
  *
- * Props (binding contract): {icon?, title?, action?, children}.
+ * Props (binding contract): {icon?, title?, action?, headingLevel?, children}.
+ *
+ * Heading level: every crew page card sits under an h2 (a stacked section's
+ * heading in the wide layout, the sheet's title, the Today block's heading), so
+ * the title is an h3 unless a caller sets `headingLevel` (audit P2-4: at h2 a
+ * card read as a sibling of the section holding it). A heading inside a card's
+ * body is one level deeper again.
  *
  * Server Component (no `'use client'`) — props in, markup out.
  */
@@ -20,11 +26,16 @@ type SectionCardProps = {
   title?: string;
   /** Optional trailing action (e.g. a link/button), right-aligned in the header. */
   action?: ReactNode;
+  /** The title's heading level; 3 by default (the card sits under an h2). */
+  headingLevel?: 2 | 3 | 4;
   /** Section body. Always rendered. */
   children: ReactNode;
 };
 
-export function SectionCard({ icon, title, action, children }: SectionCardProps) {
+const HEADING_TAG = { 2: "h2", 3: "h3", 4: "h4" } as const;
+
+export function SectionCard({ icon, title, action, headingLevel = 3, children }: SectionCardProps) {
+  const Heading = HEADING_TAG[headingLevel];
   // The header row only renders when at least one of icon/title/action is
   // supplied — a card with body-only content gets no empty header band.
   const hasHeader = icon !== undefined || title !== undefined || action !== undefined;
@@ -54,7 +65,7 @@ export function SectionCard({ icon, title, action, children }: SectionCardProps)
               </span>
             ) : null}
             {title !== undefined ? (
-              <h2
+              <Heading
                 data-slot="section-card-title"
                 // The card title is a search group heading (spec §2.3): the
                 // `group` a card's search entries name.
@@ -62,7 +73,7 @@ export function SectionCard({ icon, title, action, children }: SectionCardProps)
                 className="truncate text-xs font-medium uppercase tracking-eyebrow text-text-subtle"
               >
                 {title}
-              </h2>
+              </Heading>
             ) : null}
           </div>
           {action !== undefined ? (

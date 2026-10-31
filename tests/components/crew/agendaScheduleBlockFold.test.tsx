@@ -143,7 +143,7 @@ describe("AgendaScheduleBlock — the fold", () => {
     // every day from the document outline. Heading navigation is how a screen-reader user
     // skims this section, and no dimension or role assertion would have noticed.
     const { container } = renderFold(["Day A", "Day B"], subset(0));
-    const headings = container.querySelectorAll("summary h3");
+    const headings = container.querySelectorAll("summary h4");
     expect(headings.length, "one heading per day, inside its summary").toBe(2);
     expect(headings[0]?.textContent).toBe("Day A");
     // The disclosure still owns the interactive role; the heading is nested, not a replacement.

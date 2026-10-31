@@ -401,16 +401,16 @@ export function GearSection({
                           data-testid={`gear-room-detail-${b.id}`}
                           className="flex flex-col gap-1.5"
                         >
-                          {/* Room name as an h3 (under the card's h2) — gives each
+                          {/* Room name as an h4 (under the card's h3) — gives each
                               per-room block a heading so the room↔detail relationship
                               is exposed to SR + reads as a distinct block, not another
                               field label (impeccable critique + audit MED). */}
-                          <h3
+                          <h4
                             data-search-target={b.heading?.id}
                             className="text-sm font-semibold text-text-strong"
                           >
                             {b.label}
-                          </h3>
+                          </h4>
                           {/* columns={1}: detail reads label:value per line, keeping the
                               physical (dimensions/floor/setup) → schedule (set/show/strike)
                               order intact at every width (no 2-col interleave). */}

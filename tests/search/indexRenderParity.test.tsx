@@ -576,7 +576,7 @@ describe("gear", () => {
         "gearFallbacks renders the opening reel player",
         byTestIds(root, "opening-reel-video").length === 1,
       );
-      const headings = [...root.querySelectorAll('[data-testid="gear-room-details"] h3')].map((h) =>
+      const headings = [...root.querySelectorAll('[data-testid="gear-room-details"] h4')].map((h) =>
         squash(h.textContent),
       );
       premiseHolds(
