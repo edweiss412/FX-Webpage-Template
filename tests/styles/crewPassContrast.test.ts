@@ -69,3 +69,67 @@ describe("pass progress segments (X7, audit P3-1)", () => {
     ).toBeLessThan(GRAPHIC);
   });
 });
+
+// The page's own light block (`:root {`), for pairings that live on the page.
+const light = block(":root {");
+const MODES = [
+  { name: "light", src: light },
+  { name: "dark", src: dark },
+] as const;
+
+/** WCAG AA body text. */
+const TEXT = 4.5;
+
+describe("day row pressed state (X4, critique F6)", () => {
+  // In dark, the pressed day's fill was the page's near-white text colour, the
+  // brightest thing on the first screen, outshining the pass it selects. Its
+  // own pair, `--color-day-pressed` / `-text`, keeps light mode's near-black
+  // chip and quiets dark mode to the pass's own surface; the bright
+  // `border-text` edge then carries the pressed state (DESIGN.md §1.1a).
+  for (const mode of MODES) {
+    const fill = token(mode.src, "--color-day-pressed");
+    const text = token(mode.src, "--color-day-pressed-text");
+    const edge = token(mode.src, "--color-text");
+    const bg = token(mode.src, "--color-bg");
+
+    it(`${mode.name}: the pressed day's text clears 4.5:1 on its fill`, () => {
+      expect(contrast(text, fill)).toBeGreaterThanOrEqual(TEXT);
+    });
+
+    it(`${mode.name}: the pressed day's border-text edge clears 3:1 on the page`, () => {
+      expect(contrast(edge, bg)).toBeGreaterThanOrEqual(GRAPHIC);
+    });
+  }
+
+  it("light: the pressed fill is the near-black chip it was (the text colour)", () => {
+    expect(token(light, "--color-day-pressed")).toBe(token(light, "--color-text"));
+  });
+
+  it("dark: the pressed fill is no brighter than the pass's surface, so the pass stays the focal point", () => {
+    const pressed = relLuminance(token(dark, "--color-day-pressed"));
+    expect(pressed).toBeLessThanOrEqual(relLuminance(token(dark, "--color-surface-raised")));
+  });
+
+  it("dark: with the fills close, the pressed edge alone separates pressed from unpressed by 3:1", () => {
+    // Unpressed buttons carry `border-text-faint`; pressed ones `border-text`.
+    expect(
+      contrast(token(dark, "--color-text"), token(dark, "--color-text-faint")),
+    ).toBeGreaterThanOrEqual(GRAPHIC);
+    // PREMISE: the fill delta alone would not carry it.
+    expect(
+      contrast(token(dark, "--color-day-pressed"), token(dark, "--color-surface")),
+    ).toBeLessThan(GRAPHIC);
+  });
+});
+
+describe("pass edge on a dark page (X4, critique F6)", () => {
+  // The pass's border is `--color-border-strong` resolved in the PAGE scope (on
+  // the wrapper outside the pass's own dark scope, inherited by the card), so on
+  // a dark page it stands one step above every tile's `--color-border` edge.
+  it("dark: the pass edge stands out from the page more than a tile's border does", () => {
+    const bg = token(dark, "--color-bg");
+    expect(contrast(token(dark, "--color-border-strong"), bg)).toBeGreaterThan(
+      contrast(token(dark, "--color-border"), bg),
+    );
+  });
+});

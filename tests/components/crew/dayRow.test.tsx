@@ -441,6 +441,28 @@ describe("day row: content and names", () => {
     expect(css).toMatch(/--spacing-tap-min:\s*44px;/);
   });
 
+  // Critique F6 (gate fix X4): the pressed fill is its own token pair, which
+  // keeps light mode's near-black chip and quiets dark mode to the pass's
+  // surface; the bright `border-text` edge carries the pressed state there
+  // (contrast pinned in tests/styles/crewPassContrast.test.ts).
+  it("day row: a pressed button, Now included, takes the day-pressed pair and the border-text edge", () => {
+    vi.setSystemTime(at("2026-05-30", "12:00:00"));
+    renderRow(dayRowProps(FIVE));
+    // PREMISE: after the show "Now" is pressed and every day is not.
+    expect(pressed()).toEqual([nowButton()]);
+    expect(nowButton()).toHaveClass("bg-day-pressed", "text-day-pressed-text", "border-text");
+    fireEvent.click(dayButton(FIVE.showDays[0]!)!);
+    expect(dayButton(FIVE.showDays[0]!)).toHaveClass(
+      "bg-day-pressed",
+      "text-day-pressed-text",
+      "border-text",
+    );
+    for (const button of [nowButton(), dayButton(FIVE.travelOut!)!]) {
+      expect(button).not.toHaveClass("bg-day-pressed");
+      expect(button).toHaveClass("border-text-faint", "bg-surface");
+    }
+  });
+
   it("day row: the pressed state changes background and text colour over --duration-fast, instant under reduced motion", () => {
     renderRow(dayRowProps(FIVE));
     const on = dayButton(FIVE.showDays[0]!)!.className.split(/\s+/);

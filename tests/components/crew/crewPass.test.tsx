@@ -716,6 +716,24 @@ describe("pass: transitions", () => {
     }
     delete document.documentElement.dataset.theme;
   });
+
+  // Critique F6 (gate fix X4): on a dark page the pass sat one surface step
+  // above the tiles. Its edge is the page's `--color-border-strong`, resolved on
+  // the wrapper outside the dark scope (the notch's mechanism) and inherited by
+  // the card, so a dark page gives it a stronger edge than any tile; on a light
+  // page that edge is a light hairline beside the dark card. Values pinned in
+  // tests/styles/crewPassContrast.test.ts; resolved colours checked in a browser.
+  it("pass: the card's edge is the page's border-strong, resolved outside its dark scope", () => {
+    mountAt(passPropsFor(showData()), at(SHOW_DAY_1, "12:00"));
+    const wrapper = pass().parentElement!;
+    // PREMISE: the wrapper is outside the dark scope, the card inside it.
+    expect(wrapper).not.toHaveAttribute("data-theme");
+    expect(pass()).toHaveAttribute("data-theme", "dark");
+    expect(wrapper).toHaveClass("border-border-strong");
+    expect(wrapper).not.toHaveClass("border");
+    expect(pass()).toHaveClass("border", "border-inherit");
+    expect(pass()).not.toHaveClass("border-border");
+  });
 });
 
 // ---- Mounting (spec §3.2 "Pass", L129) --------------------------------------

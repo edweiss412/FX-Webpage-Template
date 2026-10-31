@@ -644,7 +644,16 @@ export function CrewPass(props: PassProps) {
   return (
     // The notch colour is the page's own background, resolved here, outside the
     // dark scope the card opens below.
-    <div className="w-full" style={{ "--pass-notch": "var(--color-bg)" } as CSSProperties}>
+    // The card's edge is the page's own `--color-border-strong`, also resolved
+    // here, outside the dark scope: this wrapper draws no border, it only holds
+    // the colour, and the card inherits it (`border-inherit`). On a dark page
+    // the pass then carries an edge a step above every tile's border, so it stays
+    // the focal card (critique F6); on a light page it is a light hairline beside
+    // the dark card.
+    <div
+      className="w-full border-border-strong"
+      style={{ "--pass-notch": "var(--color-bg)" } as CSSProperties}
+    >
       <section
         // The region the day row's buttons name in `aria-controls`.
         id={PASS_REGION_ID}
@@ -669,7 +678,7 @@ export function CrewPass(props: PassProps) {
           // it, so the card is the taller of the two and never collapses mid-fade.
           // `@container/pass`: the big time's size and the fact grid's columns
           // read the pass's own width.
-          "@container/pass grid w-full overflow-hidden rounded-md border border-border text-text shadow-tile",
+          "@container/pass grid w-full overflow-hidden rounded-md border border-inherit text-text shadow-tile",
           "min-h-right-now-min-h",
           degraded ? "bg-stale-tint" : "bg-surface-raised",
         )}

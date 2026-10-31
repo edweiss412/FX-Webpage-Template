@@ -48,6 +48,7 @@ Color-blind floor: red and green are NEVER used as primary semantic carriers. St
 | `--color-status-degraded` / `-text` | `#B3261E` / `#FFFFFF`              | `#E5534B` / `#1A1A1A`           | App-health **degraded** signal (alert-audience-split). Red — the **third scoped §1.3 exception** to "orange stays alone", introduced for the app-health indicator's worst-active state. Unlike positive/review/warn, the `-text` is drawn ON the filled degraded pill (`bg-status-degraded text-status-degraded-text`), so its floor is text-on-fill (§1.2), not text-on-surface. Always dot/pill + label, never color-only.                                                    |
 | `--color-accent-tint`               | `#FEEEDE`                          | `#2A1E10`                       | Warm low-chroma wash behind the bell panel's **active-count pill**. The pill NUMBER stays `--color-text-strong` for hierarchy, not necessity. A quiet tint, never a CTA fill; the ≤10% accent-coverage cap is unaffected (a small pill). Also backs the review-modal mobile state badge's **Live pill** (`bg-accent-tint text-accent-on-bg` + `bg-accent-on-bg` dot — spec 2026-07-24-strip-mobile-stacked-band §3 R0; both legs are the pinned §1.2 accent-on-bg-on-tint pair). _(Was also the info severity icon-circle bg pre-2026-07-17; the Quiet-rail restyle (§16) replaced the circle with an on-surface stroke glyph, so the tint now backs the count pill only.)_                                              |
 | `--color-danger-bg`                 | `#FBEAE8`                          | `#3A1E1C`                       | Soft red wash — retained token. _(Was the bell panel's **critical** severity icon-circle bg pre-2026-07-17; the Quiet-rail restyle (§16) replaced the filled circle with a 3px rail + on-surface `--color-status-degraded` stroke glyph, so no bell surface fills this today. Kept as a defined danger wash for future use; still paired with row title text wherever a red wash is used, holding the §1 color-blind floor.)_                                                                                                                                                          |
+| `--color-day-pressed` / `-text`   | `#1A1B1F` / `#FAFAF9`              | `#1C1D23` / `#F5F3EE`           | The crew day row's pressed day (crew page redesign, 2026-10-30). Light keeps the near-black chip (the `--color-text` value, so light mode is unchanged); dark takes the pass's own surface (`--color-surface-raised`), so the selected day never outshines the pass it selects, and the button's `border-text` edge carries the pressed state there (§1.1a). Text on fill 16.47:1 light, 15.16:1 dark; pinned by tests/styles/crewPassContrast.test.ts. |
 
 ### 1.1a Subtle-on-interactive carve-outs (2026-08-14, user-ratified)
 
@@ -103,6 +104,18 @@ The crew sub-nav's inactive tab left this table with the sub-nav (crew page
 redesign, 2026-10-27). The crew left nav that replaced it
 (`components/crew/CrewWideNav.tsx`) rests its inactive labels at `text-text`
 and dims only the icon, so it is not a Family D member.
+
+The crew day row (`components/crew/CrewDayRow.tsx`, 2026-10-30) is a state
+pair this table cannot list: its unpressed buttons rest their weekday and phase
+captions at `text-text-subtle` on nested spans, which the scan does not read (the
+same documented limit as the onboarding wizard's step pills), so it has no
+registry row. In light its pressed day inverts the fill, which puts it outside
+Family D like the telemetry filter below. In dark the pressed fill is
+`--color-day-pressed`, one step above the unpressed `bg-surface` (1.06:1), so the
+Family D predicate applies, and the cue that carries the pair is the pressed
+button's `border-text` edge against the unpressed `border-text-faint` (3.81:1,
+pinned in tests/styles/crewPassContrast.test.ts), with `aria-pressed` in the
+semantic tree.
 
 No pair is color-ALONE in the semantic tree: every one carries `aria-current`
 or a structural glyph, holding the §1 color-blind floor while preserving the
@@ -188,6 +201,7 @@ affordance is a fill or a border keep it as-is.
 | `--color-text-subtle` on `--color-surface-sunken`     | 6.09:1 | 6.94:1 | AA body (≥4.5:1) — stacked-band Published/Draft pill (spec 2026-07-24 §3 R0); pinned by tests/styles/status-token-contrast.test.ts |
 | `--color-text-faint` as OUTLINE vs `--color-surface`  | 3.35:1 | 3.76:1 | ≥3:1 non-text (SC 1.4.11) — the secondary action button's boundary on a card fill (§1.2a control-outline rule); pinned by tests/styles/secondary-action-contrast.test.ts |
 | `--color-text-faint` as OUTLINE vs `--color-surface-sunken` | 3.02:1 | 4.11:1 | ≥3:1 non-text — same button on the attention plate; light clears with a thin margin, so any `text-faint` or `surface-sunken` retune re-checks this row |
+| `--color-day-pressed-text` on `--color-day-pressed` | 16.47:1 | 15.16:1 | AA body (≥4.5:1) — the crew day row's pressed day; in dark the pressed edge `--color-text` vs the unpressed `--color-text-faint` edge is 3.81:1, the cue that carries the state (§1.1a); pinned by tests/styles/crewPassContrast.test.ts |
 | `--color-text-faint` as OUTLINE vs `--color-bg`       | 3.21:1 | 4.00:1 | ≥3:1 non-text — same button on the page ground |
 | `--color-text-subtle` on `--color-surface-raised`  | 6.76:1 | 5.97:1 | AA body (≥4.5:1) — raised-surface captions: the HoverHelp popover, the admin-nav and onboarding count pills, and the tile error fallback. The pairing was first surfaced by the theme persist-failure note (removed 2026-08-26); the row outlived it because those four did not. Pinned in `tests/styles/status-token-contrast.test.ts` |
 | `--color-text-faint` as OUTLINE vs `--color-surface-raised` | 3.35:1 | 3.53:1 | ≥3:1 non-text — popover and modal surfaces, pinned so a raised-surface control is not an unmeasured fourth ground |

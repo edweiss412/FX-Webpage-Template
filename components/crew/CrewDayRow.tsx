@@ -97,7 +97,10 @@ export function CrewDayRow({ timezone, days }: DayRowProps) {
       "flex min-h-tap-min min-w-16 flex-col items-center justify-center gap-0.5 rounded-md border px-1 py-2 text-center transition-colors duration-fast focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring focus-visible:ring-offset-2 focus-visible:ring-offset-bg",
       scroll ? "shrink-0 snap-start self-stretch" : "h-full",
       pressed
-        ? "border-text bg-text text-bg"
+        ? // Its own pair (DESIGN.md §1.1): light keeps the near-black chip; dark
+          // takes the pass's surface, so the pressed day never outshines the pass
+          // it selects, and the bright border-text edge carries the state there.
+          "border-text bg-day-pressed text-day-pressed-text"
         : "border-text-faint bg-surface text-text hover:border-text-subtle",
     );
   const caption = (pressed: boolean) =>
