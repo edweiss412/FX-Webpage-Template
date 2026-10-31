@@ -38,11 +38,14 @@
  * in place; `ensure-saved` on a saved copy, before any worker controls the
  * page, with the query string, twice for one render time, or more often than
  * once per 10 seconds; a throttled render time dropped instead of sent when
- * the window ends; the agenda code fetched for a show without an agenda,
- * without a controlling worker, offline, more than once, or from a worker URL
- * other than the one AgendaPdfViewer assigns to pdf.js; react-pdf imported by
- * the registrar itself; and anything at all, or a throw, where the browser has
- * no service worker container.
+ * the window ends; a queued render time sent after the kill switch turned on;
+ * the agenda code fetched for a show without an agenda, without a controlling
+ * worker, offline, more than once after it succeeded, or from a worker URL
+ * other than the one AgendaPdfViewer assigns to pdf.js; a prefetch that could
+ * not run or failed (a rejected import, a non-ok worker fetch) never tried
+ * again when the phone comes back online; react-pdf imported by the registrar
+ * itself; and anything at all, or a throw, where the browser has no service
+ * worker container.
  */
 import { StrictMode } from "react";
 import { act, cleanup, render } from "@testing-library/react";
@@ -376,6 +379,26 @@ describe("kill switch (spec 4.10)", () => {
     expect(posted()).toEqual([ensureSaved(FIRST)]);
     expect(fetchMock).toHaveBeenCalledTimes(1);
   });
+
+  // Codex R1 C2: a render time queued inside the throttle window must not go
+  // out once the switch has turned the registrar off.
+  test("turning the switch on drops a queued ensure-saved; turning it off again sends the current render time", () => {
+    vi.useFakeTimers();
+    installServiceWorker({ controlled: true });
+    installStorage();
+
+    const { rerender } = render(<SavedCopyRegistrar {...BASE} />);
+    expect(posted()).toEqual([ensureSaved(FIRST)]);
+    // SECOND arrives inside the window and waits for it to end.
+    rerender(<SavedCopyRegistrar {...BASE} renderedAt={SECOND} />);
+    rerender(<SavedCopyRegistrar {...BASE} renderedAt={SECOND} disabled />);
+    act(() => vi.advanceTimersByTime(30_000));
+    expect(posted()).toEqual([ensureSaved(FIRST)]);
+
+    // The switch back off: the dropped render time is the page's, and it is sent.
+    rerender(<SavedCopyRegistrar {...BASE} renderedAt={SECOND} />);
+    expect(posted()).toEqual([ensureSaved(FIRST), ensureSaved(SECOND)]);
+  });
 });
 
 describe("ensure-saved (spec 4.7.3)", () => {
@@ -614,6 +637,91 @@ describe("agenda viewer code (spec 4.8)", () => {
     expect(fetchMock).not.toHaveBeenCalled();
     await settle();
     expect(fetchMock.mock.calls).toEqual([[agenda.WORKER_SRC]]);
+  });
+
+  // Codex R1 C1: one mounted registrar, never remounted. At most once per page
+  // load holds for a prefetch that succeeded; one that never ran or failed is
+  // tried again when the phone comes back online.
+  test("offline at idle, the same mounted registrar prefetches on the online event", async () => {
+    installServiceWorker({ controlled: true });
+    installStorage();
+    setOnline(false);
+
+    render(<SavedCopyRegistrar {...BASE} hasAgenda />);
+    await settle();
+    expect(fetchMock).not.toHaveBeenCalled();
+
+    setOnline(true);
+    act(() => {
+      window.dispatchEvent(new Event("online"));
+    });
+    await settle();
+    expect(fetchMock.mock.calls).toEqual([[agenda.WORKER_SRC]]);
+
+    // Done: a later online event fetches nothing more.
+    act(() => {
+      window.dispatchEvent(new Event("online"));
+    });
+    await settle();
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
+
+  test("a 404 from the pdf.js worker fetch is not done: the next online event fetches it again", async () => {
+    installServiceWorker({ controlled: true });
+    installStorage();
+    fetchMock.mockResolvedValueOnce(new Response("missing", { status: 404 }));
+
+    render(<SavedCopyRegistrar {...BASE} hasAgenda />);
+    await settle();
+    expect(fetchMock.mock.calls).toEqual([[agenda.WORKER_SRC]]);
+
+    act(() => {
+      window.dispatchEvent(new Event("online"));
+    });
+    await settle();
+    expect(fetchMock.mock.calls).toEqual([[agenda.WORKER_SRC], [agenda.WORKER_SRC]]);
+
+    // The second answered 200: done, so a later online event fetches nothing.
+    act(() => {
+      window.dispatchEvent(new Event("online"));
+    });
+    await settle();
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+  });
+
+  test("a rejected viewer import is tried again on the next online event", async () => {
+    vi.resetModules();
+    const loads = { loader: 0 };
+    vi.doMock("@/components/agenda/loadAgendaPdfViewer", () => ({
+      loadAgendaPdfViewer: () => {
+        loads.loader += 1;
+        return loads.loader === 1
+          ? Promise.reject(new TypeError("Failed to fetch dynamically imported module"))
+          : import("@/components/agenda/AgendaPdfViewer");
+      },
+    }));
+    vi.doMock("react-pdf", () => agenda.reactPdf());
+    vi.doMock("@/components/agenda/AgendaPdfViewer", () => agenda.viewer());
+    vi.doMock("@/components/agenda/pdfWorkerSrc", () => agenda.workerSrc());
+    try {
+      const fresh = await import("@/components/offline/SavedCopyRegistrar");
+      installServiceWorker({ controlled: true });
+      installStorage();
+
+      render(<fresh.SavedCopyRegistrar {...BASE} hasAgenda />);
+      await vi.waitFor(() => expect(loads.loader).toBe(1));
+      await settle();
+      expect(fetchMock).not.toHaveBeenCalled();
+
+      act(() => {
+        window.dispatchEvent(new Event("online"));
+      });
+      await vi.waitFor(() => expect(fetchMock).toHaveBeenCalled());
+      expect(fetchMock.mock.calls).toEqual([[agenda.WORKER_SRC]]);
+      expect(loads.loader).toBe(2);
+    } finally {
+      await restoreAgendaMocks();
+    }
   });
 
   test("fetches exactly the worker URL the real AgendaPdfViewer assigns to pdf.js", async () => {

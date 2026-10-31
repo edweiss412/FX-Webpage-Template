@@ -27,7 +27,10 @@
  * - When the show has an agenda it loads the agenda viewer's code and the
  *   pdf.js worker that code configures, online, idle and once a worker controls
  *   the page, so both pass through the worker into its static cache and an
- *   agenda nobody opened still opens offline (spec 4.8).
+ *   agenda nobody opened still opens offline (spec 4.8). A prefetch that could
+ *   not run (offline at idle) or failed (an import that rejects, a worker fetch
+ *   that fails or answers other than ok) is tried again on the next `online`
+ *   event; one that succeeded is not repeated in this page load.
  * - A failed registration and a `save-failed` broadcast from the worker are
  *   logged with source `client.crew` (spec 6), the source crew components use
  *   and the client-error route accepts. Neither is shown: nothing here renders
@@ -75,12 +78,13 @@ const IDLE_FALLBACK_DELAY_MS = 0;
 
 /** Once per page load, however often the registrar mounts (spec 4.7.7, 4.8). */
 let persistRequested = false;
-let agendaPrefetchStarted = false;
+/** The agenda prefetch: `done` once it succeeded in this page load, `running` while one is out. */
+let agendaPrefetch: "idle" | "running" | "done" = "idle";
 
 /** Test seam: a new page load. */
 export function __resetSavedCopyRegistrarForTests(): void {
   persistRequested = false;
-  agendaPrefetchStarted = false;
+  agendaPrefetch = "idle";
 }
 
 /** Runs `work` when the page is idle; the returned function cancels it. */
@@ -166,13 +170,23 @@ function persistStorageOnce(): void {
 async function prefetchAgendaViewer(): Promise<void> {
   await loadAgendaPdfViewer();
   const { PDF_WORKER_SRC } = await import("@/components/agenda/pdfWorkerSrc");
-  await fetch(PDF_WORKER_SRC);
+  const response = await fetch(PDF_WORKER_SRC);
+  // A 404 or a 503 put nothing in the worker's static cache.
+  if (!response.ok) throw new Error(`pdf.js worker answered ${response.status}`);
 }
 
+/** At most one prefetch out at a time; a failed one leaves the next attempt free to run. */
 function prefetchAgendaViewerOnce(): void {
-  if (agendaPrefetchStarted || !navigator.onLine) return;
-  agendaPrefetchStarted = true;
-  void prefetchAgendaViewer().catch(() => undefined);
+  if (agendaPrefetch !== "idle" || !navigator.onLine) return;
+  agendaPrefetch = "running";
+  void prefetchAgendaViewer().then(
+    () => {
+      agendaPrefetch = "done";
+    },
+    () => {
+      agendaPrefetch = "idle";
+    },
+  );
 }
 
 function isSaveFailed(data: unknown): boolean {
@@ -212,6 +226,8 @@ type Throttle = {
   timer: number | undefined;
   /** False once the registrar unmounts, so a window ending later sends nothing. */
   mounted: boolean;
+  /** The kill switch, as last rendered: a window ending while it is on sends nothing. */
+  disabled: boolean;
 };
 
 function send(throttle: Throttle, renderedAt: string): void {
@@ -227,9 +243,20 @@ function send(throttle: Throttle, renderedAt: string): void {
   throttle.timer = window.setTimeout(() => {
     throttle.timer = undefined;
     const next = throttle.latest;
-    if (throttle.waiting && throttle.mounted && next !== null) send(throttle, next);
-    else throttle.waiting = false;
+    if (throttle.waiting && throttle.mounted && !throttle.disabled && next !== null) {
+      send(throttle, next);
+    } else throttle.waiting = false;
   }, ENSURE_SAVED_THROTTLE_MS);
+}
+
+/**
+ * The kill switch turned on: a render time waiting for the window is dropped,
+ * and forgotten, so the page sends it if the switch turns off again.
+ */
+function dropWaiting(throttle: Throttle): void {
+  if (!throttle.waiting) return;
+  throttle.waiting = false;
+  throttle.latest = null;
 }
 
 function requestEnsureSaved(throttle: Throttle, renderedAt: string): void {
@@ -256,6 +283,7 @@ export function SavedCopyRegistrar({ renderedAt, disabled, hasAgenda }: SavedCop
     waiting: false,
     timer: undefined,
     mounted: false,
+    disabled,
   });
 
   // An unmount stops a window that ends later from sending; StrictMode's
@@ -303,15 +331,32 @@ export function SavedCopyRegistrar({ renderedAt, disabled, hasAgenda }: SavedCop
   }, [disabled]);
 
   useEffect(() => {
-    if (disabled || !controlled) return;
+    const state = throttle.current;
+    state.disabled = disabled;
+    if (disabled) {
+      dropWaiting(state);
+      return;
+    }
+    if (!controlled) return;
     const live = renderedAt !== mountRenderedAt || readServedCopy().mode === "live";
     if (!live) return;
-    requestEnsureSaved(throttle.current, renderedAt);
+    requestEnsureSaved(state, renderedAt);
   }, [disabled, controlled, renderedAt, mountRenderedAt]);
 
   useEffect(() => {
     if (disabled || !hasAgenda || !controlled) return;
-    return whenIdle(prefetchAgendaViewerOnce);
+    let cancelIdle = whenIdle(prefetchAgendaViewerOnce);
+    // The phone back online: a prefetch that never ran, or failed, runs once the
+    // page is idle again.
+    const onOnline = (): void => {
+      cancelIdle();
+      cancelIdle = whenIdle(prefetchAgendaViewerOnce);
+    };
+    window.addEventListener("online", onOnline);
+    return () => {
+      cancelIdle();
+      window.removeEventListener("online", onOnline);
+    };
   }, [disabled, hasAgenda, controlled]);
 
   return null;
