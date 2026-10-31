@@ -708,7 +708,10 @@ const CONDITIONAL_RENDERS: Record<string, { presences: number; renders: Conditio
   [PASS]: {
     presences: 1,
     renders: [
-      { match: "{body.live ? (", treatment: T.inBody },
+      // The live dot and its visually hidden "Live" label (gate fix X8): two
+      // renders on one condition, both inside the body, so both share its
+      // treatment and appear or leave with the live state in one commit.
+      { match: "{body.live ? (", count: 2, treatment: T.inBody },
       { match: "{eyebrowRight ? (", treatment: T.inBody },
       { match: "{body.status ? (", treatment: T.inBody },
       { match: "{body.lead ? (", treatment: T.inBody },
