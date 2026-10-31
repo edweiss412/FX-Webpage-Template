@@ -31,7 +31,7 @@ import { useEffect, useRef, useState } from "react";
 
 import { useDaySelection } from "@/components/crew/daySelection";
 import { useCrewClock } from "@/components/crew/useCrewClock";
-import type { DayRowDay, DayRowProps } from "@/lib/crew/passModel";
+import { PASS_REGION_ID, type DayRowDay, type DayRowProps } from "@/lib/crew/passModel";
 import { formatIsoForTimezone } from "@/lib/time/rightNow";
 import { cn } from "@/lib/ui/cn";
 
@@ -122,6 +122,7 @@ export function CrewDayRow({ timezone, days }: DayRowProps) {
           type="button"
           data-testid="crew-day-now"
           aria-pressed={live}
+          aria-controls={PASS_REGION_ID}
           aria-label={NOW_NAME}
           onClick={selectLive}
           className={buttonClass(live)}
@@ -139,6 +140,8 @@ export function CrewDayRow({ timezone, days }: DayRowProps) {
             data-testid="crew-day-button"
             data-day={day.iso}
             aria-pressed={pressed}
+            // A tap changes the pass in place: name the region it changes.
+            aria-controls={PASS_REGION_ID}
             // Spec §9.4's name, with "Today" leading on today's button so the
             // name carries the word the button shows (WCAG 2.5.3).
             aria-label={isToday ? `Today, ${day.name}` : day.name}

@@ -52,6 +52,7 @@ import { useDaySelection } from "@/components/crew/daySelection";
 import { useCrewClock } from "@/components/crew/useCrewClock";
 import { usePrefersReducedMotion } from "@/lib/a11y/usePrefersReducedMotion";
 import {
+  PASS_REGION_ID,
   passStatusLine,
   spokenDate,
   type PassDay,
@@ -375,6 +376,14 @@ function BodyView({ body, eyebrowRight }: { body: PassBody; eyebrowRight: string
           data-testid="crew-pass-eyebrow-row"
           className="flex flex-wrap items-start justify-between gap-x-3 gap-y-1"
         >
+          {/* The dot is never colour alone: a screen reader hears "Live" before
+              the day label (DESIGN.md §1.1, the status-live row). Out of flow,
+              so the row's layout and the eyebrow's own text are unchanged. */}
+          {body.live ? (
+            <span data-testid="crew-pass-live-label" className="sr-only">
+              Live
+            </span>
+          ) : null}
           <p
             data-testid="crew-pass-eyebrow"
             className="flex shrink-0 items-center gap-2 text-xs font-semibold uppercase tracking-eyebrow-strong text-text-subtle"
@@ -631,6 +640,8 @@ export function CrewPass(props: PassProps) {
     // dark scope the card opens below.
     <div className="w-full" style={{ "--pass-notch": "var(--color-bg)" } as CSSProperties}>
       <section
+        // The region the day row's buttons name in `aria-controls`.
+        id={PASS_REGION_ID}
         data-testid="crew-pass"
         data-theme="dark"
         // A live-clock summary of lines the page shows elsewhere: outside search

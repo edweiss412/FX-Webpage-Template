@@ -574,6 +574,46 @@ describe("pass: day(iso)", () => {
   });
 });
 
+// ---- Screen-reader pairing (audit P3-2) --------------------------------------
+
+describe("pass: what a screen reader hears", () => {
+  it('pass: the live dot is paired with a visually hidden "Live"; a selected day has neither', () => {
+    mountHomeAt(showData(), crewViewer, at(SHOW_DAY_1, "12:00"));
+    // PREMISE: the live body on a show day carries the dot.
+    expect(q("crew-pass-live-dot")).not.toBeNull();
+    const label = q("crew-pass-live-label");
+    expect(label).toHaveTextContent(/^Live$/);
+    expect(label).toHaveClass("sr-only");
+    expect(label).not.toHaveAttribute("aria-hidden");
+    // The eyebrow's own text stays the day label alone.
+    expect(text("crew-pass-eyebrow")).toBe(dayOf(passPropsFor(showData()), SHOW_DAY_1).label);
+
+    tapDay(SHOW_DAY_2);
+    expect(q("crew-pass-live-dot")).toBeNull();
+    expect(q("crew-pass-live-label")).toBeNull();
+  });
+
+  // A day button changes the pass (and the run card) in place; aria-controls
+  // names the region it changes, so a screen reader can follow it there.
+  it.each([
+    ["today in the set", SHOW_DAY_1],
+    ["today outside the set, with Now", "2026-04-15"],
+  ])("pass: every day row button, Now included, controls the pass region (%s)", (_, iso) => {
+    mountHomeAt(showData(), crewViewer, at(iso, "12:00"));
+    const buttons = [
+      ...screen.queryAllByTestId("crew-day-now"),
+      ...screen.getAllByTestId("crew-day-button"),
+    ];
+    // PREMISE: the second case renders the Now button, the first does not.
+    expect(screen.queryAllByTestId("crew-day-now")).toHaveLength(iso === SHOW_DAY_1 ? 0 : 1);
+    for (const button of buttons) {
+      const id = button.getAttribute("aria-controls");
+      expect(id, button.getAttribute("aria-label")!).toBeTruthy();
+      expect(document.getElementById(id!)).toBe(pass());
+    }
+  });
+});
+
 // ---- Copy (spec §9.1, §9.2; L397 to L400, L415) -----------------------------
 
 describe("pass: copy", () => {

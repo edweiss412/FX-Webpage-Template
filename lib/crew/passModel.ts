@@ -34,6 +34,12 @@ import { shouldHideGenericOptional } from "@/lib/visibility/emptyState";
 /** The countdown runs only for a show start within this many minutes (spec §4.3). */
 export const PASS_COUNTDOWN_WINDOW_MINUTES = 180;
 
+/**
+ * The pass region's element id: the day row's buttons name it in
+ * `aria-controls`, since a tap changes the pass in place (audit P3-2).
+ */
+export const PASS_REGION_ID = "crew-pass";
+
 /** A leading `M/D`: the value already names its day. */
 const LEADING_MONTH_DAY = /^\s*\d{1,2}\/\d{1,2}\b/;
 

@@ -404,7 +404,7 @@ export const COLLAPSE_CENSUS: readonly CollapseCensusRow[] = [
       "crew day row's Now button; pressed and unpressed differ only in fill, border and text colour, its text is Now either way, so the aria-pressed Highlight fill is what repairs it",
   },
   {
-    site: "components/crew/CrewDayRow.tsx:136",
+    site: "components/crew/CrewDayRow.tsx:137",
     disposition: "repaired",
     binding: {
       locator: '[data-testid="crew-day-button"]',
@@ -416,13 +416,13 @@ export const COLLAPSE_CENSUS: readonly CollapseCensusRow[] = [
   },
   // ── Carrier survives: something non-chromatic changes too. ──
   {
-    site: "components/crew/CrewDayRow.tsx:148",
+    site: "components/crew/CrewDayRow.tsx:151",
     disposition: "carrier-survives",
     reason:
-      "the weekday caption inside a crew day button; the button itself carries the pressed state, as aria-pressed (the forced-colors Highlight fill repaired at CrewDayRow.tsx:136), and the caption inherits HighlightText on it",
+      "the weekday caption inside a crew day button; the button itself carries the pressed state, as aria-pressed (the forced-colors Highlight fill repaired at CrewDayRow.tsx:137), and the caption inherits HighlightText on it",
   },
   {
-    site: "components/crew/CrewDayRow.tsx:157",
+    site: "components/crew/CrewDayRow.tsx:160",
     disposition: "carrier-survives",
     reason: "same",
   },
