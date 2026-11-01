@@ -380,7 +380,7 @@ review round in six ever faulted it.**
 
 ## BL-CREW-ROLE-LINE-RAW-TRUNCATED — the Crew section's role lines show the raw roster string and cut off the position code
 
-**Status:** OPEN · **Filed:** 2026-10-30 (`feat/crew-page-redesign`, impeccable critique O2) · **Facing:** product · **Severity:** low · **Class:** roster text display · **Effort:** S · **Class-sweep exception:** (c) — the peer on the pass ("You, role") is repaired on `feat/crew-page-redesign` because that PR rebuilt the pass; the Crew section body (`components/crew/primitives/PersonRow.tsx`) is a surface the PR renders but does not change. · **Reachability:** PROBED 2026-10-30 — the critique measured the seeded Waldorf roster in the crew sheet at 390px: role lines render as uppercase raw roster strings ("- LOAD IN / SET / STRIKE / LOAD OUT - A1") truncated before the trailing position code (`PersonRow.tsx:275`).
+**Status:** IN PROGRESS · **Branch:** feat/crew-page-redesign-pr-b · **Filed:** 2026-10-30 (`feat/crew-page-redesign`, impeccable critique O2) · **Facing:** product · **Severity:** low · **Class:** roster text display · **Effort:** S · **Class-sweep exception:** (c) — the peer on the pass ("You, role") is repaired on `feat/crew-page-redesign` because that PR rebuilt the pass; the Crew section body (`components/crew/primitives/PersonRow.tsx`) is a surface the PR renders but does not change. · **Reachability:** PROBED 2026-10-30 — the critique measured the seeded Waldorf roster in the crew sheet at 390px: role lines render as uppercase raw roster strings ("- LOAD IN / SET / STRIKE / LOAD OUT - A1") truncated before the trailing position code (`PersonRow.tsx:275`).
 
 The position code ("A1", "V1") is the part a crew member scans for, and it sits at the end of the sheet's role text, so a one-line truncate drops it on every phone width measured. Spec 2026-10-26 §9.2 says roles render as the sheet writes them, so the repair is layout (wrap, or keep the tail), not parsing.
 
@@ -392,6 +392,6 @@ The position code ("A1", "V1") is the part a crew member scans for, and it sits 
 
 ## BL-CREW-SECTION-GLYPH-ICONS — the Crew section's call and email buttons use "☎" and "✉" glyphs where the home uses drawn icons
 
-**Status:** OPEN · **Filed:** 2026-10-30 (`feat/crew-page-redesign`, impeccable critique F13) · **Facing:** product · **Severity:** low · **Class:** icon vocabulary · **Effort:** XS · **Reachability:** PROBED 2026-10-30 — the critique compared the home's "Who to call" buttons (Lucide icons, `components/crew/CrewQuickFacts.tsx`) with the Crew section's call and email buttons for the same actions (Unicode glyphs) on the seeded Waldorf show.
+**Status:** IN PROGRESS · **Branch:** feat/crew-page-redesign-pr-b · **Filed:** 2026-10-30 (`feat/crew-page-redesign`, impeccable critique F13) · **Facing:** product · **Severity:** low · **Class:** icon vocabulary · **Effort:** XS · **Reachability:** PROBED 2026-10-30 — the critique compared the home's "Who to call" buttons (Lucide icons, `components/crew/CrewQuickFacts.tsx`) with the Crew section's call and email buttons for the same actions (Unicode glyphs) on the seeded Waldorf show.
 
 Glyphs render in the platform's emoji or symbol font, so their size, weight and colour do not follow the theme, and the same action looks different in two places on one page.
