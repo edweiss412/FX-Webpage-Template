@@ -41,7 +41,7 @@ import { TravelSection } from "@/components/crew/sections/TravelSection";
 import { VenueSection } from "@/components/crew/sections/VenueSection";
 import { GearSection } from "@/components/crew/sections/GearSection";
 import { ScheduleSection } from "@/components/crew/sections/ScheduleSection";
-import { BudgetSection } from "@/components/crew/sections/BudgetSection";
+import { BillingSection } from "@/components/crew/sections/BillingSection";
 import { pinCrewClock, TodayBlock } from "@/tests/search/_todayBlock";
 import {
   buildSheetDeepLink,
@@ -227,7 +227,7 @@ function renderAllSections(data: ShowForViewer) {
         today={FROZEN_TODAY}
         showId="show-1"
       />
-      <BudgetSection
+      <BillingSection
         {...ledgerProp()}
         data={data}
         viewer={adminViewer}

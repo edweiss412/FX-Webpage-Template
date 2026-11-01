@@ -1111,7 +1111,7 @@ describe("sheet-link phrase containment (spec §7.10)", () => {
         "components/admin/wizard/step3ReviewSections.tsx": 8,
         "components/crew/primitives/CardHeaderActions.tsx": 1,
         "components/crew/primitives/SourceLink.tsx": 5,
-        "components/crew/sections/BudgetSection.tsx": 1,
+        "components/crew/sections/BillingSection.tsx": 1,
         "components/crew/sections/CrewSection.tsx": 1,
         "components/crew/sections/GearSection.tsx": 1,
         "components/crew/sections/HomeSection.tsx": 1,

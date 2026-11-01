@@ -26,7 +26,7 @@ const SECTION_COMPONENTS = [
   "TravelSection",
   "CrewSection",
   "GearSection",
-  "BudgetSection",
+  "BillingSection",
 ] as const;
 
 /**
@@ -46,7 +46,7 @@ const EXPECTED_TILE_BY_FILE: Record<string, string> = {
   "TravelSection.tsx": "crew:travel:transport",
   "CrewSection.tsx": "crew:crew:roster",
   "GearSection.tsx": "crew:gear:scope",
-  "BudgetSection.tsx": "crew:budget:rows",
+  "BillingSection.tsx": "crew:budget:rows",
 };
 
 const EXPECTED_TILE_IDS = Object.values(EXPECTED_TILE_BY_FILE).slice().sort();

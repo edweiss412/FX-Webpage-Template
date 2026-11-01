@@ -9,7 +9,7 @@
  *
  * Sections are NOT mocked: the integration arms need real section bodies. The
  * `CrewSections` client controller IS mocked, both to capture the entitled
- * `sectionNodes` keys (the budget gate) and to render EVERY node rather than
+ * `sectionNodes` keys (the billing gate) and to render EVERY node rather than
  * only the active one, so per-section content is observable in one render.
  */
 import type { ReactNode } from "react";
@@ -273,7 +273,7 @@ describe("CrewShell staticPreview posture (spec §2.6)", () => {
 });
 
 describe("staged adapter output through the REAL CrewShell", () => {
-  test("AC-3: the budget gate follows the previewed member's flags", async () => {
+  test("AC-3: the billing gate follows the previewed member's flags", async () => {
     const parse = makeStagedParseFixture();
 
     const entitledCases = [
@@ -288,11 +288,11 @@ describe("staged adapter output through the REAL CrewShell", () => {
         showId: "staged-preview",
         staticPreview: true,
       });
-      expect(sectionKeys(), `${c.label} should see budget`).toContain("budget");
+      expect(sectionKeys(), `${c.label} should see billing`).toContain("billing");
       cleanup();
     }
 
-    // Neither flag → no budget key at all (no-Budget-flash invariant).
+    // Neither flag → no billing key at all (no-Budget-flash invariant).
     const plain = stagedProjection("staged-crew-2", makeStagedParseFixture());
     await renderShell({
       data: plain.data,
@@ -300,11 +300,11 @@ describe("staged adapter output through the REAL CrewShell", () => {
       showId: "staged-preview",
       staticPreview: true,
     });
-    expect(sectionKeys()).not.toContain("budget");
+    expect(sectionKeys()).not.toContain("billing");
     cleanup();
 
     // Element-drop arm proved through the shell: `[null, "LEAD"]` normalizes to
-    // ["LEAD"] in the adapter, so this viewer IS budget-entitled.
+    // ["LEAD"] in the adapter, so this viewer IS billing-entitled.
     const mutated = makeStagedParseFixture();
     (mutated.crewMembers[2] as unknown as Record<string, unknown>).role_flags = [null, "LEAD"];
     const normalized = stagedProjection("staged-crew-2", mutated);
@@ -314,7 +314,7 @@ describe("staged adapter output through the REAL CrewShell", () => {
       showId: "staged-preview",
       staticPreview: true,
     });
-    expect(sectionKeys()).toContain("budget");
+    expect(sectionKeys()).toContain("billing");
 
     // Premise: the fixture's own flags are what drive the three arms above.
     expect(parse.crewMembers[2]!.role_flags).not.toContain("LEAD");
@@ -336,7 +336,7 @@ describe("staged adapter output through the REAL CrewShell", () => {
     });
 
     expect(sectionKeys().sort()).toEqual(
-      ["budget", "crew", "gear", "schedule", "today", "travel", "venue"].sort(),
+      ["billing", "crew", "gear", "schedule", "today", "travel", "venue"].sort(),
     );
 
     const text = container.textContent ?? "";
@@ -346,10 +346,10 @@ describe("staged adapter output through the REAL CrewShell", () => {
     expect(text).toContain(parse.hotelReservations[0]!.hotel_name!); // travel body
     expect(text).toContain(parse.show.venue!.name); // venue body
 
-    // The four financial strings reach an ENTITLED viewer through the budget body.
-    const budgetText = container.querySelector('[data-testid="node-budget"]')?.textContent ?? "";
+    // The four financial strings reach an ENTITLED viewer through the billing body.
+    const billingText = container.querySelector('[data-testid="node-billing"]')?.textContent ?? "";
     for (const value of Object.values(STAGED_FIXTURE_FINANCIALS)) {
-      expect(budgetText).toContain(value);
+      expect(billingText).toContain(value);
     }
   });
 

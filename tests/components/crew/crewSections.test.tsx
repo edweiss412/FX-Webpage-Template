@@ -32,7 +32,7 @@ import {
 } from "@/lib/crew/crewSections";
 import { suppressesDates } from "@/lib/crew/dateSuppression";
 import { buildSectionHref } from "@/lib/crew/sectionHref";
-import type { SectionId } from "@/lib/crew/resolveActiveSection";
+import { LEGACY_SECTION_ALIASES, type SectionId } from "@/lib/crew/resolveActiveSection";
 import type { ShowForViewer, Viewer } from "@/lib/data/getShowForViewer";
 import { resolveViewerContext } from "@/lib/data/viewerContext";
 import { formatIsoDate } from "@/lib/format/date";
@@ -111,9 +111,9 @@ function popTo(search: string, state: unknown = null) {
   });
 }
 
-function entries(budget: boolean): CrewSectionEntry[] {
+function entries(billing: boolean): CrewSectionEntry[] {
   const ids: CrewSectionId[] = ["schedule", "venue", "travel", "crew", "gear"];
-  if (budget) ids.push("budget");
+  if (billing) ids.push("billing");
   return ids.map((id) => ({
     id,
     label: CREW_SECTION_LABELS[id],
@@ -130,7 +130,7 @@ function body(id: string, extra?: ReactNode): ReactNode {
   );
 }
 
-function nodes(budget: boolean, over: Partial<Record<SectionId, ReactNode>> = {}) {
+function nodes(billing: boolean, over: Partial<Record<SectionId, ReactNode>> = {}) {
   const n: Partial<Record<SectionId, ReactNode>> = {
     today: body("today"),
     schedule: body("schedule"),
@@ -139,26 +139,26 @@ function nodes(budget: boolean, over: Partial<Record<SectionId, ReactNode>> = {}
     crew: body("crew"),
     gear: body("gear"),
   };
-  if (budget) n.budget = body("budget");
+  if (billing) n.billing = body("billing");
   return { ...n, ...over };
 }
 
 function renderController(
   initialSection: SectionId = "today",
   opts: {
-    budget?: boolean;
+    billing?: boolean;
     over?: Partial<Record<SectionId, ReactNode>>;
     extra?: ReactNode;
     /** Development's double effect run (mount, cleanup, mount), as `next dev` renders. */
     strict?: boolean;
   } = {},
 ) {
-  const budget = opts.budget ?? false;
+  const billing = opts.billing ?? false;
   const controller = (
     <CrewSections
       initialSection={initialSection}
-      sections={entries(budget)}
-      sectionNodes={nodes(budget, opts.over)}
+      sections={entries(billing)}
+      sectionNodes={nodes(billing, opts.over)}
     >
       {opts.extra}
     </CrewSections>
@@ -196,7 +196,7 @@ describe("CrewSections, compact: home and sheet (spec §5.2)", () => {
   });
 
   it('sheet: the list is headed "All sections" and its rows are the membership in order, with peeks', () => {
-    renderController("today", { budget: true });
+    renderController("today", { billing: true });
     const list = screen.getByTestId("crew-all-sections");
     expect(within(list).getByRole("heading", { name: "All sections" })).toBeInTheDocument();
     const rows = within(list).getAllByTestId("crew-all-sections-row");
@@ -211,7 +211,7 @@ describe("CrewSections, compact: home and sheet (spec §5.2)", () => {
   });
 
   it("sheet: every row clears the tap floor and carries its section's icon", () => {
-    renderController("today", { budget: true });
+    renderController("today", { billing: true });
     for (const r of screen.getAllByTestId("crew-all-sections-row")) {
       expect(r.className, r.getAttribute("data-section") ?? "").toMatch(/\bmin-h-tap-min\b/);
       expect(r.querySelector("svg"), r.getAttribute("data-section") ?? "").not.toBeNull();
@@ -404,7 +404,7 @@ describe("CrewSections, compact: home and sheet (spec §5.2)", () => {
   });
 
   it("sheet: popstate to an unknown or non-entitled s replaces the URL without s and closes", async () => {
-    for (const bad of ["bogus", "budget", "today"]) {
+    for (const bad of ["bogus", "budget", "billing", "today"]) {
       const { unmount } = renderController("venue");
       replaceSpy.mockClear();
       popTo(`?s=${bad}`);
@@ -529,7 +529,7 @@ describe("CrewSections, wide: nav and stacked sections (spec §5.3)", () => {
   });
 
   it("wide nav: lists Today then the sections in membership order, each text exactly its label", () => {
-    renderController("today", { budget: true });
+    renderController("today", { billing: true });
     const navEl = screen.getByTestId("crew-wide-nav");
     const items = within(navEl).getAllByRole("link");
     expect(items.map((i) => i.textContent)).toEqual([
@@ -547,7 +547,7 @@ describe("CrewSections, wide: nav and stacked sections (spec §5.3)", () => {
   it("wide nav: only the active item carries aria-current, and every item and row clears the tap floor", () => {
     // Carried over from the retired sub-nav suite: aria-current on the active
     // item alone, a per-section svg icon, and the 44px tap-target class.
-    renderController("today", { budget: true });
+    renderController("today", { billing: true });
     const items = within(screen.getByTestId("crew-wide-nav")).getAllByRole("link");
     expect(items.filter((i) => i.getAttribute("aria-current") !== null)).toEqual([items[0]]);
     expect(items[0]).toHaveAttribute("aria-current", "true");
@@ -555,12 +555,12 @@ describe("CrewSections, wide: nav and stacked sections (spec §5.3)", () => {
       expect(item.className, item.textContent ?? "").toMatch(/\bmin-h-tap-min\b/);
       expect(item.querySelector("svg"), item.textContent ?? "").not.toBeNull();
     }
-    // The budget gate: the item is there for an entitled viewer and gone otherwise.
-    expect(items.map((i) => i.getAttribute("data-section"))).toContain("budget");
+    // The billing gate: the item is there for an entitled viewer and gone otherwise.
+    expect(items.map((i) => i.getAttribute("data-section"))).toContain("billing");
     cleanup();
-    renderController("today", { budget: false });
+    renderController("today", { billing: false });
     const unentitled = within(screen.getByTestId("crew-wide-nav")).getAllByRole("link");
-    expect(unentitled.map((i) => i.getAttribute("data-section"))).not.toContain("budget");
+    expect(unentitled.map((i) => i.getAttribute("data-section"))).not.toContain("billing");
   });
 
   it("wide nav: no sections renders no nav, and the Today block still renders (spec §11)", () => {
@@ -664,42 +664,42 @@ describe("CrewSections, wide: nav and stacked sections (spec §5.3)", () => {
  */
 describe("CrewSections compound transitions (spec §7)", () => {
   /** A refresh: the shell re-renders with fresh props while the controller stays mounted. */
-  function refreshed(budget: boolean, over: Partial<Record<SectionId, ReactNode>> = {}) {
+  function refreshed(billing: boolean, over: Partial<Record<SectionId, ReactNode>> = {}) {
     return (
       <CrewSections
         initialSection="today"
-        sections={entries(budget)}
-        sectionNodes={nodes(budget, over)}
+        sections={entries(billing)}
+        sectionNodes={nodes(billing, over)}
       />
     );
   }
 
   it("compound: a refresh that takes the open section's body away closes the sheet in that commit, with no exit slide, and goes back over the marker", () => {
     // Full motion, so an exit slide would hold the departing sheet (and its
-    // Budget body) for 220ms.
+    // Billing body) for 220ms.
     stubMatchMedia({ wide: false, reduced: false });
     const { rerender } = render(refreshed(true));
-    fireEvent.click(row("budget"));
-    expect(sheet()).toHaveAttribute("data-section", "budget");
+    fireEvent.click(row("billing"));
+    expect(sheet()).toHaveAttribute("data-section", "billing");
     expect(window.history.state).toMatchObject({ crewSheet: true });
 
     rerender(refreshed(false));
 
     expect(sheet(), "no departing sheet left in the DOM").toBeNull();
-    expect(screen.queryByTestId("body-budget")).toBeNull();
+    expect(screen.queryByTestId("body-billing")).toBeNull();
     expect(screen.queryByTestId("crew-section-sheet")).toBeNull();
     expect(backSpy, "the close row: back over the marker").toHaveBeenCalledTimes(1);
   });
 
   it("compound: a lost entitlement on a deep-linked sheet replaces s away instead", () => {
-    nav.searchParams = new URLSearchParams("s=budget");
+    nav.searchParams = new URLSearchParams("s=billing");
     // A deep link: Next's keys on the entry, no marker.
-    setLocation("?s=budget", { __NA: true });
+    setLocation("?s=billing", { __NA: true });
     stubMatchMedia({ wide: false, reduced: false });
     const { rerender } = render(
-      <CrewSections initialSection="budget" sections={entries(true)} sectionNodes={nodes(true)} />,
+      <CrewSections initialSection="billing" sections={entries(true)} sectionNodes={nodes(true)} />,
     );
-    expect(sheet()).toHaveAttribute("data-section", "budget");
+    expect(sheet()).toHaveAttribute("data-section", "billing");
 
     rerender(
       <CrewSections initialSection="today" sections={entries(false)} sectionNodes={nodes(false)} />,
@@ -855,6 +855,41 @@ describe("CrewSections opens the ids that have a body (plan decision 1)", () => 
     premise("stacked sections", stackIds.length, 0);
     expect(navIds).not.toContain(UNLISTED);
     expect(stackIds).not.toContain(UNLISTED);
+  });
+
+  it("decision 1: a legacy alias opens the id that replaced it, from initialSection, popstate and a link, and popstate keeps the alias", () => {
+    const aliases = Object.entries(LEGACY_SECTION_ALIASES);
+    premise("legacy aliases", aliases.length, 0);
+    for (const [alias, id] of aliases) {
+      const first = renderController(alias as SectionId, { billing: true });
+      expect(sheet(), `initialSection ${alias}`).toHaveAttribute("data-section", id);
+      first.unmount();
+
+      const second = renderController("today", { billing: true });
+      replaceSpy.mockClear();
+      popTo(`?s=${alias}`, { crewSheet: true });
+      expect(sheet(), `popstate ${alias}`).toHaveAttribute("data-section", id);
+      expect(replaceSpy, "an alias the viewer may open is not stripped").not.toHaveBeenCalled();
+      second.unmount();
+
+      setLocation("");
+      pushSpy.mockClear();
+      renderController("today", {
+        billing: true,
+        extra: (
+          <div onClick={(e) => e.preventDefault()}>
+            <a href={`${PATH}?s=${alias}`}>Alias link</a>
+          </div>
+        ),
+      });
+      fireEvent.click(screen.getByRole("link", { name: "Alias link" }));
+      expect(sheet(), `link ${alias}`).toHaveAttribute("data-section", id);
+      const [, , url] = pushSpy.mock.calls.at(-1)!;
+      expect(url, "the pushed entry carries the current id").toBe(
+        buildSectionHref(PATH, nav.searchParams, id as CrewSectionId),
+      );
+      cleanup();
+    }
   });
 
   it("decision 1: an id listed with no body does not open from initialSection", () => {

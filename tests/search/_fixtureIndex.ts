@@ -248,12 +248,18 @@ export const FIXTURE_INDEX: SearchIndex = {
       label: null,
       value: "Client laptops at the lectern with a presenter clicker",
     },
-    // Budget
-    { section: "budget", region: "budget", group: "Budget", label: "PO", value: "PO-44821" },
+    // Billing
     {
-      section: "budget",
-      region: "budget",
-      group: "Budget",
+      section: "billing",
+      region: "billing",
+      group: "Billing & docs",
+      label: "PO",
+      value: "PO-44821",
+    },
+    {
+      section: "billing",
+      region: "billing",
+      group: "Billing & docs",
       label: "Invoice notes",
       value: "Net 30, send to accounts payable",
     },

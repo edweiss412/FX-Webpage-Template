@@ -423,7 +423,8 @@ export const TAP_TARGET_CENSUS: readonly TapCensusRow[] = [
     // card section jump above it); the same tile `<a>`, located by that ref.
     // 4775 -> 4795 on feat/warning-card-fixes (UI gate P3: jump targets named by their own heading or title); located by its own element (5-line context match).
     // 4795 -> 4781 on feat/crew-page-redesign-pr-b Task 2 (seven lucide imports moved to lib/showSections/registry.ts, its one import landed, and STEP3_SECTION_GROUPS became one line, all above it); located by its own element (5-line context match).
-    line: 4781,
+    // 4781 -> 4760 on feat/crew-page-redesign-pr-b Task 4 (FieldRowList and its eyebrow constants moved to components/show-panels/FieldRowList.tsx, two imports landed, and OpsBreakdown's empty-state ternary became one BillingBody line, all above it); located by its own element (5-line context match).
+    line: 4760,
     tag: "a",
     category: "full-bleed",
     reason:

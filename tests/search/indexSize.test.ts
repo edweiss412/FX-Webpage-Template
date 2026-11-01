@@ -29,7 +29,7 @@ function seedInput(): SearchIndexInput {
     data,
     viewer,
     today: MATRIX_TODAY,
-    budgetVisible: financialsVisible(ctx.viewerFlags, ctx.isAdmin),
+    billingVisible: financialsVisible(ctx.viewerFlags, ctx.isAdmin),
     staticPreview: false,
     sections: memberIdsFor(viewer, data),
   };

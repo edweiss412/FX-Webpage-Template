@@ -93,8 +93,8 @@ vi.mock("@/components/crew/sections/CrewSection", () => ({
 vi.mock("@/components/crew/sections/GearSection", () => ({
   GearSection: mockSection("section-gear"),
 }));
-vi.mock("@/components/crew/sections/BudgetSection", () => ({
-  BudgetSection: mockSection("section-budget"),
+vi.mock("@/components/crew/sections/BillingSection", () => ({
+  BillingSection: mockSection("section-billing"),
 }));
 
 beforeEach(() => {

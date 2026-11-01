@@ -332,13 +332,13 @@ describe("sectionPeek (peek, spec §4.6)", () => {
     );
   });
 
-  it("peek: budget shows the PO only to a viewer financialsVisible admits", () => {
+  it("peek: billing shows the PO only to a viewer financialsVisible admits", () => {
     const show = fullShow();
     const po = show.financials!.po!;
     for (const viewer of [ADMIN, crew("c-lead"), crew("c-plain")]) {
       const ctx = resolveViewerContext(viewer, project(show, viewer));
       const entitled = financialsVisible(ctx.viewerFlags, ctx.isAdmin);
-      expect(peek("budget", show, viewer), JSON.stringify(viewer)).toBe(
+      expect(peek("billing", show, viewer), JSON.stringify(viewer)).toBe(
         entitled ? `PO ${po}` : null,
       );
     }
@@ -346,15 +346,15 @@ describe("sectionPeek (peek, spec §4.6)", () => {
     expect(financialsVisible(plain.viewerFlags, plain.isAdmin)).toBe(false);
   });
 
-  it("peek: budget is null when the financials fetch failed or the PO is a sentinel", () => {
+  it("peek: billing is null when the financials fetch failed or the PO is a sentinel", () => {
     const failed = fullShow();
     failed.tileErrors = { financials: "financials read failed" };
     expect(failed.financials?.po).toBeTruthy();
-    expect(peek("budget", failed, crew("c-lead"))).toBeNull();
+    expect(peek("billing", failed, crew("c-lead"))).toBeNull();
 
     const sentinel = fullShow();
     sentinel.financials = { po: "N/A", proposal: null, invoice: null, invoice_notes: null };
-    expect(peek("budget", sentinel, crew("c-lead"))).toBeNull();
+    expect(peek("billing", sentinel, crew("c-lead"))).toBeNull();
   });
 
   it("peek: every section's peek is null, never placeholder text, when its source is empty or a sentinel", () => {
@@ -376,7 +376,7 @@ describe("sectionPeek (peek, spec §4.6)", () => {
       ["sentinel", sentinel],
     ] as const) {
       const peeks = allPeeks(show, ADMIN);
-      expect(peeks.map((p) => p.id)).toContain("budget");
+      expect(peeks.map((p) => p.id)).toContain("billing");
       for (const { id, peek: line } of peeks) expect(line, `${name} ${id}`).toBeNull();
     }
 

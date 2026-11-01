@@ -156,6 +156,11 @@ const WIDE_NAV = "components/crew/CrewWideNav.tsx";
 const QUICK_FACTS = "components/crew/CrewQuickFacts.tsx";
 const ALL_SECTIONS = "components/crew/CrewAllSections.tsx";
 const HOME = "components/crew/sections/HomeSection.tsx";
+// PR B plan Task 4: the shared section bodies and the crew Billing section.
+const BILLING = "components/crew/sections/BillingSection.tsx";
+const PANEL_CARD = "components/show-panels/PanelCard.tsx";
+const FIELD_ROWS = "components/show-panels/FieldRowList.tsx";
+const BILLING_BODY = "components/show-panels/BillingBody.tsx";
 
 const COMPACT_E2E = "tests/e2e/crew-section-toggle.spec.ts";
 const WIDE_E2E = "tests/e2e/crew-wide-nav.spec.ts";
@@ -534,7 +539,7 @@ const ROWS: Record<number, Row> = {
     e2e: [
       [
         COMPACT_E2E,
-        "compound: a refresh that takes Budget from a previewed lead closes the Budget sheet to home without animation and leaves no Budget value on the page",
+        "compound: a refresh that takes Billing from a previewed lead closes the Billing sheet to home without animation and leaves no Billing value on the page",
       ],
     ],
     unit: [
@@ -814,6 +819,36 @@ const CONDITIONAL_RENDERS: Record<string, { presences: number; renders: Conditio
         treatment: T.serverPresence,
       },
     ],
+  },
+  // PR B plan Task 4 (meta-test inventory): every conditional block in a new
+  // file is a server render, instant (spec §7, last row).
+  [BILLING]: {
+    presences: 0,
+    renders: [
+      // The fetch-failure block and the section's empty state, each an early return.
+      {
+        match: 'return <SectionTileError domain="financials" />;',
+        treatment: T.serverPresence,
+      },
+      { match: 'return (\n<div data-testid="section-empty">', treatment: T.serverPresence },
+    ],
+  },
+  [PANEL_CARD]: {
+    presences: 0,
+    renders: [{ match: "{actions !== undefined ? (", treatment: T.serverPresence }],
+  },
+  [FIELD_ROWS]: {
+    presences: 0,
+    renders: [
+      {
+        match: '{r.searchTarget === undefined ? ":" : <span data-search-skip="">:</span>}',
+        treatment: T.serverPresence,
+      },
+    ],
+  },
+  [BILLING_BODY]: {
+    presences: 0,
+    renders: [{ match: "return shown.length === 0 ? (", treatment: T.serverPresence }],
   },
 };
 

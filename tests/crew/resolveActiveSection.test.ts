@@ -15,7 +15,9 @@ import {
   resolveActiveSection,
   type SectionId,
 } from "@/lib/crew/resolveActiveSection";
-import { premise } from "@/tests/_shared/premise";
+import { crewSectionEntitled, type CrewSectionsViewer } from "@/lib/crew/crewSections";
+import { premise, premiseHolds } from "@/tests/_shared/premise";
+import { makeShowForViewer } from "@/tests/fixtures/showForViewer";
 
 /** Every section entitled: the most an entitled set can hold. */
 const ALL: ReadonlySet<SectionId> = new Set<SectionId>(["today", ...CREW_SECTION_IDS]);
@@ -29,7 +31,7 @@ describe("canonicalSectionParam", () => {
   });
 
   test("an alias becomes the id that replaced it", () => {
-    // Empty until Task 4 retires `budget`; each alias is then checked here with no edit.
+    premise("legacy aliases", Object.keys(LEGACY_SECTION_ALIASES).length, 0);
     for (const [alias, id] of Object.entries(LEGACY_SECTION_ALIASES)) {
       expect(canonicalSectionParam(alias), alias).toBe(id);
       expect(CREW_SECTION_IDS as readonly string[], alias).toContain(id);
@@ -77,5 +79,46 @@ describe("resolveActiveSection", () => {
   test("?s=today stays home, whatever the entitled set holds", () => {
     expect(resolveActiveSection("today", ALL)).toBe("today");
     expect(resolveActiveSection("today", new Set<SectionId>())).toBe("today");
+  });
+});
+
+describe("legacy section aliases (spec line 242, line 489)", () => {
+  /** The entitled set the shell builds for a viewer: the home plus every entitled id. */
+  function entitledFor(viewer: CrewSectionsViewer): Set<SectionId> {
+    const data = makeShowForViewer({});
+    return new Set<SectionId>([
+      "today",
+      ...CREW_SECTION_IDS.filter((id) => crewSectionEntitled(id, data, viewer)),
+    ]);
+  }
+  const LEAD: CrewSectionsViewer = { viewerFlags: ["LEAD"], isAdmin: false };
+  const NON_LEAD: CrewSectionsViewer = { viewerFlags: [], isAdmin: false };
+
+  test("every old id resolves to its replacement when entitled, and home when not", () => {
+    const aliases = Object.entries(LEGACY_SECTION_ALIASES);
+    premise("legacy aliases", aliases.length, 0);
+    for (const [alias, id] of aliases) {
+      const without = new Set([...ALL].filter((x) => x !== id));
+      expect(resolveActiveSection(alias, ALL), alias).toBe(id);
+      expect(resolveActiveSection(alias, without), alias).toBe("today");
+    }
+  });
+
+  test("?s=budget and ?s=billing open Billing for a lead and land home for a non-lead", () => {
+    const lead = entitledFor(LEAD);
+    const nonLead = entitledFor(NON_LEAD);
+    premiseHolds(
+      "the lead is entitled to billing, the non-lead is not",
+      lead.has("billing") && !nonLead.has("billing"),
+    );
+    for (const raw of ["budget", "billing"]) {
+      expect(resolveActiveSection(raw, lead), raw).toBe("billing");
+      expect(resolveActiveSection(raw, nonLead), raw).toBe("today");
+    }
+  });
+
+  test("budget is no longer a section id, only an alias", () => {
+    expect(CREW_SECTION_IDS as readonly string[]).not.toContain("budget");
+    expect(LEGACY_SECTION_ALIASES["budget"]).toBe("billing");
   });
 });

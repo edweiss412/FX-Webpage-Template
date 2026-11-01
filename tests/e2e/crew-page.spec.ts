@@ -3817,3 +3817,91 @@ test.describe("crew loading skeleton — reserves the loaded page's geometry", (
       });
     }
 });
+
+/**
+ * PR B plan Task 4: the crew panel card (spec §6.1 line 290) carries the admin
+ * card's 28px icon chip, an h3 label and the card's header actions. Class parity
+ * with the admin card is a Vitest case (tests/components/show-panels/
+ * panelCardParity.test.tsx); this is the laid-out half: the chip renders 28 by
+ * 28, the header row is at least the chip's height, and the actions never
+ * overlap the label, at the two compact widths every crew card must hold.
+ */
+test.describe("billing: the crew panel card's header geometry (PR B Task 4)", () => {
+  test.setTimeout(180_000);
+
+  const TOL = 0.5;
+  let seeded: Awaited<ReturnType<typeof seedShowWithCrew>>;
+
+  test.beforeAll(async () => {
+    seeded = await seedShowWithCrew({
+      title: "Billing Panel Card Show",
+      dates: {
+        travelIn: "2026-04-19",
+        set: "2026-04-20",
+        showDays: ["2026-04-21", "2026-04-22"],
+        travelOut: "2026-04-23",
+      },
+      crew: [{ name: "Panel Lead", role: "TD", roleFlags: ["LEAD"] }],
+      internal: {
+        financials: {
+          po: "PO-PANEL-1180",
+          proposal: "Panel proposal",
+          invoice: "Panel invoice",
+          invoice_notes: "Panel invoice note",
+        },
+      },
+    });
+  });
+
+  test.afterAll(async () => {
+    if (seeded) await deleteSeededShow(seeded.driveFileId);
+  });
+
+  for (const width of [390, 320]) {
+    test(`billing: at ${width}px the panel card's chip is 28 by 28, its header row at least the chip's height, and its actions clear the label`, async ({
+      page,
+    }) => {
+      await page.setViewportSize({ width, height: 844 });
+      await page.clock.setFixedTime(new Date(SHOW_DAY_N_INSTANT));
+      await signOut(page);
+      await signInAs(page, ADMIN_FIXTURE);
+      await page.setExtraHTTPHeaders({
+        "X-Screenshot-Frozen-Now": SHOW_DAY_N_INSTANT,
+        Authorization: `Bearer ${TEST_AUTH_SECRET}`,
+      });
+      const lead = seeded.crew[0]!;
+      const res = await page.goto(`/admin/show/${seeded.slug}/preview/${lead.id}?s=billing`, {
+        waitUntil: "domcontentloaded",
+      });
+      expect(res?.status()).toBe(200);
+      await expect(page.getByTestId("crew-shell-sections")).toHaveAttribute(
+        "data-crew-controller-ready",
+        "true",
+        { timeout: 30_000 },
+      );
+      const card = page
+        .getByTestId("crew-section-sheet-dialog")
+        .getByTestId("section-billing")
+        .getByTestId("crew-panel-card");
+      await expect(card).toBeVisible();
+      const chip = await rectOf(card.locator('[data-slot="panel-card-chip"]'));
+      const header = await rectOf(card.locator('[data-slot="panel-card-header"]'));
+      const label = await rectOf(card.locator("h3"));
+      const actions = await rectOf(card.locator('[data-slot="section-card-action"]'));
+
+      expect(Math.abs(chip.width - 28), `chip width ${chip.width}`).toBeLessThanOrEqual(TOL);
+      expect(Math.abs(chip.height - 28), `chip height ${chip.height}`).toBeLessThanOrEqual(TOL);
+      expect(header.height, "header row vs chip").toBeGreaterThanOrEqual(chip.height - TOL);
+      expect(label.width, "the label is laid out").toBeGreaterThan(0);
+      expect(actions.width, "the actions are laid out").toBeGreaterThan(0);
+      const apart =
+        label.right <= actions.left + TOL ||
+        actions.right <= label.left + TOL ||
+        label.bottom <= actions.top + TOL ||
+        actions.bottom <= label.top + TOL;
+      expect(apart, `label ${JSON.stringify(label)} vs actions ${JSON.stringify(actions)}`).toBe(
+        true,
+      );
+    });
+  }
+});

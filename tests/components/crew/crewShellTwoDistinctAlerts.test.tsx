@@ -63,8 +63,8 @@ vi.mock("@/components/crew/sections/CrewSection", () => ({
 vi.mock("@/components/crew/sections/GearSection", () => ({
   GearSection: mockSection("section-gear"),
 }));
-vi.mock("@/components/crew/sections/BudgetSection", () => ({
-  BudgetSection: mockSection("section-budget"),
+vi.mock("@/components/crew/sections/BillingSection", () => ({
+  BillingSection: mockSection("section-billing"),
 }));
 const { afterMock } = vi.hoisted(() => ({ afterMock: vi.fn() }));
 vi.mock("next/server", () => ({ after: afterMock }));

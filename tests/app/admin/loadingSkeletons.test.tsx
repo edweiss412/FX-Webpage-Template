@@ -127,9 +127,9 @@ describe("admin preview loading: the crew skeleton under the banner, never a Bud
     for (const plate of row.lastElementChild!.children) expect(plate).toHaveClass("h-tap-min");
   });
 
-  it("lists exactly the base sections in the nav and the list, and never Budget", () => {
+  it("lists exactly the base sections in the nav and the list, and never Billing", () => {
     const { container, getAllByTestId } = render(<PreviewLoading />);
-    // EXACT counts: an extra (e.g. Budget) entry would fail this, unlike a mere
+    // EXACT counts: an extra (e.g. Billing) entry would fail this, unlike a mere
     // "the base labels are present" check (Codex P2 R2 [low]).
     expect(getAllByTestId("crew-loading-nav-item").map((el) => el.textContent)).toEqual(
       ["today" as const, ...CREW_ALWAYS_SECTION_IDS].map(crewSectionLabel),
@@ -137,6 +137,8 @@ describe("admin preview loading: the crew skeleton under the banner, never a Bud
     expect(getAllByTestId("crew-loading-list-row").map((el) => el.textContent)).toEqual(
       CREW_ALWAYS_SECTION_IDS.map(crewSectionLabel),
     );
-    expect((container.textContent ?? "").toLowerCase()).not.toContain("budget");
+    const text = (container.textContent ?? "").toLowerCase();
+    expect(text).not.toContain(crewSectionLabel("billing").toLowerCase());
+    expect(text).not.toContain("budget");
   });
 });

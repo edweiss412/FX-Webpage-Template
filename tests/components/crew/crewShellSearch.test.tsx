@@ -143,7 +143,7 @@ describe("crew viewer", () => {
       data: fullContent.data,
       viewer: CREW,
       today: MATRIX_TODAY,
-      budgetVisible: fullContent.budgetVisible,
+      billingVisible: fullContent.billingVisible,
       staticPreview: false,
       sections: fullContent.sections,
     });
@@ -190,7 +190,7 @@ describe("previews", () => {
         data: fullContent.data,
         viewer: ADMIN_PREVIEW,
         today: MATRIX_TODAY,
-        budgetVisible: fullContent.budgetVisible,
+        billingVisible: fullContent.billingVisible,
         staticPreview: false,
         sections: fullContent.sections,
       }),

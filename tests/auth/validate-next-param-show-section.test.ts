@@ -50,9 +50,9 @@ describe("validateNextParamDetailed — show-route section/gate preservation", (
       ok: true,
       path: `${SHOW}?gate=skip`,
     });
-    expect(validateNextParamDetailed(`${SHOW}?s=budget`)).toEqual({
+    expect(validateNextParamDetailed(`${SHOW}?s=billing`)).toEqual({
       ok: true,
-      path: `${SHOW}?s=budget`,
+      path: `${SHOW}?s=billing`,
     });
   });
 
@@ -71,13 +71,24 @@ describe("validateNextParamDetailed — show-route section/gate preservation", (
   });
 
   test("an alias comes back as the id that replaced it, keeping a gate it was given", () => {
-    // Empty until Task 4 retires `budget`; each alias is then checked here with no edit.
+    premise("legacy aliases", Object.keys(LEGACY_SECTION_ALIASES).length, 0);
     for (const [alias, id] of Object.entries(LEGACY_SECTION_ALIASES)) {
       expect(validateNextParamDetailed(`${SHOW}?s=${alias}&gate=skip`), alias).toEqual({
         ok: true,
         path: `${SHOW}?s=${id}&gate=skip`,
       });
     }
+  });
+
+  test("budget comes back as billing, with and without a gate (Task 4)", () => {
+    expect(validateNextParamDetailed(`${SHOW}?s=budget`)).toEqual({
+      ok: true,
+      path: `${SHOW}?s=billing`,
+    });
+    expect(validateNextParamDetailed(`${SHOW}?s=budget&gate=skip`)).toEqual({
+      ok: true,
+      path: `${SHOW}?s=billing&gate=skip`,
+    });
   });
 
   test("an unknown s is dropped and a passed gate kept", () => {

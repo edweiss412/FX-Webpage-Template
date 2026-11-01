@@ -337,15 +337,15 @@ describe("order (spec §5.5)", () => {
     expect(best).toEqual([2, 2, 1.2]);
   });
 
-  it('uses ["today", ...CREW_SECTION_IDS] for ties, budget last', () => {
+  it('uses ["today", ...CREW_SECTION_IDS] for ties, billing last', () => {
     const { prepared } = adHoc(
-      { section: "budget", value: "Dock fee" },
+      { section: "billing", value: "Dock fee" },
       { section: "gear", value: "Dock cart" },
       { section: "today", value: "Dock open" },
       { section: "travel", value: "Dock pickup" },
     );
     const sections = searchIndex(prepared, "dock").sections.map((s) => s.section);
-    expect(sections).toEqual(["today", "travel", "gear", "budget"]);
+    expect(sections).toEqual(["today", "travel", "gear", "billing"]);
   });
 
   it("counts every row it returns in total", () => {

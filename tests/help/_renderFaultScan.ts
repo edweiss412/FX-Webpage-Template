@@ -937,7 +937,15 @@ export function scanCandidates(): Candidate[] {
       // "Your scope" ternary moved from the action slot into that prop. Not a
       // fault branch; 78 kept. Re-derived by running the guard.
       //
-      // Probed: 798 such ternaries under the derived roots, 78 on a
+      // 798 -> 799 on feat/crew-page-redesign-pr-b Task 4: OpsBreakdown's empty-state
+      // ternary moved into the shared Billing body (components/show-panels/BillingBody.tsx,
+      // the same `<p>` arm, still counted once), and the crew panel card's optional
+      // header actions (`actions !== undefined ? <div>… : null`, PanelCard) are new.
+      // FieldRowList's search-marker colon ternary carries no JSX in its true arm, so
+      // the arm does not count it. None is a fault branch; 78 kept. Re-derived by
+      // running the guard.
+      //
+      // Probed: 799 such ternaries under the derived roots, 78 on a
       // fault-vocabulary guard and unclassifiable. 69 of those 78 sit in
       // `"use client"` files, where the guard is interaction state -- `errorCode`,
       // `state.kind === "error"`, `switchStatus === "error"` -- and not a server-render

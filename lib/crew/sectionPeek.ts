@@ -10,8 +10,8 @@
  *   - Ground-transport legs through `transportTileVisible` (TravelSection).
  *   - Every date, and the hotel, withheld when `suppressesDates` holds; show
  *     days through `visibleShowDays` (ScheduleSection).
- *   - Budget through `financialsVisible` (BudgetSection), and nothing when its
- *     fetch failed, since the section then shows the failure.
+ *   - Billing through `financialsVisible` (BillingSection), and nothing when
+ *     its fetch failed, since the section then shows the failure.
  *
  * A peek that resolves to nothing is `null`, never placeholder text (spec §11):
  * every value goes through `shouldHideGenericOptional`. Computed on the server;
@@ -140,7 +140,7 @@ function gearPeek(data: ShowForViewer, viewer: SectionPeekViewer): string | null
   return visible ? plural(cases.length, "case", "cases") : null;
 }
 
-function budgetPeek(data: ShowForViewer, viewer: SectionPeekViewer): string | null {
+function billingPeek(data: ShowForViewer, viewer: SectionPeekViewer): string | null {
   if (!financialsVisible(viewer.viewerFlags, viewer.isAdmin)) return null;
   if (data.tileErrors["financials"]) return null;
   const po = present(data.financials?.po);
@@ -164,7 +164,7 @@ export function sectionPeek(
       return crewPeek(data);
     case "gear":
       return gearPeek(data, viewer);
-    case "budget":
-      return budgetPeek(data, viewer);
+    case "billing":
+      return billingPeek(data, viewer);
   }
 }

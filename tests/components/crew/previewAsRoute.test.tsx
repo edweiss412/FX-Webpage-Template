@@ -10,11 +10,11 @@
  *   - The route passes the RAW `?s=` through to CrewShell as `rawSection` —
  *     CrewShell is the single activeSection authority. `{ s: "venue" }` →
  *     the controller's initialSection="venue"; absent `s` → "today".
- *   - Budget gate (R2-HIGH-1): CrewShell resolves the Budget gate from the
+ *   - Billing gate (R2-HIGH-1): CrewShell resolves the Billing gate from the
  *     PREVIEWED crew's LEAD flag (isAdmin is false for an admin_preview viewer).
- *     A non-LEAD previewed crew requesting ?s=budget lands on "today"; a LEAD
- *     previewed crew reaches "budget". The previous route shortcut that let any
- *     previewing admin reach ?s=budget is removed by design.
+ *     A non-LEAD previewed crew requesting ?s=budget (the old id, an alias) lands
+ *     on "today"; a LEAD previewed crew reaches "billing". The previous route
+ *     shortcut that let any previewing admin reach the section is removed by design.
  *   - showId passed to CrewShell is showLookup.id (the resolved show row id),
  *     not the slug.
  *
@@ -75,7 +75,7 @@ vi.mock("@/lib/supabase/server", () => ({
 }));
 
 // getShowForViewer is the single auth authority — its returned crewMembers row
-// for crewId carries the LEAD (or not) flag that drives the Budget gate.
+// for crewId carries the LEAD (or not) flag that drives the Billing gate.
 function crewRow(id: string, roleFlags: string[]): ShowForViewer["crewMembers"][number] {
   return {
     id,
@@ -130,7 +130,7 @@ vi.mock("@/components/auth/IdentityChip", () => ({
 // bodies and hands them to the <CrewSections> controller (a "use client" island
 // that calls usePathname/useSearchParams). This suite pins the PAGE→SHELL wiring
 // (activeSection authority via the shell's server-resolved value, showId
-// threading, budget gate, banner placement), not the controller internals, so we
+// threading, billing gate, banner placement), not the controller internals, so we
 // mock CrewSections to a flat marker that surfaces its incoming props — and
 // renders the initial active body — without dragging in next/navigation hooks.
 // (The controller's own behavior is pinned by crewSections.test.tsx.)
@@ -147,7 +147,7 @@ vi.mock("@/components/crew/CrewSections", () => ({
     <div
       data-testid="mock-crew-sections"
       data-initial-section={initialSection}
-      data-budget-listed={String(sections.some((s) => s.id === "budget"))}
+      data-billing-listed={String(sections.some((s) => s.id === "billing"))}
     >
       {sectionNodes[initialSection] ?? null}
     </div>
@@ -190,8 +190,8 @@ vi.mock("@/components/crew/sections/CrewSection", () => ({
 vi.mock("@/components/crew/sections/GearSection", () => ({
   GearSection: previewSectionMarker("section-gear"),
 }));
-vi.mock("@/components/crew/sections/BudgetSection", () => ({
-  BudgetSection: previewSectionMarker("section-budget"),
+vi.mock("@/components/crew/sections/BillingSection", () => ({
+  BillingSection: previewSectionMarker("section-billing"),
 }));
 
 vi.mock("@/components/realtime/ShowRealtimeBridge", () => ({
@@ -342,20 +342,20 @@ describe("preview-as route renders CrewShell", () => {
 });
 
 // ============================================================================
-// Budget gate driven by the PREVIEWED crew's LEAD flag (R2-HIGH-1)
+// Billing gate driven by the PREVIEWED crew's LEAD flag (R2-HIGH-1)
 // ============================================================================
-describe("preview-as Budget gate reads the previewed crew's LEAD flag", () => {
-  it("previewing a NON-LEAD crew + ?s=budget → today (Budget not entered)", async () => {
+describe("preview-as Billing gate reads the previewed crew's LEAD flag", () => {
+  it("previewing a NON-LEAD crew + ?s=budget → today (Billing not entered)", async () => {
     await renderPreviewPage({ crewId: HAND_ID, s: "budget", previewCrewRoleFlags: ["A2"] });
     const shell = screen.getByTestId("mock-crew-sections");
     expect(shell.getAttribute("data-initial-section")).toBe("today");
-    expect(shell.getAttribute("data-budget-listed")).toBe("false");
+    expect(shell.getAttribute("data-billing-listed")).toBe("false");
   });
 
-  it("previewing a LEAD crew + ?s=budget → budget", async () => {
+  it("previewing a LEAD crew + ?s=budget (the alias) → billing", async () => {
     await renderPreviewPage({ crewId: LEAD_ID, s: "budget", previewCrewRoleFlags: ["LEAD"] });
     const shell = screen.getByTestId("mock-crew-sections");
-    expect(shell.getAttribute("data-initial-section")).toBe("budget");
-    expect(shell.getAttribute("data-budget-listed")).toBe("true");
+    expect(shell.getAttribute("data-initial-section")).toBe("billing");
+    expect(shell.getAttribute("data-billing-listed")).toBe("true");
   });
 });

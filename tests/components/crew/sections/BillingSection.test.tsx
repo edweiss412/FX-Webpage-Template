@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 import { expect, test } from "vitest";
 import { render } from "@testing-library/react";
-import { BudgetSection } from "@/components/crew/sections/BudgetSection";
+import { BillingSection } from "@/components/crew/sections/BillingSection";
 import { makeShowForViewer } from "@/tests/fixtures/showForViewer";
 import { financialsVisible } from "@/lib/visibility/scopeTiles";
 import { crewSectionEntitled } from "@/lib/crew/crewSections";
@@ -15,7 +15,7 @@ import { ledgerProp } from "./_ledgerProp";
 const TODAY = new Date("2026-05-14T15:00:00Z");
 const SHOW_ID = "show-abc";
 
-test("BudgetSection renders financials iff financialsVisible; the SAME predicate drives resolveActiveSection", () => {
+test("BillingSection renders financials iff financialsVisible; the SAME predicate drives resolveActiveSection", () => {
   const lead = makeShowForViewer({
     financials: { po: "PO-1", proposal: "P", invoice: "I", invoice_notes: "N" },
     crewMembers: [
@@ -33,7 +33,7 @@ test("BudgetSection renders financials iff financialsVisible; the SAME predicate
   });
   expect(
     render(
-      <BudgetSection
+      <BillingSection
         {...ledgerProp()}
         data={lead}
         viewer={{ kind: "crew", crewMemberId: "c1" }}
@@ -42,19 +42,21 @@ test("BudgetSection renders financials iff financialsVisible; the SAME predicate
       />,
     ).container.textContent,
   ).toContain("PO-1");
-  // The SAME single predicate gates the section selection: a non-lead direct ?s=budget falls back to today.
+  // The SAME single predicate gates the section selection: a non-lead's direct
+  // ?s=billing, or the old ?s=budget, falls back to today.
   const nonLead = { viewerFlags: [], isAdmin: false };
-  expect(crewSectionEntitled("budget", lead, nonLead)).toBe(financialsVisible([], false));
+  expect(crewSectionEntitled("billing", lead, nonLead)).toBe(financialsVisible([], false));
   const entitled = new Set<SectionId>(
     CREW_SECTION_IDS.filter((id) => crewSectionEntitled(id, lead, nonLead)),
   );
+  expect(resolveActiveSection("billing", entitled)).toBe("today");
   expect(resolveActiveSection("budget", entitled)).toBe("today");
 });
 
-test("BudgetSection no-ops (no financials content) when data.financials is absent", () => {
+test("BillingSection no-ops (no financials content) when data.financials is absent", () => {
   const noFin = makeShowForViewer({});
   const { container } = render(
-    <BudgetSection
+    <BillingSection
       {...ledgerProp()}
       data={noFin}
       viewer={{ kind: "admin" }}

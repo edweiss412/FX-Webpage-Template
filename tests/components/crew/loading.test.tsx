@@ -192,15 +192,17 @@ describe("crew route loading skeleton", () => {
     expect(stack).toContainElement(getByTestId("crew-loading-section"));
   });
 
-  it("the list block carries one row per base section, never a Budget row", () => {
+  it("the list block carries one row per base section, never a Billing row", () => {
     const { getByTestId } = render(<Loading />);
     const rows = within(getByTestId("crew-loading-list")).getAllByTestId("crew-loading-list-row");
     expect(rows.map((el) => el.textContent)).toEqual(CREW_ALWAYS_SECTION_IDS.map(crewSectionLabel));
   });
 
-  it("never renders a Budget entry (case-insensitive)", () => {
+  it("never renders a Billing entry, by its label or its old name (case-insensitive)", () => {
     const { container } = render(<Loading />);
-    expect((container.textContent ?? "").toLowerCase()).not.toContain("budget");
+    const text = (container.textContent ?? "").toLowerCase();
+    expect(text).not.toContain(crewSectionLabel("billing").toLowerCase());
+    expect(text).not.toContain("budget");
   });
 
   it("contains no em dash and no raw error code", () => {

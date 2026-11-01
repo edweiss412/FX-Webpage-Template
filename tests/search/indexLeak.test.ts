@@ -31,7 +31,7 @@ import { cleanup, render } from "@testing-library/react";
 import { createElement, type JSX } from "react";
 import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
 
-import { BudgetSection } from "@/components/crew/sections/BudgetSection";
+import { BillingSection } from "@/components/crew/sections/BillingSection";
 import { CrewSection } from "@/components/crew/sections/CrewSection";
 import { CONTACTS_INLINE_CAP, CREW_INLINE_CAP } from "@/components/crew/sections/crewRows";
 import { GearSection } from "@/components/crew/sections/GearSection";
@@ -114,8 +114,8 @@ function sectionElement(id: SectionId, c: ViewerCase): JSX.Element {
       return createElement(CrewSection, props);
     case "gear":
       return createElement(GearSection, props);
-    case "budget":
-      return createElement(BudgetSection, props);
+    case "billing":
+      return createElement(BillingSection, props);
   }
 }
 
@@ -149,7 +149,7 @@ function indexHolds(c: ViewerCase, text: string): boolean {
 
 // ── Fixtures ─────────────────────────────────────────────────────────────────
 
-/** A case on new data, with `budgetVisible` and the member list recomputed the way `CrewShell` computes them. */
+/** A case on new data, with `billingVisible` and the member list recomputed the way `CrewShell` computes them. */
 function caseOf(name: string, viewer: Viewer, data: ShowForViewer, from: ViewerCase): ViewerCase {
   const ctx = resolveViewerContext(viewer, data);
   return {
@@ -157,7 +157,7 @@ function caseOf(name: string, viewer: Viewer, data: ShowForViewer, from: ViewerC
     name,
     viewer,
     data,
-    budgetVisible: financialsVisible(ctx.viewerFlags, ctx.isAdmin),
+    billingVisible: financialsVisible(ctx.viewerFlags, ctx.isAdmin),
     sections: memberIdsFor(viewer, data),
   };
 }

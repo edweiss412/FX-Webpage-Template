@@ -9,8 +9,8 @@
  * assert:
  *
  *   - `sectionNodes` keys === the entitled set:
- *       LEAD viewer  → today + every CREW_SECTION_IDS id (7), budget key PRESENT
- *       NON-lead     → the same minus budget              (6), NO budget key
+ *       LEAD viewer  → today + every CREW_SECTION_IDS id (7), billing key PRESENT
+ *       NON-lead     → the same minus billing              (6), NO billing key
  *   - `initialSection` === the server-resolved active (a non-lead ?s=budget →
  *     today).
  *   - PER-ID body correctness (anti-tautology — keys alone can pass with a
@@ -29,8 +29,8 @@ import { CREW_SECTION_IDS, type SectionId } from "@/lib/crew/resolveActiveSectio
 
 /** Every body a fully entitled viewer gets: the home plus every crew section. */
 const ALL_KEYS: SectionId[] = ["today", ...CREW_SECTION_IDS];
-/** What a viewer the budget gate refuses gets. */
-const NON_LEAD_KEYS: SectionId[] = ALL_KEYS.filter((id) => id !== "budget");
+/** What a viewer the billing gate refuses gets. */
+const NON_LEAD_KEYS: SectionId[] = ALL_KEYS.filter((id) => id !== "billing");
 import { makeShowForViewer } from "@/tests/fixtures/showForViewer";
 
 const upsertAdminAlert = vi.hoisted(() => vi.fn());
@@ -121,8 +121,8 @@ vi.mock("@/components/crew/sections/CrewSection", () => ({
 vi.mock("@/components/crew/sections/GearSection", () => ({
   GearSection: sectionMarker("section-gear"),
 }));
-vi.mock("@/components/crew/sections/BudgetSection", () => ({
-  BudgetSection: sectionMarker("section-budget"),
+vi.mock("@/components/crew/sections/BillingSection", () => ({
+  BillingSection: sectionMarker("section-billing"),
 }));
 
 beforeEach(() => {
@@ -220,28 +220,28 @@ function leadData(): ShowForViewer {
 }
 
 // ============================================================================
-// sectionNodes keys === the entitled set, and the listed sections are exactly it (budget gated)
+// sectionNodes keys === the entitled set, and the listed sections are exactly it (billing gated)
 // ============================================================================
 describe("CrewShell builds sectionNodes for the entitled set", () => {
   /** The ids the "All sections" card and the wide nav receive. */
   const listed = () => captured.value!.sections.map((x) => x.id).sort();
 
-  it("a LEAD viewer gets all 7 keys (every section, budget included)", async () => {
+  it("a LEAD viewer gets all 7 keys (every section, billing included)", async () => {
     await renderShell({ data: leadData(), viewer: crewViewer, rawSection: "today" });
     expect(captured.value).not.toBeNull();
     const keys = Object.keys(captured.value!.sectionNodes).sort();
     expect(keys).toEqual([...ALL_KEYS].sort());
     expect(listed()).toEqual(keys.filter((k) => k !== "today").sort());
-    expect(listed()).toContain("budget");
+    expect(listed()).toContain("billing");
   });
 
-  it("a NON-lead viewer gets EXACTLY the 6 base keys, no budget key", async () => {
+  it("a NON-lead viewer gets EXACTLY the 6 base keys, no billing key", async () => {
     await renderShell({ data: populated(), viewer: crewViewer, rawSection: "today" });
     const keys = Object.keys(captured.value!.sectionNodes).sort();
     expect(keys).toEqual([...NON_LEAD_KEYS].sort());
-    expect(keys).not.toContain("budget");
+    expect(keys).not.toContain("billing");
     expect(listed()).toEqual(keys.filter((k) => k !== "today").sort());
-    expect(listed()).not.toContain("budget");
+    expect(listed()).not.toContain("billing");
   });
 
   it("a real admin gets all 7 keys", async () => {
@@ -249,22 +249,30 @@ describe("CrewShell builds sectionNodes for the entitled set", () => {
     const keys = Object.keys(captured.value!.sectionNodes).sort();
     expect(keys).toEqual([...ALL_KEYS].sort());
     expect(listed()).toEqual(keys.filter((k) => k !== "today").sort());
-    expect(listed()).toContain("budget");
+    expect(listed()).toContain("billing");
   });
 });
 
 // ============================================================================
-// initialSection === the server-resolved active (budget-gated)
+// initialSection === the server-resolved active (billing-gated, the old budget id an alias)
 // ============================================================================
-describe("CrewShell resolves initialSection server-side (budget-gated)", () => {
-  it("a non-lead ?s=budget resolves to today", async () => {
-    await renderShell({ data: populated(), viewer: crewViewer, rawSection: "budget" });
-    expect(captured.value!.initialSection).toBe("today");
+describe("CrewShell resolves initialSection server-side (billing-gated)", () => {
+  it("a non-lead ?s=billing and ?s=budget resolve to today", async () => {
+    for (const raw of ["billing", "budget"]) {
+      await renderShell({ data: populated(), viewer: crewViewer, rawSection: raw });
+      expect(captured.value!.initialSection, raw).toBe("today");
+      cleanup();
+      captured.value = null;
+    }
   });
 
-  it("a lead ?s=budget resolves to budget", async () => {
-    await renderShell({ data: leadData(), viewer: crewViewer, rawSection: "budget" });
-    expect(captured.value!.initialSection).toBe("budget");
+  it("a lead ?s=billing and ?s=budget (the alias) resolve to billing", async () => {
+    for (const raw of ["billing", "budget"]) {
+      await renderShell({ data: leadData(), viewer: crewViewer, rawSection: raw });
+      expect(captured.value!.initialSection, raw).toBe("billing");
+      cleanup();
+      captured.value = null;
+    }
   });
 
   it("?s=venue resolves to venue; absent ?s resolves to today", async () => {

@@ -7,8 +7,8 @@
  * handed the shell's own inputs, and ids unique across the whole index.
  *
  * The composition cases replace every builder with a stub that returns marker
- * entries, so they test the composer and not the builders: the Budget builder
- * gates itself on `budgetVisible` too, so a composer that always called it
+ * entries, so they test the composer and not the builders: the Billing builder
+ * gates itself on `billingVisible` too, so a composer that always called it
  * would pass any test that used the real builder.
  */
 import { afterEach, describe, expect, test, vi } from "vitest";
@@ -80,39 +80,39 @@ describe("composition", () => {
       expect(seen[0]!.data).toBe(leadWithFinancials.data);
       expect(seen[0]!.viewer).toBe(leadWithFinancials.viewer);
       expect(seen[0]!.today).toBe(leadWithFinancials.today);
-      expect(seen[0]!.budgetVisible).toBe(true);
+      expect(seen[0]!.billingVisible).toBe(true);
       expect(seen[0]!.staticPreview).toBe(false);
     }
   });
 
-  test("leaves Budget out, without calling its builder, when Budget is not listed", () => {
+  test("leaves Billing out, without calling its builder, when Billing is not listed", () => {
     premiseHolds(
-      "the crew case does not list Budget",
-      !crewNoTransport.sections.includes("budget"),
+      "the crew case does not list Billing",
+      !crewNoTransport.sections.includes("billing"),
     );
     const calls = stubBuilders();
 
     const index = buildSearchIndex(crewNoTransport);
 
     expect([...new Set(index.entries.map((e) => e.section))]).toEqual(
-      INDEX_ORDER.filter((id) => id !== "budget"),
+      INDEX_ORDER.filter((id) => id !== "billing"),
     );
-    expect(calls.has("budget")).toBe(false);
+    expect(calls.has("billing")).toBe(false);
   });
 
-  test("reads the shell's member list, not budgetVisible, to choose the sections", () => {
+  test("reads the shell's member list, not billingVisible, to choose the sections", () => {
     // Each pairing flips one input against the other, so a composer that kept
-    // reading budgetVisible gets one of the two wrong.
-    for (const budgetVisible of [true, false]) {
+    // reading billingVisible gets one of the two wrong.
+    for (const billingVisible of [true, false]) {
       vi.restoreAllMocks();
       const calls = stubBuilders();
-      const sections: SectionId[] = budgetVisible ? ["venue"] : ["venue", "budget"];
-      const index = buildSearchIndex({ ...fullContent, budgetVisible, sections });
+      const sections: SectionId[] = billingVisible ? ["venue"] : ["venue", "billing"];
+      const index = buildSearchIndex({ ...fullContent, billingVisible, sections });
       expect(
         [...new Set(index.entries.map((e) => e.section))],
-        `budgetVisible ${budgetVisible}`,
+        `billingVisible ${billingVisible}`,
       ).toEqual(INDEX_ORDER.filter((id) => id === "today" || sections.includes(id)));
-      expect(calls.has("budget"), `budgetVisible ${budgetVisible}`).toBe(!budgetVisible);
+      expect(calls.has("billing"), `billingVisible ${billingVisible}`).toBe(!billingVisible);
     }
   });
 
@@ -132,7 +132,7 @@ describe("composition", () => {
 describe("with the real builders", () => {
   test("every matrix case builds without throwing, ids are unique across the index and name their section", () => {
     let multiSection = 0;
-    let withBudget = 0;
+    let withBilling = 0;
     for (const c of ALL_CASES) {
       const { entries } = buildSearchIndex(c);
       const ids = entries.map((e) => e.id);
@@ -140,12 +140,12 @@ describe("with the real builders", () => {
       for (const e of entries)
         expect(e.id.startsWith(`${e.section}:`), `${c.name}: ${e.id}`).toBe(true);
       if (new Set(entries.map((e) => e.section)).size > 1) multiSection += 1;
-      if (entries.some((e) => e.section === "budget")) withBudget += 1;
+      if (entries.some((e) => e.section === "billing")) withBilling += 1;
     }
     // The uniqueness check is cross-section only if some index spans sections,
-    // and covers Budget only if some case renders it.
+    // and covers Billing only if some case renders it.
     premise("matrix cases whose index spans more than one section", multiSection, 0);
-    premise("matrix cases whose index holds Budget entries", withBudget, 0);
+    premise("matrix cases whose index holds Billing entries", withBilling, 0);
   });
 
   test("a staticPreview index equals the live one for the same inputs", () => {

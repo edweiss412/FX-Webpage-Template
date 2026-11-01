@@ -45,7 +45,7 @@ import { TerminalFailure } from "@/components/auth/TerminalFailure";
 import { CrewSections } from "@/components/crew/CrewSections";
 import { CrewSearchField } from "@/components/crew/search/CrewSearchField";
 import { CrewSearchProvider } from "@/components/crew/search/CrewSearchProvider";
-import { BudgetSection } from "@/components/crew/sections/BudgetSection";
+import { BillingSection } from "@/components/crew/sections/BillingSection";
 import { CrewSection } from "@/components/crew/sections/CrewSection";
 import { GearSection } from "@/components/crew/sections/GearSection";
 import { HomeSection } from "@/components/crew/sections/HomeSection";
@@ -283,8 +283,8 @@ export async function CrewShell({
     ...CREW_SECTION_IDS.filter((id) => crewSectionEntitled(id, data, ctx)),
   ]);
   const activeSection = resolveActiveSection(rawSection, entitled);
-  // The Budget search builder's own gate: the same entitlement.
-  const budgetVisible = entitled.has("budget");
+  // The Billing search builder's own gate: the same entitlement.
+  const billingVisible = entitled.has("billing");
 
   // Render-time "today" reads through the request-scoped clock so screenshot
   // capture can pin it (M11 Phase C). Sections consume `today` in Phase 3. The
@@ -478,9 +478,9 @@ export async function CrewShell({
             cardReport={cardReport}
           />
         );
-      case "budget":
+      case "billing":
         return (
-          <BudgetSection
+          <BillingSection
             data={data}
             viewer={viewer}
             today={today}
@@ -497,10 +497,10 @@ export async function CrewShell({
   // (spec §4.6), so the client never derives a peek from data it should not see.
   const sections = crewSectionEntries(data, { ...ctx, today });
 
-  // A body for every entitled id (`budget` iff financialsVisible), listed or
-  // not. The Budget body is BUILT only when entitled, so a non-lead never
-  // receives a Budget body in the payload (no-Budget-flash invariant §4.17 /
-  // Budget gate §4.1).
+  // A body for every entitled id (`billing` iff financialsVisible), listed or
+  // not. The Billing body is BUILT only when entitled, so a non-lead never
+  // receives a Billing body in the payload (no-Budget-flash invariant §4.17 /
+  // financials gate §4.1).
   const sectionNodes = Object.fromEntries(
     [...entitled].map((id) => [id, renderOne(id)]),
   ) as Partial<Record<SectionId, JSX.Element>>;
@@ -517,7 +517,7 @@ export async function CrewShell({
     data,
     viewer,
     today,
-    budgetVisible,
+    billingVisible,
     staticPreview,
     sections: sections.map((s) => s.id),
   });
@@ -603,7 +603,7 @@ export async function CrewShell({
             <main data-testid="page-container">, the "All sections" card, the wide
             nav and stack, the section sheet and, while search is active, the
             search panel in place of the page body, all over the SERVER-RENDERED
-            `sectionNodes`. `initialSection` is the server-resolved, budget-gated
+            `sectionNodes`. `initialSection` is the server-resolved, billing-gated
             section (first paint: the sheet open, or the wide page scrolled to it);
             the controller only chooses where bodies show thereafter (freshness
             invariant). Header / ShowRealtimeBridge / Footer stay server-rendered

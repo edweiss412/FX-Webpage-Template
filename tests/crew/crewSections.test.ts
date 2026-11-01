@@ -3,7 +3,7 @@
  * wide nav offer a crew viewer in PR A.
  *
  * Spec docs/superpowers/specs/2026-10-26-crew-page-redesign-design.md §4.6 and
- * §5.1. Expected ids come from `CREW_SECTION_IDS`, the budget gate from
+ * §5.1. Expected ids come from `CREW_SECTION_IDS`, the billing gate from
  * `financialsVisible` itself, labels from the one label source and the fetch
  * domains from the projection's own writers, so no case passes on a literal the
  * module under test also happens to contain.
@@ -85,8 +85,8 @@ function healthyShow(): ShowForViewer {
   });
 }
 
-/** The crew ids every viewer is listed: all of them but the budget the gate decides. */
-const BASE_LISTED = CREW_SECTION_IDS.filter((id) => id !== "budget");
+/** The crew ids every viewer is listed: all of them but the billing the gate decides. */
+const BASE_LISTED = CREW_SECTION_IDS.filter((id) => id !== "billing");
 
 function ctxFor(viewer: Viewer, data: ShowForViewer) {
   return resolveViewerContext(viewer, data);
@@ -101,19 +101,19 @@ function entitledSet(data: ShowForViewer, ctx: ReturnType<typeof ctxFor>): Reado
 }
 
 describe("crewSectionEntitled (plan decision 1, PR A's rule)", () => {
-  it("entitled: budget exactly when financialsVisible holds, every other id and today always", () => {
+  it("entitled: billing exactly when financialsVisible holds, every other id and today always", () => {
     const data = healthyShow();
     const outcomes = new Set<boolean>();
     for (const { name, viewer } of VIEWERS) {
       const ctx = ctxFor(viewer, data);
       const fin = financialsVisible(ctx.viewerFlags, ctx.isAdmin);
       outcomes.add(fin);
-      expect(crewSectionEntitled("budget", data, ctx), name).toBe(fin);
+      expect(crewSectionEntitled("billing", data, ctx), name).toBe(fin);
       expect(crewSectionEntitled("today", data, ctx), name).toBe(true);
       for (const id of BASE_LISTED)
         expect(crewSectionEntitled(id, data, ctx), `${name} ${id}`).toBe(true);
     }
-    premiseHolds("the viewer set exercises the budget gate both ways", outcomes.size === 2);
+    premiseHolds("the viewer set exercises the billing gate both ways", outcomes.size === 2);
   });
 
   it("entitled: the skeleton's always table is exactly the ids every viewer is listed, in nav order", () => {
@@ -132,20 +132,20 @@ describe("crewSectionsFor (sections, PR A membership)", () => {
   it("sections: lists every always-entitled section without the home, in nav order", () => {
     const data = healthyShow();
     const ctx = ctxFor({ kind: "crew", crewMemberId: "c-plain" }, data);
-    // Premise: this viewer is one the budget gate refuses, so the list is the base set.
+    // Premise: this viewer is one the billing gate refuses, so the list is the base set.
     expect(financialsVisible(ctx.viewerFlags, ctx.isAdmin)).toBe(false);
     expect(BASE_LISTED.length).toBeGreaterThan(0);
     expect(crewSectionsFor(data, ctx).map((s) => s.id)).toEqual(BASE_LISTED);
   });
 
-  it("sections: budget is listed, last, exactly when financialsVisible holds", () => {
+  it("sections: billing is listed, last, exactly when financialsVisible holds", () => {
     const data = healthyShow();
     const outcomes = new Set<boolean>();
     for (const { name, viewer } of VIEWERS) {
       const ctx = ctxFor(viewer, data);
       const entitled = financialsVisible(ctx.viewerFlags, ctx.isAdmin);
       outcomes.add(entitled);
-      const expected: CrewSectionId[] = entitled ? [...BASE_LISTED, "budget"] : [...BASE_LISTED];
+      const expected: CrewSectionId[] = entitled ? [...BASE_LISTED, "billing"] : [...BASE_LISTED];
       expect(
         crewSectionsFor(data, ctx).map((s) => s.id),
         name,
@@ -171,7 +171,7 @@ describe("crewSectionsFor (sections, PR A membership)", () => {
   it("sections: each label comes from CREW_SECTION_LABELS, and no other module keeps its own label table", () => {
     const ctx = ctxFor({ kind: "admin" }, healthyShow());
     const sections = crewSectionsFor(healthyShow(), ctx);
-    expect(sections.map((s) => s.id)).toContain("budget");
+    expect(sections.map((s) => s.id)).toContain("billing");
     for (const section of sections) {
       expect(section.label, section.id).toBe(CREW_SECTION_LABELS[section.id]);
     }
@@ -196,7 +196,7 @@ describe("crewSectionsFor (sections, PR A membership)", () => {
     const domains = [
       ...new Set([...projection.matchAll(/tileErrors\["([a-z_]+)"\]\s*=/g)].map((m) => m[1]!)),
     ];
-    // Premise: the walk saw known members, including the one the budget body reads.
+    // Premise: the walk saw known members, including the one the billing body reads.
     expect(domains).toContain("financials");
     expect(domains).toContain("hotel");
 

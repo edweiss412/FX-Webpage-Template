@@ -43,7 +43,11 @@ export const REQUIRED = {
   // 28 since the UI-gate re-run's P2-1 added "closing a deep-linked sheet with
   // Esc focuses its All sections row, on screen". Counted from the observed
   // mobile-safari run (28 passed).
-  "crew-section-toggle.spec.ts": 28,
+  // 31 since the crew page redesign PR B's Task 4 added three "billing" cases (?s=budget
+  // opens Billing for a lead preview, Back then Forward over an s=budget entry, a
+  // non-lead's ?s=budget and ?s=billing land home). Counted from the observed
+  // mobile-safari run.
+  "crew-section-toggle.spec.ts": 31,
   "picker-flow.spec.ts": 7,
   "alert-action-links.spec.ts": 4,
   // 3 SFS-1 cases + 3 seeded agenda-fold cases.
@@ -99,7 +103,10 @@ export const REQUIRED = {
   // which CI ran only through two `-g` filters that never selected them (2C-1):
   // Who to call's action row, the card titles, and the six loading-skeleton cases.
   // Re-derived from the wiring guard's live Playwright resolution (51).
-  "crew-page.spec.ts": 51,
+  // 53 since the crew page redesign PR B's Task 4 added the crew panel card's header
+  // geometry case at 390px and 320px ("billing"). Counted from the observed
+  // mobile-safari run.
+  "crew-page.spec.ts": 53,
   // The crew page's wide layout (crew page redesign plan PR A, Task 6): eight cases,
   // desktop-chromium ALONE (its testMatch; the wide layout begins at 1024px). Nine
   // since Task 7 added the wide header case (search between title and chip).
@@ -121,8 +128,11 @@ export const REQUIRED = {
   // from the wiring guard's live Playwright resolution (25). Twenty-six since
   // round 3 (3A-2) added one (a search started from a scrolled section leaves the
   // nav on the section in view, with its bar). Re-derived from the wiring
-  // guard's live Playwright resolution (26).
-  "crew-wide-nav.spec.ts": 26,
+  // guard's live Playwright resolution (26). Twenty-eight since the crew page
+  // redesign PR B's Task 4 added two "billing" cases (?s=budget lands on Billing for
+  // a lead preview; a non-lead's ?s=budget and ?s=billing land at the top on Today).
+  // Counted from the observed desktop-chromium run.
+  "crew-wide-nav.spec.ts": 28,
   // 9, and the number is the MATRIX rather than a multiple (plan
   // 2026-08-09-quick-wins-2 "e2e harness readiness"). theme-toggle runs two arms:
   //   arm (a) — 4 standalone-toggle cases, BOTH projects            = 8

@@ -72,8 +72,15 @@ describe("buildShowReturnUrl", () => {
     expect(url).not.toContain("gate=");
   });
 
-  test('"budget" is an accepted section value (entitlement is gated downstream, not here)', () => {
-    expect(buildShowReturnUrl(SLUG, TOKEN, { s: "budget" })).toBe(`${BASE}?s=budget`);
+  test('"billing" is an accepted section value (entitlement is gated downstream, not here)', () => {
+    expect(buildShowReturnUrl(SLUG, TOKEN, { s: "billing" })).toBe(`${BASE}?s=billing`);
+  });
+
+  test('the old "budget" is written as "billing", and a gate it was given is kept (Task 4)', () => {
+    expect(buildShowReturnUrl(SLUG, TOKEN, { s: "budget" })).toBe(`${BASE}?s=billing`);
+    expect(buildShowReturnUrl(SLUG, TOKEN, { s: "budget", gate: "skip" })).toBe(
+      `${BASE}?s=billing&gate=skip`,
+    );
   });
 
   test("every crew section id and today round-trip, with a gate exactly when the caller passes one", () => {
@@ -87,7 +94,7 @@ describe("buildShowReturnUrl", () => {
   });
 
   test("an alias is written as the id that replaced it, keeping a gate it was given", () => {
-    // Empty until Task 4 retires `budget`; each alias is then checked here with no edit.
+    premise("legacy aliases", Object.keys(LEGACY_SECTION_ALIASES).length, 0);
     for (const [alias, id] of Object.entries(LEGACY_SECTION_ALIASES)) {
       expect(buildShowReturnUrl(SLUG, TOKEN, { s: alias, gate: "skip" }), alias).toBe(
         `${BASE}?s=${id}&gate=skip`,

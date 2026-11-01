@@ -5,7 +5,7 @@
  * This module asserts nothing. Each section task states, per case it uses, the
  * premise its own render must show (tests/_shared/premise.ts), because only a
  * render can prove a gate actually flipped. Cap-crossing counts are derived
- * from the exported caps, never typed, and `budgetVisible` and the member list
+ * from the exported caps, never typed, and `billingVisible` and the member list
  * `sections` are computed the way `CrewShell` computes them, so a case cannot
  * claim an entitlement the shell would not grant.
  */
@@ -162,7 +162,7 @@ function base(over: Overrides = {}): ShowForViewer {
   });
 }
 
-function budgetVisibleFor(viewer: Viewer, data: ShowForViewer): boolean {
+function billingVisibleFor(viewer: Viewer, data: ShowForViewer): boolean {
   const ctx = resolveViewerContext(viewer, data);
   return financialsVisible(ctx.viewerFlags, ctx.isAdmin);
 }
@@ -178,7 +178,7 @@ function makeCase(name: string, viewer: Viewer, data: ShowForViewer): ViewerCase
     data,
     viewer,
     today: MATRIX_TODAY,
-    budgetVisible: budgetVisibleFor(viewer, data),
+    billingVisible: billingVisibleFor(viewer, data),
     staticPreview: false,
     sections: memberIdsFor(viewer, data),
   };
@@ -217,7 +217,7 @@ export const crewWithTransport = makeCase(
   }),
 );
 
-/** A LEAD crew viewer with financials loaded: the Budget section renders. */
+/** A LEAD crew viewer with financials loaded: the Billing section renders. */
 export const leadWithFinancials = makeCase(
   "leadWithFinancials",
   CREW_VIEWER,
@@ -360,7 +360,7 @@ export const diagramsNamedAndUnnamed = makeCase(
   base({ diagrams: diagrams([embedded(1, "FOH plot"), embedded(2, undefined)]) }),
 );
 
-/** An admin viewer: all flags, no restrictions, transport and budget visible. */
+/** An admin viewer: all flags, no restrictions, transport and billing visible. */
 export const adminViewer = makeCase(
   "adminViewer",
   { kind: "admin" },

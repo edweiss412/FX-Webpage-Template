@@ -105,6 +105,9 @@ const TILES_DIR = join(REPO_ROOT, "components", "tiles");
 const CREW_DIRS: ReadonlyArray<string> = [
   join(REPO_ROOT, "components", "crew", "sections"),
   join(REPO_ROOT, "components", "crew", "primitives"),
+  // The shared section bodies (crew page redesign spec §6.1, line 503): a body
+  // that reads a generic-optional field is held to the same contract.
+  join(REPO_ROOT, "components", "show-panels"),
 ];
 
 /**
@@ -395,6 +398,16 @@ describe("META §8.3 sentinel-hiding contract — components/tiles/ + components
     const files = listTileFiles();
     const crewFiles = files.filter((rel) => rel.startsWith("components/crew/"));
     expect(crewFiles.length, "expected ≥1 components/crew/ file in the walk").toBeGreaterThan(0);
+  });
+
+  test("the walk includes the shared section bodies (show-panels extension guard)", () => {
+    // Pins the crew page redesign PR B extension: the bodies both surfaces render
+    // live in components/show-panels/, so the walk must reach them.
+    const files = listTileFiles();
+    const panels = files.filter((rel) => rel.startsWith("components/show-panels/"));
+    expect(panels.length, "expected ≥1 components/show-panels/ file in the walk").toBeGreaterThan(
+      0,
+    );
   });
 
   test("the walk includes the crew sibling .ts row modules (search extension guard)", () => {

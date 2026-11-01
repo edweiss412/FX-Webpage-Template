@@ -135,6 +135,8 @@ test.beforeAll(async () => {
     [
       `@source "${join(workDir, "harness.html")}";`,
       `@source "${join(REPO_ROOT, "components", "admin", "wizard", "step3ReviewSections.tsx")}";`,
+      // The shared section bodies the admin popup renders (crew page redesign PR B).
+      `@source "${join(REPO_ROOT, "components", "show-panels")}";`,
       `@source "${join(REPO_ROOT, "components", "crew", "AgendaScheduleBlock.tsx")}";`,
       globals,
     ].join("\n"),

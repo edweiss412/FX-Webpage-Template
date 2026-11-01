@@ -9,8 +9,9 @@
  * at all: the shell builds a body for every entitled id and resolves `?s=`
  * against them. Membership, `crewSectionsFor`, is the entitled ids in
  * `CREW_SECTION_IDS` order; from PR B one content rule narrows it (an Agenda
- * with nothing in it is entitled and unlisted). PR A's one gate stands: `budget`
- * only when `financialsVisible` holds. `today` is the home, not a section.
+ * with nothing in it is entitled and unlisted). PR A's one gate stands, under
+ * the registry id: `billing` only when `financialsVisible` holds. `today` is the
+ * home, not a section.
  *
  * Membership never reads the projection's data: a domain whose fetch failed
  * (`tileErrors`) keeps its section listed, and the section shows its own
@@ -23,6 +24,7 @@ import type { ShowForViewer } from "@/lib/data/getShowForViewer";
 import type { ViewerContext } from "@/lib/data/viewerContext";
 import { CREW_SECTION_IDS, type SectionId } from "@/lib/crew/resolveActiveSection";
 import { sectionPeek, type SectionPeekViewer } from "@/lib/crew/sectionPeek";
+import { showSection, type ShowSectionId } from "@/lib/showSections/registry";
 import { financialsVisible } from "@/lib/visibility/scopeTiles";
 
 /** A section the list and the nav can open. `today` is the home, not a section. */
@@ -30,22 +32,47 @@ export type CrewSectionId = Exclude<SectionId, "today">;
 
 export type CrewSection = { id: CrewSectionId; label: string };
 
-/** What entitlement and membership read about the viewer: the budget gate's two inputs. */
+/** What entitlement and membership read about the viewer: the billing gate's two inputs. */
 export type CrewSectionsViewer = Pick<ViewerContext, "viewerFlags" | "isAdmin">;
 
 /**
- * The crew sections' labels, PR A's ids with today's names (spec §5.1). The one
- * label source: the "All sections" rows, the wide nav, the sheet's title and
- * its close button's name all read it.
+ * The crew sections moved onto a shared body (components/show-panels/), named
+ * explicitly rather than derived (PR B plan, decision 2): `schedule`, `venue` and
+ * `crew` are registry ids long before they move, and `schedule` never does. Each
+ * section task appends its own ids in its own commit. A moved section's label and
+ * glyph are its registry record's (decisions 2 and 3), so the crew page and the
+ * admin popup name and draw it the same way.
  */
-export const CREW_SECTION_LABELS: Readonly<Record<CrewSectionId, string>> = {
+export const CREW_MOVED_IDS = ["billing"] as const satisfies readonly (CrewSectionId &
+  ShowSectionId)[];
+
+type CrewMovedId = (typeof CREW_MOVED_IDS)[number];
+
+/** Whether the section reads its label and glyph from the registry. */
+export function isCrewMovedSection(id: CrewSectionId): id is CrewMovedId {
+  return (CREW_MOVED_IDS as readonly string[]).includes(id);
+}
+
+/** The crew's own names for the sections not yet moved (spec §5.1, PR A's labels). */
+const CREW_OWN_LABELS: Readonly<Record<Exclude<CrewSectionId, CrewMovedId>, string>> = {
   schedule: "Schedule",
   venue: "Venue",
   travel: "Travel",
   crew: "Crew",
   gear: "Gear",
-  budget: "Budget",
 };
+
+/**
+ * The crew sections' labels: the registry's for a moved section, the crew's own
+ * for the rest. The one label source: the "All sections" rows, the wide nav, the
+ * sheet's title and its close button's name all read it.
+ */
+export const CREW_SECTION_LABELS: Readonly<Record<CrewSectionId, string>> = Object.fromEntries(
+  CREW_SECTION_IDS.map((id) => [
+    id,
+    isCrewMovedSection(id) ? showSection(id).label : CREW_OWN_LABELS[id],
+  ]),
+) as Record<CrewSectionId, string>;
 
 /** The wide nav's first item, the Today block (spec §5.3). */
 export const CREW_TODAY_LABEL = "Today";
@@ -68,7 +95,7 @@ type SectionGate = (data: ShowForViewer, viewer: CrewSectionsViewer) => boolean;
  * A section with no row here is entitled for every viewer.
  */
 const SECTION_GATES: Readonly<Partial<Record<CrewSectionId, SectionGate>>> = {
-  budget: (_data, viewer) => financialsVisible(viewer.viewerFlags, viewer.isAdmin),
+  billing: (_data, viewer) => financialsVisible(viewer.viewerFlags, viewer.isAdmin),
 };
 
 /**

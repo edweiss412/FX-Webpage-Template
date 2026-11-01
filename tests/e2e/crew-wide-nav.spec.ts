@@ -14,7 +14,7 @@
  *
  * desktop-chromium only (its `testMatch`). Signed in as the admin fixture on the
  * share route, as crew-page.spec.ts does: an admin is entitled to every PR A
- * section, so the expected nav is the full base list plus `budget`. Every case
+ * section, so the expected nav is the full base list plus `billing`. Every case
  * awaits the controller's readiness attribute before its first assertion (plan
  * harness rule "Readiness gate"). The server's clock is pinned with the
  * frozen-time headers and the browser's with `setFixedTime`, which fixes `Date`
@@ -327,13 +327,13 @@ test.describe("crew wide nav (spec §5.3)", () => {
     await expect(navItem(page, "venue")).toHaveAttribute("aria-current", "true");
     await expect(page.getByTestId("crew-wide-nav").locator('[aria-current="true"]')).toHaveCount(1);
 
-    // Holds: back at the top, a click on Budget glides past every section in between,
-    // and every frame of the glide reports Budget, never a section it passes.
+    // Holds: back at the top, a click on Billing glides past every section in between,
+    // and every frame of the glide reports Billing, never a section it passes.
     await page.evaluate(() => window.scrollTo({ top: 0, behavior: "auto" }));
     await expect(navItem(page, "today")).toHaveAttribute("aria-current", "true");
     const samples = await page.evaluate(async () => {
       const nav = document.querySelector('[data-testid="crew-wide-nav"]')!;
-      nav.querySelector<HTMLElement>('[data-section="budget"]')!.click();
+      nav.querySelector<HTMLElement>('[data-section="billing"]')!.click();
       const seen: string[] = [];
       const until = performance.now() + 1500;
       while (performance.now() < until) {
@@ -343,7 +343,7 @@ test.describe("crew wide nav (spec §5.3)", () => {
       return { seen, scrollY: window.scrollY };
     });
     expect(samples.scrollY, "the glide moved the page").toBeGreaterThan(0);
-    expect([...new Set(samples.seen)]).toEqual(["budget"]);
+    expect([...new Set(samples.seen)]).toEqual(["billing"]);
   });
 
   test("wide nav: the accent indicator is one element that moves to the active item at --duration-fast", async ({
@@ -1344,5 +1344,92 @@ test.describe("the composed home, wide (crew page redesign Task 11)", () => {
       return b.getBoundingClientRect().bottom <= h.getBoundingClientRect().top + 0.5;
     });
     expect(above, "the banner sits above the Today block").toBe(true);
+  });
+});
+
+/** PR B plan Task 4: the `budget` alias in the wide layout (spec §5.1 "Legacy ids"). */
+test.describe("billing: the budget alias, wide (PR B Task 4)", () => {
+  test.setTimeout(180_000);
+
+  const PO = "PO-WIDE-ALIAS-5120";
+  let seeded: Awaited<ReturnType<typeof seedShowWithCrew>>;
+
+  test.beforeAll(async () => {
+    seeded = await seedShowWithCrew({
+      title: "Billing Alias Wide Show",
+      dates: {
+        travelIn: "2026-04-19",
+        set: "2026-04-20",
+        showDays: ["2026-04-21", "2026-04-22"],
+        travelOut: "2026-04-23",
+      },
+      crew: [
+        { name: "Wide Alias Lead", role: "TD", roleFlags: ["LEAD"] },
+        { name: "Wide Alias Crew", role: "A1" },
+      ],
+      internal: {
+        financials: {
+          po: PO,
+          proposal: "Wide proposal",
+          invoice: "Wide invoice",
+          invoice_notes: null,
+        },
+      },
+    });
+  });
+
+  test.afterAll(async () => {
+    if (seeded) await deleteSeededShow(seeded.driveFileId);
+  });
+
+  test.beforeEach(async ({ page }) => {
+    await page.setExtraHTTPHeaders({
+      "X-Screenshot-Frozen-Now": SHOW_DAY_N_INSTANT,
+      Authorization: `Bearer ${TEST_AUTH_SECRET}`,
+    });
+    await page.clock.setFixedTime(new Date(SHOW_DAY_N_INSTANT));
+    await page.setViewportSize(WIDE);
+    await signOut(page);
+    await signInAs(page, ADMIN_FIXTURE);
+  });
+
+  function preview(name: string): string {
+    const member = seeded.crew.find((c) => c.name === name);
+    if (!member) throw new Error(`no seeded crew member ${name}`);
+    return `/admin/show/${seeded.slug}/preview/${member.id}`;
+  }
+
+  async function loadWide(page: Page, path: string) {
+    const res = await page.goto(path, { waitUntil: "domcontentloaded" });
+    expect(res?.status(), `${path} must render`).toBe(200);
+    const root = page.getByTestId("crew-shell-sections");
+    await expect(root).toHaveAttribute("data-crew-controller-ready", "true", { timeout: 30_000 });
+    await expect(root).toHaveAttribute("data-crew-mode", "wide");
+  }
+
+  const navItem = (page: Page, id: string) =>
+    page.getByTestId("crew-wide-nav").locator(`[data-section="${id}"]`);
+
+  test("billing: ?s=budget lands on Billing for a lead preview", async ({ page }) => {
+    await loadWide(page, `${preview("Wide Alias Lead")}?s=budget`);
+    const stacked = page.locator('[data-testid="crew-wide-section"][data-section="billing"]');
+    await expect(stacked).toContainText(PO);
+    await expect(navItem(page, "billing")).toHaveAttribute("aria-current", "true", {
+      timeout: 5000,
+    });
+    await expect(navItem(page, "billing")).toHaveText(CREW_SECTION_LABELS.billing);
+    expect(await page.evaluate(() => window.scrollY)).toBeGreaterThan(0);
+  });
+
+  test("billing: a non-lead's ?s=budget and ?s=billing land at the top on Today", async ({
+    page,
+  }) => {
+    for (const s of ["budget", "billing"]) {
+      await loadWide(page, `${preview("Wide Alias Crew")}?s=${s}`);
+      await expect(navItem(page, "today"), s).toHaveAttribute("aria-current", "true");
+      await expect(navItem(page, "billing"), s).toHaveCount(0);
+      expect(await page.evaluate(() => window.scrollY), s).toBe(0);
+      expect(await page.content(), s).not.toContain(PO);
+    }
   });
 });

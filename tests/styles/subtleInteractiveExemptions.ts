@@ -146,7 +146,8 @@ export const SUBTLE_INTERACTIVE_EXEMPTIONS: readonly SubtleExemption[] = [
     // sectionForWarning import above it); the same `{hidden.length} more` <summary>.
     // 1731 -> 1738 on feat/warning-card-fixes (UI gate P3: jump targets named by their own heading or title); located by its own element (5-line context match).
     // 1738 -> 1732 on feat/crew-page-redesign-pr-b Task 2 (seven lucide imports moved to lib/showSections/registry.ts and its one import landed above it); located by its own element (5-line context match).
-    line: 1732,
+    // 1732 -> 1711 on feat/crew-page-redesign-pr-b Task 4 (FieldRowList and its eyebrow constants moved to components/show-panels/FieldRowList.tsx, two imports landed, and OpsBreakdown's empty-state ternary became one BillingBody line, all above it); located by its own element (5-line context match).
+    line: 1711,
     tag: "summary",
     token: "text-text-subtle",
     family: "summary-disclosure",
@@ -192,7 +193,8 @@ export const SUBTLE_INTERACTIVE_EXEMPTIONS: readonly SubtleExemption[] = [
     // located by its own ignored-summary testid.
     // 3855 -> 3875 on feat/warning-card-fixes (UI gate P3: jump targets named by their own heading or title); located by its own element (5-line context match).
     // 3875 -> 3869 on feat/crew-page-redesign-pr-b Task 2 (seven lucide imports moved to lib/showSections/registry.ts and its one import landed above it); located by its own element (5-line context match).
-    line: 3869,
+    // 3869 -> 3848 on feat/crew-page-redesign-pr-b Task 4 (FieldRowList and its eyebrow constants moved to components/show-panels/FieldRowList.tsx, two imports landed, and OpsBreakdown's empty-state ternary became one BillingBody line, all above it); located by its own element (5-line context match).
+    line: 3848,
     tag: "summary",
     token: "text-text-subtle",
     family: "summary-disclosure",
@@ -214,7 +216,8 @@ export const SUBTLE_INTERACTIVE_EXEMPTIONS: readonly SubtleExemption[] = [
     // located by its own accepted-summary testid.
     // 3887 -> 3907 on feat/warning-card-fixes (UI gate P3: jump targets named by their own heading or title); located by its own element (5-line context match).
     // 3907 -> 3901 on feat/crew-page-redesign-pr-b Task 2 (seven lucide imports moved to lib/showSections/registry.ts and its one import landed above it); located by its own element (5-line context match).
-    line: 3901,
+    // 3901 -> 3880 on feat/crew-page-redesign-pr-b Task 4 (FieldRowList and its eyebrow constants moved to components/show-panels/FieldRowList.tsx, two imports landed, and OpsBreakdown's empty-state ternary became one BillingBody line, all above it); located by its own element (5-line context match).
+    line: 3880,
     tag: "summary",
     token: "text-text-subtle",
     family: "summary-disclosure",

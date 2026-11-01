@@ -254,7 +254,7 @@ describe("CREW_SECTION_IDS and the always table are read where they are used", (
       data: makeShowForViewer(),
       viewer: { kind: "admin" },
       today: new Date("2026-05-14T16:00:00Z"),
-      budgetVisible: true,
+      billingVisible: true,
       staticPreview: false,
       sections: members,
     });

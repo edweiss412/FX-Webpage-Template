@@ -1587,7 +1587,8 @@ describe("a defect planted in the theme, not in the module (AC-16)", () => {
       // PackCountPill <span>.
       // 2539 -> 2546 on feat/warning-card-fixes (UI gate P3: jump targets named by their own heading or title); located by its own element (5-line context match).
       // 2546 -> 2540 on feat/crew-page-redesign-pr-b Task 2 (seven lucide imports moved to lib/showSections/registry.ts and its one import landed above it); located by its own element (5-line context match).
-      "components/admin/wizard/step3ReviewSections.tsx:2540",
+      // 2540 -> 2519 on feat/crew-page-redesign-pr-b Task 4 (FieldRowList and its eyebrow constants moved to components/show-panels/FieldRowList.tsx, two imports landed, and OpsBreakdown's empty-state ternary became one BillingBody line, all above it); located by its own element (5-line context match).
+      "components/admin/wizard/step3ReviewSections.tsx:2519",
       // 191 -> 196 on feat/crew-show-search (Schedule search entries); the same overflow `<summary>` divider.
       "components/crew/primitives/KeyTimesStrip.tsx:196",
     ]);

@@ -26,7 +26,7 @@ import { cleanup, render } from "@testing-library/react";
 import type { JSX } from "react";
 import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
 
-import { BudgetSection } from "@/components/crew/sections/BudgetSection";
+import { BillingSection } from "@/components/crew/sections/BillingSection";
 import * as budgetRowsModule from "@/components/crew/sections/budgetRows";
 import * as crewRowsModule from "@/components/crew/sections/crewRows";
 import { contactFallbackLabel } from "@/components/crew/sections/crewRows";
@@ -134,7 +134,7 @@ function renderSection(id: SectionId, c: ViewerCase): HTMLElement {
     travel: () => <TravelSection {...props} />,
     crew: () => <CrewSection {...props} />,
     gear: () => <GearSection {...props} />,
-    budget: () => <BudgetSection {...props} />,
+    billing: () => <BillingSection {...props} />,
   };
   return render(byId[id]()).container;
 }
@@ -705,24 +705,24 @@ describe("gear", () => {
   });
 });
 
-// ── budget ───────────────────────────────────────────────────────────────────
+// ── billing ──────────────────────────────────────────────────────────────────
 
-describe("budget", () => {
-  const entitled = ALL_CASES.filter((c) => canOpen("budget", c));
-  const notEntitled = ALL_CASES.filter((c) => !canOpen("budget", c));
+describe("billing", () => {
+  const entitled = ALL_CASES.filter((c) => canOpen("billing", c));
+  const notEntitled = ALL_CASES.filter((c) => !canOpen("billing", c));
 
   /** Financials present but every field a sentinel or blank: the section shows its empty state. */
-  const allBlank = variant(leadWithFinancials, "budgetAllBlank", (d) => ({
+  const allBlank = variant(leadWithFinancials, "billingAllBlank", (d) => ({
     ...d,
     financials: { po: "TBD", proposal: "", invoice: "N/A", invoice_notes: null },
   }));
   /** A financials fetch failure for an entitled viewer: the section shows its error block. */
-  const fetchFailed = variant(adminViewer, "budgetFetchFailed", (d) => ({
+  const fetchFailed = variant(adminViewer, "billingFetchFailed", (d) => ({
     ...d,
     tileErrors: { ...d.tileErrors, financials: "boom" },
   }));
   /** One field blank: its row is omitted and the others render. */
-  const oneBlank = variant(leadWithFinancials, "budgetOneBlank", (d) => ({
+  const oneBlank = variant(leadWithFinancials, "billingOneBlank", (d) => ({
     ...d,
     financials: { ...d.financials!, proposal: "TBA" },
   }));
@@ -730,28 +730,28 @@ describe("budget", () => {
   const cases = [...entitled, ...local];
 
   const PREMISES: Record<string, (root: HTMLElement) => void> = {
-    budgetAllBlank: (root) =>
+    billingAllBlank: (root) =>
       premiseHolds(
-        "budgetAllBlank renders the empty state, not the card",
+        "billingAllBlank renders the empty state, not the card",
         root.querySelector('[data-testid="section-empty"]') !== null &&
           root.querySelector('[data-card-id="budget-main"]') === null,
       ),
-    budgetFetchFailed: (root) =>
+    billingFetchFailed: (root) =>
       premiseHolds(
-        "budgetFetchFailed renders the error block, not the card",
+        "billingFetchFailed renders the error block, not the card",
         root.querySelector('[data-testid="section-tile-error-financials"]') !== null &&
           root.querySelector('[data-card-id="budget-main"]') === null,
       ),
-    budgetOneBlank: (root) =>
+    billingOneBlank: (root) =>
       premise(
-        "budgetOneBlank renders the other three rows",
-        root.querySelectorAll('[data-card-id="budget-main"] dt').length,
+        "billingOneBlank renders the other three rows",
+        root.querySelectorAll('[data-card-id="budget-main"] li').length,
         2,
       ),
   };
   const defaultPremise = (c: ViewerCase) => (root: HTMLElement) =>
     premiseHolds(
-      `${c.name} renders the Budget card`,
+      `${c.name} renders the Billing card`,
       root.querySelector('[data-card-id="budget-main"]') !== null,
     );
 
@@ -760,17 +760,17 @@ describe("budget", () => {
     premise("non-entitled matrix cases", notEntitled.length, 0);
   });
 
-  test.each(parityOver("budget", cases).map((c) => [c.name, c] as const))(
+  test.each(parityOver("billing", cases).map((c) => [c.name, c] as const))(
     "parity: %s",
     (_name, c) => {
-      const root = renderSection("budget", c);
+      const root = renderSection("billing", c);
       (PREMISES[c.name] ?? defaultPremise(c))(root);
-      expect(assertParity(root, build("budget", c))).toEqual([]);
+      expect(assertParity(root, build("billing", c))).toEqual([]);
     },
   );
 
-  test("a viewer the shell does not render Budget for gets no Budget entries", () => {
-    for (const c of notEntitled) expect(build("budget", c), c.name).toEqual([]);
+  test("a viewer the shell does not render Billing for gets no Billing entries", () => {
+    for (const c of notEntitled) expect(build("billing", c), c.name).toEqual([]);
   });
 
   const LINE_KINDS: LineKind[] = [
@@ -798,17 +798,18 @@ describe("budget", () => {
 
   test.each(LINE_KINDS.map((k) => [k.kind, k] as const))("line kind %s renders", (_k, kind) => {
     const c = caseNamed(cases, kind.caseName);
-    expect(kind.present(build("budget", c), c)).toBe(true);
+    expect(kind.present(build("billing", c), c)).toBe(true);
   });
 
   test("error guard: a throwing row derivation renders the fallback and indexes nothing", () => {
-    // The whole Budget body is one WrappedSection block, so "the other blocks'
+    // The whole Billing body is one WrappedSection block, so "the other blocks'
     // entries" is the empty set; the guard is what keeps the builder from
-    // throwing past it.
-    const spy = vi.spyOn(budgetRowsModule, "budgetRows").mockImplementation(() => {
-      throw new Error("planted budget rows fault");
+    // throwing past it. The section and the builder both read their rows through
+    // `billingBodyProps`, so the planted fault reaches both.
+    const spy = vi.spyOn(budgetRowsModule, "billingBodyProps").mockImplementation(() => {
+      throw new Error("planted billing rows fault");
     });
-    const root = renderSection("budget", leadWithFinancials);
+    const root = renderSection("billing", leadWithFinancials);
     premiseHolds("the planted fault reached the component", spy.mock.calls.length > 0);
     premiseHolds(
       "the section rendered its tile fallback",
@@ -816,7 +817,7 @@ describe("budget", () => {
         root.querySelector('[data-card-id="budget-main"]') === null,
     );
     const calls = spy.mock.calls.length;
-    const entries = build("budget", leadWithFinancials);
+    const entries = build("billing", leadWithFinancials);
     premiseHolds("the planted fault reached the builder", spy.mock.calls.length > calls);
     expect(entries).toEqual([]);
     expect(assertParity(root, entries)).toEqual([]);

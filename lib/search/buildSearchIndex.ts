@@ -15,7 +15,7 @@ export type SearchIndexInput = SectionBuildInput & { sections: readonly SectionI
  *
  * Runs on the server inside `CrewShell`, once per render, from the inputs the
  * sections receive: `data`, `viewer`, the request-scoped `today`, and what the
- * shell computes once, `budgetVisible`, `staticPreview` and the member list.
+ * shell computes once, `billingVisible`, `staticPreview` and the member list.
  * A section is built only when the member list holds it. Each builder's ids
  * carry its section, and each builder keeps its own ids unique, so ids are
  * unique across the index.

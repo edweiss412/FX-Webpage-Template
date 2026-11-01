@@ -338,7 +338,7 @@ test.describe("crew compact home and section sheet (spec §5.2)", () => {
 
   test("sheet: the close button is named Close plus the section name", async ({ page }) => {
     await load(page, "?s=today");
-    for (const id of ["gear", "budget"] as const) {
+    for (const id of ["gear", "billing"] as const) {
       await row(page, id).click();
       const close = sheetDialog(page).getByRole("button", { name: closeName(id) });
       await expect(close).toBeVisible();
@@ -818,7 +818,7 @@ test.describe("crew compact compound transitions (spec §7, plan Task 12)", () =
     }
   });
 
-  test("compound: a refresh that takes Budget from a previewed lead closes the Budget sheet to home without animation and leaves no Budget value on the page", async ({
+  test("compound: a refresh that takes Billing from a previewed lead closes the Billing sheet to home without animation and leaves no Billing value on the page", async ({
     page,
   }) => {
     const FINANCIALS = {
@@ -828,7 +828,7 @@ test.describe("crew compact compound transitions (spec §7, plan Task 12)", () =
       invoice_notes: "Compound invoice note 5515",
     };
     const seeded = await seedShowWithCrew({
-      title: "Compound Budget Show",
+      title: "Compound Billing Show",
       dates: DATES,
       crew: [{ name: "Compound Lead", role: "TD", roleFlags: ["LEAD"] }],
       internal: { financials: FINANCIALS },
@@ -846,7 +846,7 @@ test.describe("crew compact compound transitions (spec §7, plan Task 12)", () =
         route.fulfill({ status: 503, contentType: "application/json", body: "{}" }),
       );
       await loadPath(page, `/admin/show/${seeded.slug}/preview/${lead.id}`);
-      await openFromRow(page, "budget");
+      await openFromRow(page, "billing");
       // Positive control: the values this case searches for are on the page now.
       const before = await renderedPage(page);
       for (const v of Object.values(FINANCIALS)) expect(before, v).toContain(v);
@@ -864,7 +864,7 @@ test.describe("crew compact compound transitions (spec §7, plan Task 12)", () =
           back();
         };
       });
-      // Every DOM change from here on: is the Budget row still listed, is the sheet still mounted.
+      // Every DOM change from here on: is the Billing row still listed, is the sheet still mounted.
       await page.evaluate(() => {
         const log: Array<{ row: boolean; sheet: boolean }> = [];
         (window as unknown as { __compoundLog: typeof log }).__compoundLog = log;
@@ -872,7 +872,7 @@ test.describe("crew compact compound transitions (spec §7, plan Task 12)", () =
           log.push({
             row:
               document.querySelector(
-                '[data-testid="crew-all-sections"] [data-section="budget"]',
+                '[data-testid="crew-all-sections"] [data-section="billing"]',
               ) !== null,
             sheet: document.querySelector('[data-testid="crew-section-sheet"]') !== null,
           });
@@ -883,7 +883,7 @@ test.describe("crew compact compound transitions (spec §7, plan Task 12)", () =
       await setRoleFlagsLocked(seeded.driveFileId, lead.id, []);
       await refreshFromServer(page);
 
-      await expect(row(page, "budget")).toHaveCount(0);
+      await expect(row(page, "billing")).toHaveCount(0);
       await expect(page.getByTestId("crew-section-sheet")).toHaveCount(0);
       await expect.poll(() => new URL(page.url()).searchParams.get("s")).toBeNull();
       await expect(page.getByTestId("crew-all-sections")).toBeVisible();
@@ -898,11 +898,11 @@ test.describe("crew compact compound transitions (spec §7, plan Task 12)", () =
       );
       expect(
         log.some((e) => !e.row),
-        "PREMISE: the observer saw the Budget row leave",
+        "PREMISE: the observer saw the Billing row leave",
       ).toBe(true);
       expect(
         log.filter((e) => !e.row && e.sheet),
-        "the sheet left in the same commit as the Budget row: no exit slide holding the old body",
+        "the sheet left in the same commit as the Billing row: no exit slide holding the old body",
       ).toEqual([]);
       const after = await renderedPage(page);
       for (const v of Object.values(FINANCIALS)) expect(after, v).not.toContain(v);
@@ -1244,5 +1244,126 @@ test.describe("crew compact compound transitions (spec §7, plan Task 12)", () =
     expect(await page.evaluate(() => document.documentElement.getAttribute("data-theme"))).toBe(
       theme,
     );
+  });
+});
+
+/**
+ * PR B plan Task 4: `budget` became `billing`, with `budget` kept as a legacy
+ * alias (spec §5.1 "Legacy ids"). Old links keep opening the section for a lead
+ * and land home for anyone the gate excludes; Back and Forward over an entry that
+ * still carries the old value reopen Billing without stripping it. A seeded show
+ * of its own: a lead holding financials and a crew member who is not one, each
+ * viewed through the admin preview route (the harness rule "Viewer per case").
+ */
+test.describe("billing: the budget alias, compact (PR B Task 4)", () => {
+  test.setTimeout(180_000);
+
+  const FINANCIALS = {
+    po: "PO-ALIAS-6604",
+    proposal: "Proposal alias 3317",
+    invoice: "Invoice alias 7720",
+    invoice_notes: "Alias invoice note 2281",
+  };
+  let seeded: Awaited<ReturnType<typeof seedShowWithCrew>>;
+
+  test.beforeAll(async () => {
+    seeded = await seedShowWithCrew({
+      title: "Billing Alias Show",
+      dates: {
+        travelIn: "2026-04-19",
+        set: "2026-04-20",
+        showDays: ["2026-04-21", "2026-04-22"],
+        travelOut: "2026-04-23",
+      },
+      crew: [
+        { name: "Alias Lead", role: "TD", roleFlags: ["LEAD"] },
+        { name: "Alias Crew", role: "A1" },
+      ],
+      internal: { financials: FINANCIALS },
+    });
+  });
+
+  test.afterAll(async () => {
+    if (seeded) await deleteSeededShow(seeded.driveFileId);
+  });
+
+  test.beforeEach(async ({ page }) => {
+    await page.clock.setFixedTime(new Date(SHOW_DAY_N_INSTANT));
+    await signOut(page);
+    await signInAs(page, ADMIN_FIXTURE);
+    await page.setExtraHTTPHeaders({
+      "X-Screenshot-Frozen-Now": SHOW_DAY_N_INSTANT,
+      Authorization: `Bearer ${TEST_AUTH_SECRET}`,
+    });
+  });
+
+  function preview(name: string): string {
+    const member = seeded.crew.find((c) => c.name === name);
+    if (!member) throw new Error(`no seeded crew member ${name}`);
+    return `/admin/show/${seeded.slug}/preview/${member.id}`;
+  }
+
+  async function loadPath(page: Page, path: string): Promise<void> {
+    const res = await page.goto(path, { waitUntil: "domcontentloaded" });
+    expect(res?.status(), `${path} must render`).toBe(200);
+    await expect(page.getByTestId("crew-shell-sections")).toHaveAttribute(
+      "data-crew-controller-ready",
+      "true",
+      { timeout: 30_000 },
+    );
+  }
+
+  test("billing: ?s=budget opens the Billing sheet for a lead preview on initial load", async ({
+    page,
+  }) => {
+    await loadPath(page, `${preview("Alias Lead")}?s=budget`);
+    await expect(sheetDialog(page)).toHaveAttribute("data-section", "billing");
+    await expect(sheetDialog(page)).toHaveAccessibleName(CREW_SECTION_LABELS.billing);
+    const section = sheetDialog(page).getByTestId("section-billing");
+    await expect(section).toBeVisible();
+    for (const value of Object.values(FINANCIALS)) await expect(section).toContainText(value);
+  });
+
+  test("billing: Back then Forward over an in-app entry carrying s=budget closes and reopens Billing", async ({
+    page,
+  }) => {
+    await loadPath(page, preview("Alias Lead"));
+    await row(page, "billing").click();
+    await expect(sheetDialog(page)).toHaveAttribute("data-section", "billing");
+    await settleOpen(page);
+    // The pushed entry now carries the old value, as an old in-app link left it.
+    await page.evaluate(() => {
+      const url = new URL(window.location.href);
+      url.searchParams.set("s", "budget");
+      window.history.replaceState(window.history.state, "", url);
+    });
+
+    await page.goBack();
+    await expect(sheetDialog(page)).toHaveCount(0);
+    await expect.poll(() => new URL(page.url()).searchParams.get("s")).toBeNull();
+
+    await page.goForward();
+    await expect(sheetDialog(page)).toHaveAttribute("data-section", "billing");
+    await expect(sheetDialog(page).getByTestId("section-billing")).toContainText(FINANCIALS.po);
+    // An alias the viewer may open is not stripped (a canonicalized alias is kept).
+    await expect.poll(() => new URL(page.url()).searchParams.get("s")).toBe("budget");
+  });
+
+  test("billing: a non-lead's ?s=budget and ?s=billing land home with no Billing value", async ({
+    page,
+  }) => {
+    for (const s of ["budget", "billing"]) {
+      await loadPath(page, `${preview("Alias Crew")}?s=${s}`);
+      await expect(sheetDialog(page), s).toHaveCount(0);
+      await expect(page.getByTestId("crew-all-sections"), s).toBeVisible();
+      await expect(row(page, "billing"), s).toHaveCount(0);
+      const html = await page.content();
+      for (const value of Object.values(FINANCIALS))
+        expect(html, `${s}: ${value}`).not.toContain(value);
+    }
+    // Positive control: the lead's page carries every value.
+    await loadPath(page, `${preview("Alias Lead")}?s=billing`);
+    const html = await page.content();
+    for (const value of Object.values(FINANCIALS)) expect(html, value).toContain(value);
   });
 });

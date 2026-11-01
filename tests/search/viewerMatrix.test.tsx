@@ -18,7 +18,7 @@ import { cleanup, render } from "@testing-library/react";
 import type { JSX } from "react";
 import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
 
-import { BudgetSection } from "@/components/crew/sections/BudgetSection";
+import { BillingSection } from "@/components/crew/sections/BillingSection";
 import { CrewSection } from "@/components/crew/sections/CrewSection";
 import { GearSection } from "@/components/crew/sections/GearSection";
 import { ScheduleSection } from "@/components/crew/sections/ScheduleSection";
@@ -91,7 +91,7 @@ function renderSection(id: SectionId, c: ViewerCase): HTMLElement {
     travel: () => <TravelSection {...props} />,
     crew: () => <CrewSection {...props} />,
     gear: () => <GearSection {...props} />,
-    budget: () => <BudgetSection {...props} />,
+    billing: () => <BillingSection {...props} />,
   };
   return render(byId[id]()).container;
 }

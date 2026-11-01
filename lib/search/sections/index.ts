@@ -2,7 +2,7 @@ import type { SectionId } from "@/lib/crew/resolveActiveSection";
 import type { ShowForViewer, Viewer } from "@/lib/data/getShowForViewer";
 import type { SearchEntry } from "@/lib/search/types";
 
-import { buildBudgetEntries } from "./budget";
+import { buildBillingEntries } from "./billing";
 import { buildCrewEntries } from "./crew";
 import { buildGearEntries } from "./gear";
 import { buildScheduleEntries } from "./schedule";
@@ -18,7 +18,7 @@ import { buildVenueEntries } from "./venue";
  * (INV-1, spec §2.3). It takes the same values `CrewShell` gives the section
  * component, under the same names: `data`, `viewer` and `today` (the
  * request-scoped `await nowDate()` `Date`, so clock-dependent lines match the
- * render), plus what the shell computes once: `budgetVisible`
+ * render), plus what the shell computes once: `billingVisible`
  * (`financialsVisible(...)`) and `staticPreview`.
  *
  * Each section task replaced its stub with the section's own builder.
@@ -29,7 +29,7 @@ export type SectionBuildInput = {
   data: ShowForViewer;
   viewer: Viewer;
   today: Date;
-  budgetVisible: boolean;
+  billingVisible: boolean;
   staticPreview: boolean;
 };
 
@@ -42,5 +42,5 @@ export const SECTION_BUILDERS: Record<SectionId, SectionBuilder> = {
   travel: buildTravelEntries,
   crew: buildCrewEntries,
   gear: buildGearEntries,
-  budget: buildBudgetEntries,
+  billing: buildBillingEntries,
 };

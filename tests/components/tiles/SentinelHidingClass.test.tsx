@@ -20,7 +20,7 @@
  *   - contact phone/email/notes (dead-link guard) → CrewSection → PersonRow.
  *   - crew member phone/email (dead-link guard) → CrewSection → PersonRow.
  *   - room audio/video/lighting scope → GearSection scope cards.
- *   - financials po/proposal/invoice/invoice_notes → BudgetSection.
+ *   - financials po/proposal/invoice/invoice_notes → BillingSection.
  *   - pack-list item cat/subCat taxonomy → GearSection pack list.
  *
  * SENTINELS mirror lib/visibility/emptyState.ts:GENERIC_OPTIONAL_HIDE
@@ -36,7 +36,7 @@ import { CrewSection } from "@/components/crew/sections/CrewSection";
 import { GearSection } from "@/components/crew/sections/GearSection";
 import { TravelSection } from "@/components/crew/sections/TravelSection";
 import { VenueSection } from "@/components/crew/sections/VenueSection";
-import { BudgetSection } from "@/components/crew/sections/BudgetSection";
+import { BillingSection } from "@/components/crew/sections/BillingSection";
 import { HomeSection } from "@/components/crew/sections/HomeSection";
 import { makeShowForViewer } from "@/tests/fixtures/showForViewer";
 import type { ContactRow, RoleFlag } from "@/lib/parser/types";
@@ -44,7 +44,7 @@ import { ledgerProp } from "../crew/sections/_ledgerProp";
 
 const TODAY = new Date("2026-05-14T15:00:00Z");
 const SHOW_ID = "show-abc";
-// Admin viewer: all flags + isAdmin → transport/scope/budget gates all open,
+// Admin viewer: all flags + isAdmin → transport/scope/billing gates all open,
 // so the sentinel-hiding behavior (not a visibility gate) is what's exercised.
 const ADMIN = { kind: "admin" } as const;
 
@@ -642,18 +642,18 @@ describe("§8.3 sentinel-hiding — Scope cards (GearSection)", () => {
 });
 
 // ─────────────────────────────────────────────────────────────────────
-// Financials → BudgetSection
+// Financials → BillingSection
 // ─────────────────────────────────────────────────────────────────────
 
-describe("§8.3 sentinel-hiding — Financials (BudgetSection)", () => {
-  function budget(financials: {
+describe("§8.3 sentinel-hiding — Financials (BillingSection)", () => {
+  function billing(financials: {
     po: string;
     proposal: string;
     invoice: string;
     invoice_notes: string;
   }) {
     return render(
-      <BudgetSection
+      <BillingSection
         {...ledgerProp()}
         data={makeShowForViewer({ financials })}
         viewer={ADMIN}
@@ -665,7 +665,7 @@ describe("§8.3 sentinel-hiding — Financials (BudgetSection)", () => {
 
   for (const sentinel of SENTINELS) {
     test(`every financials field = "${sentinel}" → empty-state, no value`, () => {
-      const c = budget({
+      const c = billing({
         po: sentinel,
         proposal: sentinel,
         invoice: sentinel,
@@ -677,7 +677,7 @@ describe("§8.3 sentinel-hiding — Financials (BudgetSection)", () => {
   }
 
   test("mixed financials — only non-sentinel fields render", () => {
-    const c = budget({ po: "PO-12345", proposal: "TBD", invoice: "INV-99", invoice_notes: "N/A" });
+    const c = billing({ po: "PO-12345", proposal: "TBD", invoice: "INV-99", invoice_notes: "N/A" });
     expect(c.textContent ?? "").toContain("PO-12345");
     expect(c.textContent ?? "").toContain("INV-99");
     expect(html(c)).not.toContain("TBD");
@@ -685,7 +685,7 @@ describe("§8.3 sentinel-hiding — Financials (BudgetSection)", () => {
   });
 
   test("non-sentinel financials render (anti-tautology)", () => {
-    const c = budget({
+    const c = billing({
       po: "PO-12345",
       proposal: "Approved 4/10",
       invoice: "INV-99",

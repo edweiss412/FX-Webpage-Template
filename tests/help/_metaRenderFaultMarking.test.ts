@@ -601,7 +601,14 @@ describe("the scanner's population is pinned against resolver drift", () => {
     // The same rooms / hotel / contacts `SectionTileError` rows, still marked. Nothing
     // joined or left: membership is still 34, and mapping those three rows back to
     // 192/193/194 reproduces ce25e4d6... byte-for-byte (recomputed from scanCandidates()).
-    expect(digest).toBe("706b9565ba595545f70f6c6f2615b6199406a8c22134f6fa9a19d9e467d641da");
+    // Regenerated for feat/crew-page-redesign-pr-b Task 4, to the same bar. EXACTLY ONE
+    // input changed, the one row of the retired Budget section, which changed FILE as well
+    // as line: the Budget section file's line 75 -> components/crew/sections/BillingSection.tsx:76
+    // (the section was rebuilt on the shared Billing body). Same `tile-errors` row, still
+    // marked (the guard reads `budgetFetchFailed(data.tileErrors, ctx)`). Nothing joined or
+    // left: membership is still 34, and mapping that ONE row back reproduces 706b9565...
+    // byte-for-byte (recomputed from scanCandidates()).
+    expect(digest).toBe("189d511e4042b9a846a4854d03b0096b54b2feeef5257f981024291c2452ac9f");
   });
 });
 

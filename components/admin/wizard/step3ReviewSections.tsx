@@ -189,6 +189,8 @@ import {
 } from "@/lib/agenda/constants";
 import { cn } from "@/lib/ui/cn";
 import { SHOW_SECTION_GROUPS, showSection, type ShowSectionId } from "@/lib/showSections/registry";
+import { BillingBody } from "@/components/show-panels/BillingBody";
+import { EYEBROW_CLASS, EYEBROW_STYLE } from "@/components/show-panels/FieldRowList";
 import {
   clearStoredDraftIfUnchanged,
   readStoredDraft,
@@ -343,34 +345,13 @@ export function overflowNote(total: number, cap: number, noun: string): string |
   return extra > 0 ? `…and ${extra} more ${noun}` : null;
 }
 
-/** The shared eyebrow-key style (spec §8 field-list grammar). */
-const EYEBROW_CLASS = cn("text-xs font-semibold uppercase text-text-subtle");
-const EYEBROW_STYLE = { letterSpacing: "var(--tracking-eyebrow)" } as const;
-
 /**
- * Vertical label:value list shared by the review-modal field-group sections.
- * Restyled to the mock's `fieldlist` grammar (spec §8): each row a
- * `7.5rem + minmax(0,1fr)` grid, eyebrow key, hairline row separators. The
- * trailing colon on the key is PRESERVED copy ("Venue:", "COI:") — existing
- * suites pin the `Label:` textContent.
+ * Vertical label:value list shared by the review-modal field-group sections. It
+ * lives with the shared section bodies in components/show-panels/ (crew page
+ * redesign PR B plan Task 4) and is re-exported here under the same name, so
+ * every admin import of it is unchanged.
  */
-export function FieldRowList({ rows }: { rows: { label: string; value: string }[] }) {
-  return (
-    <ul className="flex flex-col">
-      {rows.map((r) => (
-        <li
-          key={r.label}
-          className="grid grid-cols-[7.5rem_minmax(0,1fr)] items-baseline gap-x-4 border-b border-border py-2 last:border-0"
-        >
-          <span className={EYEBROW_CLASS} style={EYEBROW_STYLE}>
-            {r.label}:
-          </span>
-          <span className="wrap-break-word text-sm text-text">{r.value}</span>
-        </li>
-      ))}
-    </ul>
-  );
-}
+export { FieldRowList } from "@/components/show-panels/FieldRowList";
 
 /**
  * Small identity chip shared by the redesigned Hotels (guest chips) and
@@ -1691,17 +1672,15 @@ export function OpsBreakdown({
     ["Invoice", billing.invoice],
     ["Invoice notes", billing.invoiceNotes],
   ]);
+  // The shared Billing body (spec §6.2): every non-empty row as parsed, sentinels
+  // included, and "No billing details parsed." when none is.
   return (
     <BreakdownSection
       testId={`wizard-step3-card-${dfid}-breakdown-ops`}
       label="Billing & docs"
       count={rows.length}
     >
-      {rows.length === 0 ? (
-        <p className="text-sm text-text-subtle">No billing details parsed.</p>
-      ) : (
-        <FieldRowList rows={rows} />
-      )}
+      <BillingBody rows={rows} sentinels="show" />
     </BreakdownSection>
   );
 }

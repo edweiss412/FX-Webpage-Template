@@ -29,10 +29,13 @@ import { existsSync, readdirSync, readFileSync, statSync } from "node:fs";
 import { join } from "node:path";
 import { describe, expect, test } from "vitest";
 
-// Crew section + primitive trees (the new homes of the deleted tiles).
+// Crew section + primitive trees (the new homes of the deleted tiles), and the
+// shared section bodies the crew sections call inside `WrappedSection`'s render
+// callback (crew page redesign spec §6.1 line 291, line 503).
 const CREW_DIRS = [
   join("components", "crew", "sections"),
   join("components", "crew", "primitives"),
+  join("components", "show-panels"),
 ];
 
 /**
@@ -120,6 +123,10 @@ describe("META crew section/primitive pure-render compliance", () => {
     expect(files, "the walk reaches the sibling .ts row modules").toContain(
       join("components", "crew", "sections", "venueRows.ts"),
     );
+    expect(
+      files.some((f) => f.startsWith(join("components", "show-panels") + "/")),
+      "the walk reaches the shared section bodies (components/show-panels)",
+    ).toBe(true);
   });
 
   test.each(listSectionFiles())("%s has no forbidden infra imports", (file) => {

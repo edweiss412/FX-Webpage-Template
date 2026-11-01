@@ -51,6 +51,9 @@ export const RETIRED_IDENTIFIERS = [
   // Crew page redesign PR B, Task 3: every crew section allow-list and order
   // derives from `CREW_SECTION_IDS` and `canonicalSectionParam`.
   "BASE_SECTION_IDS",
+  // Crew page redesign PR B, Task 4: the lead-only money section is
+  // components/crew/sections/BillingSection.tsx, on the shared Billing body.
+  "BudgetSection",
 ] as const;
 
 /**
@@ -347,6 +350,22 @@ export const RETIRED_IDENTIFIER_EXEMPTIONS: readonly ExemptionRow[] = [
       "// the Step-3 consolidation retired it — spec §4.5. ResolveAlertButton and",
     reason:
       "Explains why two rows left the migrated-files list; naming what left is the justification a reviewer checks.",
+  },
+  // Crew page redesign PR B, Task 4: two dated regeneration records that name the
+  // Budget section's file as it was when each was written.
+  {
+    kind: "line",
+    file: "tests/help/_metaRenderFaultMarking.test.ts",
+    text: "//   components/crew/sections/BudgetSection.tsx 77 -> 75 (-2: the row derivation",
+    reason:
+      "A dated digest-regeneration record (crew search Task 6): it names the input that moved, in the file it lived in then. The Task 4 record below it names that file's successor.",
+  },
+  {
+    kind: "line",
+    file: "tests/help/_metaServerTimeGuard.test.ts",
+    text: "// module BudgetSection renders from. Already a member through travelRows.ts,",
+    reason:
+      "A dated population-join record (crew search Task 6) explaining why lib/search/entryId.ts joined nothing then; the file it names was current when the record was written.",
   },
 ];
 

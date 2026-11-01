@@ -86,6 +86,8 @@ test.beforeAll(async () => {
     entryCss,
     [
       `@source "${join(REPO_ROOT, "components", "admin")}";`,
+      // The shared section bodies the admin popup renders (crew page redesign PR B).
+      `@source "${join(REPO_ROOT, "components", "show-panels")}";`,
       `@source "${PILL_ENTRY}";`,
       `@source "${TOGGLE_ENTRY}";`,
       globals,

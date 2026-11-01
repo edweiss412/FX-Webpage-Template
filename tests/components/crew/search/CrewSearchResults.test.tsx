@@ -49,7 +49,7 @@ const LABEL: Record<SectionId, string> = {
   travel: "Travel",
   crew: "Crew",
   gear: "Gear",
-  budget: "Budget",
+  billing: "Billing & docs",
 };
 
 const CREW_REPORT: CardReportContext = {
@@ -238,7 +238,7 @@ describe("chips (spec §6.3)", () => {
     renderResults(zebra);
     search("zebra");
     // The wide nav exactly as the controller feeds it (components/crew/CrewSections.tsx):
-    // "Today", then the membership `crewSectionsFor` returns, Budget included for an admin.
+    // "Today", then the membership `crewSectionsFor` returns, Billing included for an admin.
     const items = [
       { id: "today" as const, label: CREW_TODAY_LABEL },
       ...crewSectionsFor(makeShowForViewer(), { viewerFlags: [], isAdmin: true }),

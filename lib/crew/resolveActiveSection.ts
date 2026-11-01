@@ -12,7 +12,7 @@
  * group's slot (crew page redesign PR B plan, decision 2). `today` is the home,
  * not a section, so it is not one of them.
  */
-export const CREW_SECTION_IDS = ["venue", "crew", "schedule", "travel", "gear", "budget"] as const;
+export const CREW_SECTION_IDS = ["venue", "crew", "schedule", "travel", "gear", "billing"] as const;
 
 /** A `?s=` value the page resolves: the home or a crew section. */
 export type SectionId = "today" | (typeof CREW_SECTION_IDS)[number];
@@ -23,8 +23,10 @@ export type SectionId = "today" | (typeof CREW_SECTION_IDS)[number];
  * everywhere `s` is resolved: `resolveActiveSection` and every redirect
  * allow-list, through `canonicalSectionParam`.
  */
-export const LEGACY_SECTION_ALIASES: Readonly<Record<string, (typeof CREW_SECTION_IDS)[number]>> =
-  {};
+export const LEGACY_SECTION_ALIASES: Readonly<Record<string, (typeof CREW_SECTION_IDS)[number]>> = {
+  // PR B plan Task 4: the lead-only money section moved to the registry's id.
+  budget: "billing",
+};
 
 /**
  * The complete set of `?gate=` values the live app accepts. The crew show

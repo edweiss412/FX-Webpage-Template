@@ -19,7 +19,7 @@ import { VenueSection } from "@/components/crew/sections/VenueSection";
 import { CrewSection } from "@/components/crew/sections/CrewSection";
 import { GearSection } from "@/components/crew/sections/GearSection";
 import { ScheduleSection } from "@/components/crew/sections/ScheduleSection";
-import { BudgetSection } from "@/components/crew/sections/BudgetSection";
+import { BillingSection } from "@/components/crew/sections/BillingSection";
 import { makeShowForViewer } from "@/tests/fixtures/showForViewer";
 import type { Viewer } from "@/lib/data/getShowForViewer";
 import { ledgerProp } from "./sections/_ledgerProp";
@@ -238,16 +238,16 @@ test("financials fetch error: admin (lead-equivalent) sees degraded; non-lead cr
   const data = makeShowForViewer(err("financials"));
 
   const admin = render(
-    <BudgetSection {...ledgerProp()} data={data} viewer={ADMIN} today={TODAY} showId={SHOW_ID} />,
+    <BillingSection {...ledgerProp()} data={data} viewer={ADMIN} today={TODAY} showId={SHOW_ID} />,
   );
   const block = admin.container.querySelector('[data-testid="section-tile-error-financials"]');
   expect(block).not.toBeNull();
   assertHumanReadable(block!.textContent ?? "");
 
   // A plain (non-lead) crew viewer fails financialsVisible → gate closed → no
-  // degraded block (no boundary widening of the budget surface).
+  // degraded block (no boundary widening of the billing surface).
   const crew = render(
-    <BudgetSection {...ledgerProp()} data={data} viewer={CREW} today={TODAY} showId={SHOW_ID} />,
+    <BillingSection {...ledgerProp()} data={data} viewer={CREW} today={TODAY} showId={SHOW_ID} />,
   );
   expect(crew.container.querySelector('[data-testid="section-tile-error-financials"]')).toBeNull();
   expect(upsertSpy).toHaveBeenCalledTimes(0);
@@ -302,7 +302,7 @@ test("admin can distinguish fetch-error from absence — financials", () => {
   const absent = makeShowForViewer({ tileErrors: {} }); // no financials, no error
 
   const erroredAdmin = render(
-    <BudgetSection
+    <BillingSection
       {...ledgerProp()}
       data={errored}
       viewer={ADMIN}
@@ -311,7 +311,13 @@ test("admin can distinguish fetch-error from absence — financials", () => {
     />,
   );
   const absentAdmin = render(
-    <BudgetSection {...ledgerProp()} data={absent} viewer={ADMIN} today={TODAY} showId={SHOW_ID} />,
+    <BillingSection
+      {...ledgerProp()}
+      data={absent}
+      viewer={ADMIN}
+      today={TODAY}
+      showId={SHOW_ID}
+    />,
   );
   expect(
     erroredAdmin.container.querySelector('[data-testid="section-tile-error-financials"]'),

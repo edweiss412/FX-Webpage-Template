@@ -103,6 +103,8 @@ test.beforeAll(async ({ browser }) => {
     [
       `@source "${join(REPO_ROOT, "components", "crew")}";`,
       `@source "${join(REPO_ROOT, "components", "admin")}";`,
+      // The shared section bodies the admin popup renders (crew page redesign PR B).
+      `@source "${join(REPO_ROOT, "components", "show-panels")}";`,
       `@source "${join(REPO_ROOT, "tests", "e2e", "_wifiPasswordRowLiveEntry.tsx")}";`,
       globals,
     ].join("\n"),

@@ -87,14 +87,24 @@ describe("<PickerInterstitial>", () => {
 
   test("claimed row carries the section through the hidden next input", () => {
     const { getAllByTestId } = render(
-      <PickerInterstitial {...baseProps} roster={[CLAIMED_ROW]} s="budget" />,
+      <PickerInterstitial {...baseProps} roster={[CLAIMED_ROW]} s="billing" />,
     );
     const form = (getAllByTestId("picker-roster-row")[0] as HTMLButtonElement).closest("form")!;
     const next = form.querySelector('input[name="next"]') as HTMLInputElement;
     expect(next.value).toBe(
-      buildShowReturnUrl(baseProps.slug, baseProps.shareToken, { s: "budget" }),
+      buildShowReturnUrl(baseProps.slug, baseProps.shareToken, { s: "billing" }),
     );
-    expect(next.value).toContain("s=budget");
+    expect(next.value).toContain("s=billing");
+  });
+
+  test("a claimed row carries the old budget section as billing (Task 4 alias)", () => {
+    const { getAllByTestId } = render(
+      <PickerInterstitial {...baseProps} roster={[CLAIMED_ROW]} s="budget" />,
+    );
+    const form = (getAllByTestId("picker-roster-row")[0] as HTMLButtonElement).closest("form")!;
+    const next = form.querySelector('input[name="next"]') as HTMLInputElement;
+    expect(next.value).toContain("s=billing");
+    expect(next.value).not.toContain("s=budget");
   });
 
   test("a bogus section is dropped rather than propagated", () => {
