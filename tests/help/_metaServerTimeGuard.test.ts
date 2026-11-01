@@ -187,7 +187,7 @@ describe("Server-side time-call grep guard (test #16 — AC-11.38)", () => {
   // it, so the title cannot drift from the number the guard asserts (it read 233 over
   // an assertion of 236 until whole-diff review R4-F5). Re-derive by running this
   // guard, never by adding up the members named below.
-  const DERIVED_LIB_POPULATION = 248;
+  const DERIVED_LIB_POPULATION = 249;
 
   it(`the derived lib population has exactly ${DERIVED_LIB_POPULATION} members, including both directory-index modules`, () => {
     // The shipped resolver tried only <base>.ts and <base>.tsx, so five live
@@ -447,6 +447,11 @@ describe("Server-side time-call grep guard (test #16 — AC-11.38)", () => {
     // correction keeps the sheet's marker. It reads history state, never the clock.
     // Re-derived by running this guard.
     expect(rel).toContain("lib/ui/historyState.ts");
+    // 249 (crew page redesign PR B, Task 2): lib/showSections/registry.ts, the
+    // show-section registry step3ReviewSections.tsx now reads its shared section
+    // labels, groups and icons from. It holds constants, never the clock.
+    // Re-derived by running this guard.
+    expect(rel).toContain("lib/showSections/registry.ts");
     expect(rel.length).toBe(DERIVED_LIB_POPULATION);
   });
 

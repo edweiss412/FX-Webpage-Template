@@ -37,17 +37,13 @@ import {
 } from "react";
 import {
   AlertTriangle,
-  BedDouble,
-  CalendarDays,
   Check,
   ChevronRight,
   Circle,
   ExternalLink,
-  FileText,
   ImageOff,
   Images,
   Info,
-  LayoutGrid,
   Lightbulb,
   Mail,
   MapPin,
@@ -55,12 +51,9 @@ import {
   Minus,
   Package,
   Phone,
-  Receipt,
-  Sparkles,
   Theater,
   TriangleAlert,
   Truck,
-  Users,
   Video,
   Volume2,
   type LucideIcon,
@@ -195,6 +188,7 @@ import {
   AGENDA_CLIENT_QUEUE_BUDGET_MS,
 } from "@/lib/agenda/constants";
 import { cn } from "@/lib/ui/cn";
+import { SHOW_SECTION_GROUPS, showSection, type ShowSectionId } from "@/lib/showSections/registry";
 import {
   clearStoredDraftIfUnchanged,
   readStoredDraft,
@@ -4581,16 +4575,8 @@ export type Step3SectionDef = {
   render: (d: SectionData) => React.ReactNode;
 };
 
-/** Rail group order (spec §6.1). */
-export const STEP3_SECTION_GROUPS: readonly string[] = [
-  "The show",
-  "People",
-  "Schedule",
-  "Logistics",
-  "Gear",
-  "Money",
-  "Checks",
-];
+/** Rail group order (spec §6.1): the show-section registry's groups, then the admin-only "Checks". */
+export const STEP3_SECTION_GROUPS: readonly string[] = [...SHOW_SECTION_GROUPS, "Checks"];
 
 /** Thumbnail-grid cap (spec §B3): overflow renders the quiet "+N more" note. */
 export const DIAGRAM_TILE_CAP = 12;
@@ -5530,6 +5516,21 @@ export function hasDiagramSignal(
 }
 
 /**
+ * A shared section's id, label, group and glyph, read from the show-section
+ * registry (lib/showSections/registry.ts) so the admin and the crew page name a
+ * section the same way. `render`, the rail count and the dot rule stay here.
+ *
+ * Type-level assertion: `id` comes back as an admin `SectionId`, so a registry id
+ * the admin does not know fails to compile on the return below.
+ */
+function sharedSection(
+  id: ShowSectionId,
+): Pick<Step3SectionDef, "id" | "label" | "group" | "Icon"> {
+  const { label, group, icon } = showSection(id);
+  return { id, label, group, Icon: icon };
+}
+
+/**
  * The §6.1 registry (+ follow-ups §D2). 12 defs base; `agenda` (rail entry AND
  * section, only when the baseline is non-empty — the same gate the card uses
  * today) is conditional → 12/13. Diagrams are consolidated INTO the `rooms`
@@ -5542,26 +5543,17 @@ export function hasDiagramSignal(
 export function step3Sections(d: SectionData): Step3SectionDef[] {
   const defs: Step3SectionDef[] = [
     {
-      id: "venue",
-      label: "Venue",
-      group: "The show",
-      Icon: MapPin,
+      ...sharedSection("venue"),
       railCount: null,
       render: (s) => <VenueBreakdown dfid={s.driveFileId} venue={s.venue} />,
     },
     {
-      id: "event",
-      label: "Event details",
-      group: "The show",
-      Icon: Sparkles,
+      ...sharedSection("event"),
       railCount: null,
       render: (s) => <EventDetailsBreakdown dfid={s.driveFileId} eventDetails={s.eventDetails} />,
     },
     {
-      id: "crew",
-      label: "Crew",
-      group: "People",
-      Icon: Users,
+      ...sharedSection("crew"),
       railCount: (s) => s.crewMembers.length,
       // Mode fork (crew-row-controls spec §3): published rows gain the ⋮ row-action
       // menu (Preview as + Reset name picker, gated on published && !archived);
@@ -5583,10 +5575,7 @@ export function step3Sections(d: SectionData): Step3SectionDef[] {
         ),
     },
     {
-      id: "contacts",
-      label: "Contacts",
-      group: "People",
-      Icon: Phone,
+      ...sharedSection("contacts"),
       // Contact-BLOCK count, exactly as the body renders it today
       // (count={blocks.length}) — shared shaping via contactBlocks.
       railCount: (s) => contactBlocks(s.clientContact, s.contacts).length,
@@ -5599,10 +5588,7 @@ export function step3Sections(d: SectionData): Step3SectionDef[] {
       ),
     },
     {
-      id: "schedule",
-      label: "Crew schedule",
-      group: "Schedule",
-      Icon: CalendarDays,
+      ...sharedSection("schedule"),
       // No rail count (owner decision, 2026-07-05): only Crew, Contacts, Rooms,
       // and Parse warnings show a count. Keep in lockstep with COUNT_SECTIONS.
       railCount: null,
@@ -5613,10 +5599,7 @@ export function step3Sections(d: SectionData): Step3SectionDef[] {
   ];
   if (includesAgenda(d)) {
     defs.push({
-      id: "agenda",
-      label: "Agenda",
-      group: "Schedule",
-      Icon: FileText,
+      ...sharedSection("agenda"),
       railCount: null,
       // Mode fork (spec §3.5): staged AgendaBreakdown POSTs the wizard session +
       // polls; published renders the static baseline (no fetch, no wizard session).
@@ -5635,27 +5618,18 @@ export function step3Sections(d: SectionData): Step3SectionDef[] {
   }
   defs.push(
     {
-      id: "hotels",
-      label: "Hotels",
-      group: "Logistics",
-      Icon: BedDouble,
+      ...sharedSection("hotels"),
       // No rail count (owner decision, 2026-07-05) — see COUNT_SECTIONS.
       railCount: null,
       render: (s) => <HotelsBreakdown dfid={s.driveFileId} hotels={s.hotels} />,
     },
     {
-      id: "transport",
-      label: "Transport",
-      group: "Logistics",
-      Icon: Truck,
+      ...sharedSection("transport"),
       railCount: null,
       render: (s) => <TransportBreakdown dfid={s.driveFileId} transportation={s.transportation} />,
     },
     {
-      id: "rooms",
-      label: "Rooms & scope",
-      group: "Gear",
-      Icon: LayoutGrid,
+      ...sharedSection("rooms"),
       // Rail count mirrors the body header: only A/V-scoped rooms are tallied
       // (roomHasScope) — a no-A/V placeholder room renders but is not counted.
       railCount: (s) => s.rooms.filter(roomHasScope).length,
@@ -5677,10 +5651,7 @@ export function step3Sections(d: SectionData): Step3SectionDef[] {
   );
   defs.push(
     {
-      id: "packlist",
-      label: "Pack list",
-      group: "Gear",
-      Icon: Package,
+      ...sharedSection("packlist"),
       // No rail count (owner decision, 2026-07-05) — see COUNT_SECTIONS.
       railCount: null,
       // The pull sheet itself is source-agnostic; only the archived-tab accept/skip
@@ -5709,10 +5680,7 @@ export function step3Sections(d: SectionData): Step3SectionDef[] {
       ),
     },
     {
-      id: "billing",
-      label: "Billing & docs",
-      group: "Money",
-      Icon: Receipt,
+      ...sharedSection("billing"),
       railCount: null,
       render: (s) => <OpsBreakdown dfid={s.driveFileId} billing={s.billing} />,
     },

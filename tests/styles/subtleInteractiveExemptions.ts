@@ -145,7 +145,8 @@ export const SUBTLE_INTERACTIVE_EXEMPTIONS: readonly SubtleExemption[] = [
     // 1713 -> 1731 on feat/warning-card-fixes Task 17 (the chrome's jump fields and the
     // sectionForWarning import above it); the same `{hidden.length} more` <summary>.
     // 1731 -> 1738 on feat/warning-card-fixes (UI gate P3: jump targets named by their own heading or title); located by its own element (5-line context match).
-    line: 1738,
+    // 1738 -> 1732 on feat/crew-page-redesign-pr-b Task 2 (seven lucide imports moved to lib/showSections/registry.ts and its one import landed above it); located by its own element (5-line context match).
+    line: 1732,
     tag: "summary",
     token: "text-text-subtle",
     family: "summary-disclosure",
@@ -190,7 +191,8 @@ export const SUBTLE_INTERACTIVE_EXEMPTIONS: readonly SubtleExemption[] = [
     // 3787 -> 3855 on feat/warning-card-fixes Task 17 (the card section jump above it);
     // located by its own ignored-summary testid.
     // 3855 -> 3875 on feat/warning-card-fixes (UI gate P3: jump targets named by their own heading or title); located by its own element (5-line context match).
-    line: 3875,
+    // 3875 -> 3869 on feat/crew-page-redesign-pr-b Task 2 (seven lucide imports moved to lib/showSections/registry.ts and its one import landed above it); located by its own element (5-line context match).
+    line: 3869,
     tag: "summary",
     token: "text-text-subtle",
     family: "summary-disclosure",
@@ -211,7 +213,8 @@ export const SUBTLE_INTERACTIVE_EXEMPTIONS: readonly SubtleExemption[] = [
     // 3819 -> 3887 on feat/warning-card-fixes Task 17 (the card section jump above it);
     // located by its own accepted-summary testid.
     // 3887 -> 3907 on feat/warning-card-fixes (UI gate P3: jump targets named by their own heading or title); located by its own element (5-line context match).
-    line: 3907,
+    // 3907 -> 3901 on feat/crew-page-redesign-pr-b Task 2 (seven lucide imports moved to lib/showSections/registry.ts and its one import landed above it); located by its own element (5-line context match).
+    line: 3901,
     tag: "summary",
     token: "text-text-subtle",
     family: "summary-disclosure",

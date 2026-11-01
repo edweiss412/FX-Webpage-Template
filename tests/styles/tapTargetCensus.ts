@@ -422,7 +422,8 @@ export const TAP_TARGET_CENSUS: readonly TapCensusRow[] = [
     // 4707 -> 4775 on feat/warning-card-fixes Task 17 (the chrome's jump fields and the
     // card section jump above it); the same tile `<a>`, located by that ref.
     // 4775 -> 4795 on feat/warning-card-fixes (UI gate P3: jump targets named by their own heading or title); located by its own element (5-line context match).
-    line: 4795,
+    // 4795 -> 4781 on feat/crew-page-redesign-pr-b Task 2 (seven lucide imports moved to lib/showSections/registry.ts, its one import landed, and STEP3_SECTION_GROUPS became one line, all above it); located by its own element (5-line context match).
+    line: 4781,
     tag: "a",
     category: "full-bleed",
     reason:
