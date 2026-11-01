@@ -39,7 +39,7 @@ import { join } from "node:path";
 import { test, expect, type Locator, type Page } from "@playwright/test";
 import { DRAG_DISMISS_THRESHOLD_PX } from "@/components/shared/sheetConstants";
 import { CREW_SECTION_LABELS, type CrewSectionId } from "@/lib/crew/crewSections";
-import { BASE_SECTION_IDS } from "@/lib/crew/resolveActiveSection";
+import { CREW_SECTION_IDS } from "@/lib/crew/resolveActiveSection";
 import { refreshFromServer, renderFresh } from "./helpers/crewRefresh";
 import { ADMIN_FIXTURE } from "./helpers/fixtures";
 import { setRoleFlagsLocked } from "./helpers/lockedCrewRestriction";
@@ -58,11 +58,8 @@ const SHOW_DAY_N_INSTANT = "2026-04-21T12:00:00Z";
 
 const TOL = 0.5;
 
-/** Every PR A section an admin opens, in nav order (spec §5.1). */
-const ADMIN_SECTIONS: CrewSectionId[] = [
-  ...BASE_SECTION_IDS.flatMap((id) => (id === "today" ? [] : [id])),
-  "budget",
-];
+/** Every section an admin opens, in nav order (spec §5.1, `CREW_SECTION_IDS`). */
+const ADMIN_SECTIONS: CrewSectionId[] = [...CREW_SECTION_IDS];
 
 type Rect = {
   top: number;

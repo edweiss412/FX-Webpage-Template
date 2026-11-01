@@ -53,7 +53,7 @@ import { join } from "node:path";
 
 import { test, expect, type Page } from "@playwright/test";
 import { CREW_SECTION_LABELS, type CrewSectionId } from "@/lib/crew/crewSections";
-import { BASE_SECTION_IDS } from "@/lib/crew/resolveActiveSection";
+import { CREW_SECTION_IDS } from "@/lib/crew/resolveActiveSection";
 import { SCROLL_SPY_OFFSET_PX, activeSectionFor } from "@/lib/ui/scrollSpy";
 import { ADMIN_FIXTURE } from "./helpers/fixtures";
 import { signInAs, signOut } from "./helpers/signInAs";
@@ -70,11 +70,8 @@ const SEED_DRIVE_FILE_ID = "seed-fixture:2026-04-asset-mgmt-cfo-coo-waldorf";
 const SHOW_DAY_N_INSTANT = "2026-04-21T12:00:00Z";
 const WIDE = { width: 1280, height: 800 };
 
-/** Every PR A section an admin opens, in nav order (spec §5.1). */
-const ADMIN_SECTIONS: CrewSectionId[] = [
-  ...BASE_SECTION_IDS.flatMap((id) => (id === "today" ? [] : [id])),
-  "budget",
-];
+/** Every section an admin opens, in nav order (spec §5.1, `CREW_SECTION_IDS`). */
+const ADMIN_SECTIONS: CrewSectionId[] = [...CREW_SECTION_IDS];
 
 async function lookupRoute(): Promise<string> {
   const showRes = await admin

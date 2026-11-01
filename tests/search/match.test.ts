@@ -337,7 +337,7 @@ describe("order (spec §5.5)", () => {
     expect(best).toEqual([2, 2, 1.2]);
   });
 
-  it("uses [...BASE_SECTION_IDS, budget] for ties, budget last", () => {
+  it('uses ["today", ...CREW_SECTION_IDS] for ties, budget last', () => {
     const { prepared } = adHoc(
       { section: "budget", value: "Dock fee" },
       { section: "gear", value: "Dock cart" },

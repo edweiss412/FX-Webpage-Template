@@ -37,6 +37,7 @@ import type { ShowForViewer, Viewer } from "@/lib/data/getShowForViewer";
 import { resolveViewerContext } from "@/lib/data/viewerContext";
 import { formatIsoDate } from "@/lib/format/date";
 import { transportTileVisible } from "@/lib/visibility/scopeTiles";
+import { premise, premiseHolds } from "@/tests/_shared/premise";
 import { makeShowForViewer } from "../../fixtures/showForViewer";
 
 const PATH = "/show/spring-gala/tok123";
@@ -786,6 +787,279 @@ describe("CrewSections compound transitions (spec §7)", () => {
     expect(url).toBe(PATH);
     expect(state).toEqual({});
     expect(scrollToSpy).toHaveBeenLastCalledWith({ top: 0, behavior: "auto" });
+  });
+});
+
+/**
+ * PR B plan decision 1, rules c to e: the controller opens exactly the ids that
+ * have a body, whether or not the list shows them. PR B's first such id is a
+ * content-less Agenda, entitled and unlisted (Task 10); fixture nodes stand in
+ * for it here. `UNLISTED` has a body and no list row; `BODILESS` has a list row
+ * and no body, the shape of a section the viewer is not entitled to.
+ */
+describe("CrewSections opens the ids that have a body (plan decision 1)", () => {
+  const UNLISTED: CrewSectionId = "venue";
+  const BODILESS: CrewSectionId = "gear";
+
+  function listed(): CrewSectionEntry[] {
+    return entries(false).filter((e) => e.id !== UNLISTED);
+  }
+
+  function bodies(over: Partial<Record<SectionId, ReactNode>> = {}) {
+    const n = nodes(false, over);
+    delete n[BODILESS];
+    return n;
+  }
+
+  function renderSplit(
+    initialSection: SectionId = "today",
+    opts: { over?: Partial<Record<SectionId, ReactNode>>; extra?: ReactNode } = {},
+  ) {
+    const sections = listed();
+    const sectionNodes = bodies(opts.over);
+    premiseHolds(
+      "the fixture splits the list from the bodies both ways",
+      !sections.some((s) => s.id === UNLISTED) &&
+        Object.hasOwn(sectionNodes, UNLISTED) &&
+        sections.some((s) => s.id === BODILESS) &&
+        !Object.hasOwn(sectionNodes, BODILESS),
+    );
+    return render(
+      <CrewSections initialSection={initialSection} sections={sections} sectionNodes={sectionNodes}>
+        {opts.extra}
+      </CrewSections>,
+    );
+  }
+
+  /** The `data-section` values inside an element (list rows, nav items, stacked sections). */
+  function sectionIds(root: HTMLElement): string[] {
+    return [...root.querySelectorAll("[data-section]")].map(
+      (el) => el.getAttribute("data-section")!,
+    );
+  }
+
+  it("decision 1: an id with a body and no list row opens from initialSection, and shows in no list, nav or stack", () => {
+    renderSplit(UNLISTED);
+    expect(sheet()).toHaveAttribute("data-section", UNLISTED);
+    expect(sheet()).toHaveAccessibleName(CREW_SECTION_LABELS[UNLISTED]);
+    const list = sectionIds(screen.getByTestId("crew-all-sections"));
+    premise("list rows", list.length, 0);
+    expect(list).not.toContain(UNLISTED);
+    cleanup();
+
+    stubMatchMedia({ wide: true, reduced: false });
+    renderSplit();
+    const navIds = sectionIds(screen.getByTestId("crew-wide-nav"));
+    const stackIds = sectionIds(screen.getByTestId("crew-wide-stack"));
+    premise("nav items", navIds.length, 0);
+    premise("stacked sections", stackIds.length, 0);
+    expect(navIds).not.toContain(UNLISTED);
+    expect(stackIds).not.toContain(UNLISTED);
+  });
+
+  it("decision 1: an id listed with no body does not open from initialSection", () => {
+    renderSplit(BODILESS);
+    expect(sheet()).toBeNull();
+    expect(pushSpy).not.toHaveBeenCalled();
+    expect(backSpy).not.toHaveBeenCalled();
+    expect(replaceSpy).not.toHaveBeenCalled();
+  });
+
+  it("decision 1: popstate to an id with a body opens it; to a listed id with no body replaces s away", async () => {
+    const first = renderSplit();
+    replaceSpy.mockClear();
+    popTo(`?s=${UNLISTED}`, { crewSheet: true });
+    expect(sheet()).toHaveAttribute("data-section", UNLISTED);
+    expect(replaceSpy, "an openable s is not stripped").not.toHaveBeenCalled();
+    first.unmount();
+
+    renderSplit();
+    replaceSpy.mockClear();
+    popTo(`?s=${BODILESS}`);
+    await waitFor(() => expect(sheet()).toBeNull());
+    const [, , url] = replaceSpy.mock.calls.at(-1)!;
+    expect(url).toBe(PATH);
+  });
+
+  it("decision 1: a link to an id with a body opens in place; a link to a listed id with no body goes to the server", () => {
+    // Records whether the controller's capture handler took the click, then
+    // keeps jsdom from navigating.
+    const prevented: boolean[] = [];
+    renderSplit("today", {
+      extra: (
+        <div
+          onClick={(e) => {
+            prevented.push(e.defaultPrevented);
+            e.preventDefault();
+          }}
+        >
+          <a href={`${PATH}?s=${UNLISTED}`}>Unlisted link</a>
+          <a href={`${PATH}?s=${BODILESS}`}>Bodiless link</a>
+        </div>
+      ),
+    });
+
+    fireEvent.click(screen.getByRole("link", { name: "Bodiless link" }));
+    expect(prevented).toEqual([false]);
+    expect(pushSpy).not.toHaveBeenCalled();
+    expect(sheet()).toBeNull();
+
+    fireEvent.click(screen.getByRole("link", { name: "Unlisted link" }));
+    expect(prevented).toEqual([false, true]);
+    expect(sheet()).toHaveAttribute("data-section", UNLISTED);
+    const [state, , url] = pushSpy.mock.calls.at(-1)!;
+    expect(state).toMatchObject({ crewSheet: true });
+    expect(url).toBe(buildSectionHref(PATH, nav.searchParams, UNLISTED));
+    expect(routerPush).not.toHaveBeenCalled();
+  });
+
+  it("decision 1: openSectionAndReveal opens an id with a body and reveals the line; a listed id with no body opens nothing", async () => {
+    function SearchResults() {
+      const { openSectionAndReveal } = useSectionController();
+      return (
+        <>
+          <button type="button" onClick={() => openSectionAndReveal(BODILESS, "gear-case")}>
+            Bodiless result
+          </button>
+          <button type="button" onClick={() => openSectionAndReveal(UNLISTED, "venue-dock")}>
+            Unlisted result
+          </button>
+        </>
+      );
+    }
+    renderSplit("today", {
+      over: { [UNLISTED]: body(UNLISTED, <p data-search-target="venue-dock">Dock door 3</p>) },
+      extra: <SearchResults />,
+    });
+
+    fireEvent.click(screen.getByRole("button", { name: "Bodiless result" }));
+    expect(sheet()).toBeNull();
+    expect(pushSpy).not.toHaveBeenCalled();
+
+    fireEvent.click(screen.getByRole("button", { name: "Unlisted result" }));
+    expect(sheet()).toHaveAttribute("data-section", UNLISTED);
+    const el = within(sheet()!).getByText("Dock door 3");
+    await waitFor(() => expect(el).toHaveAttribute("data-search-reveal"));
+  });
+
+  it("decision 1 rule d: a wide landing is a stacked section's top less its scroll margin, else the page top with the spy on Today", () => {
+    stubMatchMedia({ wide: true, reduced: false });
+    renderSplit("today", { extra: <a href={`${PATH}?s=${UNLISTED}`}>Unlisted link</a> });
+    const root = screen.getByTestId("crew-shell-sections");
+    const section = screen.getByTestId("body-crew").closest<HTMLElement>("[data-section]")!;
+    section.getBoundingClientRect = () => ({ top: 640, height: 400 }) as DOMRect;
+    const computed = window.getComputedStyle.bind(window);
+    vi.spyOn(window, "getComputedStyle").mockImplementation((el, pseudo) =>
+      el === section ? ({ scrollMarginTop: "24px" } as CSSStyleDeclaration) : computed(el, pseudo),
+    );
+
+    fireEvent.click(
+      within(screen.getByTestId("crew-wide-nav")).getByRole("link", { name: "Crew" }),
+    );
+    expect(scrollToSpy).toHaveBeenLastCalledWith({ top: 640 - 24, behavior: "smooth" });
+    expect(root).toHaveAttribute("data-active-section", "crew");
+
+    fireEvent.click(screen.getByRole("link", { name: "Unlisted link" }));
+    expect(scrollToSpy).toHaveBeenLastCalledWith({ top: 0, behavior: "smooth" });
+    expect(root).toHaveAttribute("data-active-section", "today");
+    expect(replaceSpy.mock.calls.at(-1)![2]).toBe(
+      buildSectionHref(PATH, nav.searchParams, UNLISTED),
+    );
+    expect(pushSpy).not.toHaveBeenCalled();
+  });
+
+  it("decision 1 rule d: crossing into wide with a sheet open on a section with no stacked element scrolls to the top", () => {
+    let wide = false;
+    const listeners = new Set<() => void>();
+    vi.stubGlobal(
+      "matchMedia",
+      vi.fn((query: string) => ({
+        get matches() {
+          return query.includes("prefers-reduced-motion") ? false : wide;
+        },
+        media: query,
+        addEventListener: (_: string, cb: () => void) => listeners.add(cb),
+        removeEventListener: (_: string, cb: () => void) => listeners.delete(cb),
+      })),
+    );
+    const scrollY = Object.getOwnPropertyDescriptor(window, "scrollY");
+    Object.defineProperty(window, "scrollY", { configurable: true, value: 900 });
+    try {
+      nav.searchParams = new URLSearchParams(`s=${UNLISTED}`);
+      setLocation(`?s=${UNLISTED}`, { crewSheet: true });
+      renderSplit(UNLISTED);
+      expect(sheet()).toHaveAttribute("data-section", UNLISTED);
+      scrollToSpy.mockClear();
+
+      wide = true;
+      act(() => {
+        for (const cb of listeners) cb();
+      });
+
+      expect(screen.getByTestId("crew-shell-sections")).toHaveAttribute("data-crew-mode", "wide");
+      expect(scrollToSpy).toHaveBeenLastCalledWith({ top: 0, behavior: "auto" });
+      expect(screen.getByTestId("crew-shell-sections")).toHaveAttribute(
+        "data-active-section",
+        "today",
+      );
+    } finally {
+      if (scrollY) Object.defineProperty(window, "scrollY", scrollY);
+      else delete (window as { scrollY?: number }).scrollY;
+    }
+  });
+
+  it("decision 1 rule e: closing a sheet on a section with no list row focuses the Today block, never <body>", async () => {
+    nav.searchParams = new URLSearchParams(`s=${UNLISTED}`);
+    setLocation(`?s=${UNLISTED}`);
+    renderSplit(UNLISTED);
+    expect(sheet()).toHaveAttribute("data-section", UNLISTED);
+    fireEvent.click(closeButton(UNLISTED));
+    await waitFor(() => expect(sheet()).toBeNull());
+    expect(document.activeElement).toBe(screen.getByTestId("crew-today-block"));
+  });
+
+  it("decision 1 rule e: a listed section's sheet leaving with its row (a crossing into wide) never sends focus or the page to the Today block", async () => {
+    // Wide unmounts the list with the sheet, so the row is gone though the
+    // section is listed. The Today fallback is for a section with no row at
+    // all: here it would scroll the page back up past the section the crossing
+    // just landed on.
+    const intoView = vi.fn();
+    Object.defineProperty(HTMLElement.prototype, "scrollIntoView", {
+      configurable: true,
+      value: intoView,
+    });
+    let wide = false;
+    const listeners = new Set<() => void>();
+    vi.stubGlobal(
+      "matchMedia",
+      vi.fn((query: string) => ({
+        get matches() {
+          return query.includes("prefers-reduced-motion") ? true : wide;
+        },
+        media: query,
+        addEventListener: (_: string, cb: () => void) => listeners.add(cb),
+        removeEventListener: (_: string, cb: () => void) => listeners.delete(cb),
+      })),
+    );
+    try {
+      nav.searchParams = new URLSearchParams("s=crew");
+      setLocation("?s=crew", { crewSheet: true });
+      renderSplit("crew");
+      expect(sheet()).toHaveAttribute("data-section", "crew");
+
+      wide = true;
+      act(() => {
+        for (const cb of listeners) cb();
+      });
+      expect(screen.getByTestId("crew-shell-sections")).toHaveAttribute("data-crew-mode", "wide");
+      await nextFrame();
+      await nextFrame();
+
+      expect(document.activeElement).not.toBe(screen.getByTestId("crew-today-block"));
+      expect(intoView).not.toHaveBeenCalled();
+    } finally {
+      delete (HTMLElement.prototype as { scrollIntoView?: unknown }).scrollIntoView;
+    }
   });
 });
 

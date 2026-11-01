@@ -4,7 +4,7 @@
 // scripts/with-admin-dev-flag.mjs — same 404 in prod. The new
 // `/admin` landing is always built and lists the available admin
 // sub-pages.
-import { ALLOWED_GATE_VALUES, BASE_SECTION_IDS } from "@/lib/crew/resolveActiveSection";
+import { ALLOWED_GATE_VALUES, canonicalSectionParam } from "@/lib/crew/resolveActiveSection";
 
 export const DEFAULT_AUTH_NEXT_PATH = "/admin";
 
@@ -21,12 +21,9 @@ const ALLOWED_NEXT_RE = /^\/(show\/[a-z0-9-]+\/[0-9a-f]{64}|admin(\/.*)?|me(\/.*
 // so a deep-linked sign-in `?next=/show/<slug>/<token>?s=venue` survives the
 // OAuth round-trip. This is the single relaxation; every other path still
 // returns the bare pathname (query stripped). The two allow-lists are the
-// single source of truth in resolveActiveSection.ts.
+// single source of truth in resolveActiveSection.ts: `canonicalSectionParam`
+// for `s` (re-attached as the current id), ALLOWED_GATE_VALUES for `gate`.
 const TOKENIZED_SHOW_RE = /^\/show\/[a-z0-9-]+\/[0-9a-f]{64}$/;
-const ALLOWED_NEXT_SECTION_VALUES: ReadonlySet<string> = new Set<string>([
-  ...BASE_SECTION_IDS,
-  "budget",
-]);
 const ALLOWED_NEXT_GATE_VALUES: ReadonlySet<string> = new Set<string>(ALLOWED_GATE_VALUES);
 const BOOTSTRAP_SURFACE_RE = /^\/show\/[a-z0-9-]+\/p$/;
 const CONTROL_CHAR_RE = /[\u0000-\u001f\u007f]/;
@@ -72,8 +69,8 @@ export function validateNextParamDetailed(raw: unknown): ValidateNextParamOutcom
   // allowed paths (/admin, /me) keep the existing strip-the-query posture.
   if (TOKENIZED_SHOW_RE.test(path)) {
     const reattached: string[] = [];
-    const s = parsed.searchParams.get("s");
-    if (s !== null && ALLOWED_NEXT_SECTION_VALUES.has(s)) {
+    const s = canonicalSectionParam(parsed.searchParams.get("s"));
+    if (s !== undefined) {
       reattached.push(`s=${s}`);
     }
     const gate = parsed.searchParams.get("gate");

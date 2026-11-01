@@ -49,7 +49,7 @@ import { aggregateDays, TITLE_TRUNCATE_AT } from "@/lib/crew/agendaDisplay";
 import { buildCardReportContext } from "@/lib/crew/cardReportContext";
 import { normalizeMeridiem } from "@/lib/crew/normalizeMeridiem";
 import { partialAttendanceLabel } from "@/lib/crew/partialAttendance";
-import { BASE_SECTION_IDS, type SectionId } from "@/lib/crew/resolveActiveSection";
+import { CREW_SECTION_IDS, type SectionId } from "@/lib/crew/resolveActiveSection";
 import { createTileRenderLedger } from "@/lib/crew/tileRenderLedger";
 import { parseWifiValue } from "@/lib/crew/wifiDisplay";
 import type { ShowForViewer } from "@/lib/data/getShowForViewer";
@@ -143,9 +143,9 @@ function build(id: SectionId, c: ViewerCase): SearchEntry[] {
   return SECTION_BUILDERS[id](c);
 }
 
-/** `CrewShell` renders Budget only for an entitled viewer; every base section for everyone. */
+/** `CrewShell` renders the home and each section the viewer's member list holds. */
 function canOpen(id: SectionId, c: ViewerCase): boolean {
-  return (BASE_SECTION_IDS as readonly SectionId[]).includes(id) || c.budgetVisible;
+  return id === "today" || c.sections.includes(id);
 }
 
 /**
@@ -181,7 +181,7 @@ function caseNamed(cases: readonly ViewerCase[], name: string): ViewerCase {
 /**
  * The sections every parity block covers, filled at collection time by
  * `parityOver` and read by the coverage block at the end of the file. Spec §11.1
- * derives the section list from `[...BASE_SECTION_IDS, "budget"]`, so a section
+ * derives the section list from `["today", ...CREW_SECTION_IDS]`, so a section
  * added later without a block here fails coverage instead of being skipped.
  */
 const PARITY_CASES = new Map<SectionId, string[]>();
@@ -1837,7 +1837,7 @@ describe("today", () => {
 // ── coverage ─────────────────────────────────────────────────────────────────
 
 /** The section list, derived, never typed (spec §11.1). */
-const DERIVED_SECTIONS: readonly SectionId[] = [...BASE_SECTION_IDS, "budget"];
+const DERIVED_SECTIONS: readonly SectionId[] = ["today", ...CREW_SECTION_IDS];
 
 describe("coverage: every section has a parity block", () => {
   test("SECTION_BUILDERS has a builder for exactly the derived section list", () => {

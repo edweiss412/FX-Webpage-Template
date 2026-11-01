@@ -145,6 +145,7 @@ describe("crew viewer", () => {
       today: MATRIX_TODAY,
       budgetVisible: fullContent.budgetVisible,
       staticPreview: false,
+      sections: fullContent.sections,
     });
     premise("fullContent index entries", expected.entries.length, 0);
     premise(
@@ -191,6 +192,7 @@ describe("previews", () => {
         today: MATRIX_TODAY,
         budgetVisible: fullContent.budgetVisible,
         staticPreview: false,
+        sections: fullContent.sections,
       }),
     );
   });

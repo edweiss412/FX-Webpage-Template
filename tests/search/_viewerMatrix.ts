@@ -1,13 +1,13 @@
 /**
  * The INV-1 viewer matrix (spec §11.1): one named case per gate the parity and
- * leak suites must see flipped, each a ready `SectionBuildInput` plus a name.
+ * leak suites must see flipped, each a ready `SearchIndexInput` plus a name.
  *
  * This module asserts nothing. Each section task states, per case it uses, the
  * premise its own render must show (tests/_shared/premise.ts), because only a
  * render can prove a gate actually flipped. Cap-crossing counts are derived
- * from the exported caps, never typed, and `budgetVisible` is computed the way
- * `CrewShell` computes it, so a case cannot claim an entitlement the shell
- * would not grant.
+ * from the exported caps, never typed, and `budgetVisible` and the member list
+ * `sections` are computed the way `CrewShell` computes them, so a case cannot
+ * claim an entitlement the shell would not grant.
  */
 import { CONTACTS_INLINE_CAP, CREW_INLINE_CAP } from "@/components/crew/sections/CrewSection";
 import { CASE_CAP, ROOM_DETAIL_CAP } from "@/components/crew/sections/GearSection";
@@ -29,11 +29,12 @@ import type {
   ScheduleDay,
   TransportationRow,
 } from "@/lib/parser/types";
-import type { SectionBuildInput } from "@/lib/search/sections";
+import type { SearchIndexInput } from "@/lib/search/buildSearchIndex";
+import { crewSectionsFor } from "@/lib/crew/crewSections";
 import { financialsVisible } from "@/lib/visibility/scopeTiles";
 import { makeShowForViewer } from "@/tests/fixtures/showForViewer";
 
-export type ViewerCase = SectionBuildInput & { name: string };
+export type ViewerCase = SearchIndexInput & { name: string };
 
 /** The pinned request clock. 16:00Z is noon in the default venue timezone (America/New_York). */
 export const MATRIX_TODAY = new Date("2026-05-14T16:00:00Z");
@@ -166,6 +167,11 @@ function budgetVisibleFor(viewer: Viewer, data: ShowForViewer): boolean {
   return financialsVisible(ctx.viewerFlags, ctx.isAdmin);
 }
 
+/** The shell's member list for this viewer (`crewSectionsFor`, as `CrewShell` lists it). */
+export function memberIdsFor(viewer: Viewer, data: ShowForViewer): SearchIndexInput["sections"] {
+  return crewSectionsFor(data, resolveViewerContext(viewer, data)).map((s) => s.id);
+}
+
 function makeCase(name: string, viewer: Viewer, data: ShowForViewer): ViewerCase {
   return {
     name,
@@ -174,6 +180,7 @@ function makeCase(name: string, viewer: Viewer, data: ShowForViewer): ViewerCase
     today: MATRIX_TODAY,
     budgetVisible: budgetVisibleFor(viewer, data),
     staticPreview: false,
+    sections: memberIdsFor(viewer, data),
   };
 }
 

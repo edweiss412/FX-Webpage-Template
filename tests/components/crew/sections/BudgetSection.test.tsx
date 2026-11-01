@@ -4,7 +4,12 @@ import { render } from "@testing-library/react";
 import { BudgetSection } from "@/components/crew/sections/BudgetSection";
 import { makeShowForViewer } from "@/tests/fixtures/showForViewer";
 import { financialsVisible } from "@/lib/visibility/scopeTiles";
-import { resolveActiveSection } from "@/lib/crew/resolveActiveSection";
+import { crewSectionEntitled } from "@/lib/crew/crewSections";
+import {
+  CREW_SECTION_IDS,
+  resolveActiveSection,
+  type SectionId,
+} from "@/lib/crew/resolveActiveSection";
 import { ledgerProp } from "./_ledgerProp";
 
 const TODAY = new Date("2026-05-14T15:00:00Z");
@@ -38,9 +43,12 @@ test("BudgetSection renders financials iff financialsVisible; the SAME predicate
     ).container.textContent,
   ).toContain("PO-1");
   // The SAME single predicate gates the section selection: a non-lead direct ?s=budget falls back to today.
-  expect(resolveActiveSection("budget", { budgetVisible: financialsVisible([], false) })).toBe(
-    "today",
+  const nonLead = { viewerFlags: [], isAdmin: false };
+  expect(crewSectionEntitled("budget", lead, nonLead)).toBe(financialsVisible([], false));
+  const entitled = new Set<SectionId>(
+    CREW_SECTION_IDS.filter((id) => crewSectionEntitled(id, lead, nonLead)),
   );
+  expect(resolveActiveSection("budget", entitled)).toBe("today");
 });
 
 test("BudgetSection no-ops (no financials content) when data.financials is absent", () => {

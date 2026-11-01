@@ -9,8 +9,8 @@
  * assert:
  *
  *   - `sectionNodes` keys === the entitled set:
- *       LEAD viewer  → [...BASE_SECTION_IDS, "budget"]  (7), budget key PRESENT
- *       NON-lead     → exactly BASE_SECTION_IDS         (6), NO budget key
+ *       LEAD viewer  → today + every CREW_SECTION_IDS id (7), budget key PRESENT
+ *       NON-lead     → the same minus budget              (6), NO budget key
  *   - `initialSection` === the server-resolved active (a non-lead ?s=budget →
  *     today).
  *   - PER-ID body correctness (anti-tautology — keys alone can pass with a
@@ -25,7 +25,12 @@ import type { ReactNode } from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { cleanup, render, screen } from "@testing-library/react";
 import type { ShowForViewer, Viewer } from "@/lib/data/getShowForViewer";
-import { BASE_SECTION_IDS, type SectionId } from "@/lib/crew/resolveActiveSection";
+import { CREW_SECTION_IDS, type SectionId } from "@/lib/crew/resolveActiveSection";
+
+/** Every body a fully entitled viewer gets: the home plus every crew section. */
+const ALL_KEYS: SectionId[] = ["today", ...CREW_SECTION_IDS];
+/** What a viewer the budget gate refuses gets. */
+const NON_LEAD_KEYS: SectionId[] = ALL_KEYS.filter((id) => id !== "budget");
 import { makeShowForViewer } from "@/tests/fixtures/showForViewer";
 
 const upsertAdminAlert = vi.hoisted(() => vi.fn());
@@ -221,11 +226,11 @@ describe("CrewShell builds sectionNodes for the entitled set", () => {
   /** The ids the "All sections" card and the wide nav receive. */
   const listed = () => captured.value!.sections.map((x) => x.id).sort();
 
-  it("a LEAD viewer gets all 7 keys (BASE + budget)", async () => {
+  it("a LEAD viewer gets all 7 keys (every section, budget included)", async () => {
     await renderShell({ data: leadData(), viewer: crewViewer, rawSection: "today" });
     expect(captured.value).not.toBeNull();
     const keys = Object.keys(captured.value!.sectionNodes).sort();
-    expect(keys).toEqual([...BASE_SECTION_IDS, "budget"].sort());
+    expect(keys).toEqual([...ALL_KEYS].sort());
     expect(listed()).toEqual(keys.filter((k) => k !== "today").sort());
     expect(listed()).toContain("budget");
   });
@@ -233,7 +238,7 @@ describe("CrewShell builds sectionNodes for the entitled set", () => {
   it("a NON-lead viewer gets EXACTLY the 6 base keys, no budget key", async () => {
     await renderShell({ data: populated(), viewer: crewViewer, rawSection: "today" });
     const keys = Object.keys(captured.value!.sectionNodes).sort();
-    expect(keys).toEqual([...BASE_SECTION_IDS].sort());
+    expect(keys).toEqual([...NON_LEAD_KEYS].sort());
     expect(keys).not.toContain("budget");
     expect(listed()).toEqual(keys.filter((k) => k !== "today").sort());
     expect(listed()).not.toContain("budget");
@@ -242,7 +247,7 @@ describe("CrewShell builds sectionNodes for the entitled set", () => {
   it("a real admin gets all 7 keys", async () => {
     await renderShell({ data: populated(), viewer: adminViewer, rawSection: "today" });
     const keys = Object.keys(captured.value!.sectionNodes).sort();
-    expect(keys).toEqual([...BASE_SECTION_IDS, "budget"].sort());
+    expect(keys).toEqual([...ALL_KEYS].sort());
     expect(listed()).toEqual(keys.filter((k) => k !== "today").sort());
     expect(listed()).toContain("budget");
   });
@@ -279,7 +284,7 @@ describe("CrewShell wires each entitled id to its OWN section component", () => 
   it("every entitled body renders the matching section-<id> marker", async () => {
     await renderShell({ data: leadData(), viewer: crewViewer, rawSection: "today" });
     const nodes = captured.value!.sectionNodes;
-    for (const id of [...BASE_SECTION_IDS, "budget"] as SectionId[]) {
+    for (const id of ALL_KEYS) {
       const node = nodes[id];
       expect(node, `sectionNodes is missing the "${id}" body`).toBeTruthy();
       // Render each body into ITS OWN isolated container + query within it, so a

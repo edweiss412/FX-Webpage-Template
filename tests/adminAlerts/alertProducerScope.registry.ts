@@ -227,8 +227,9 @@ export const PRODUCER_SCOPE: ProducerScopeRow[] = [
     // builder's import left. 179 -> 180 (Task 10): the run-of-show card builder's
     // import sits above it. -> 190 at the origin/main merge: main's saved-copy
     // props and marker imports (PR #983) sit above it. Same upsertAdminAlert
-    // call, confirmed at the new key.
-    site: "app/show/[slug]/[shareToken]/_CrewShell.tsx:190",
+    // call, confirmed at the new key. 190 -> 193 (crew page redesign PR B,
+    // Task 3): the id source import now names CREW_SECTION_IDS on its own lines.
+    site: "app/show/[slug]/[shareToken]/_CrewShell.tsx:193",
     contextKeys: ["failedKeys", "message", "sheet_name", "tileId"],
     code: "TILE_PROJECTION_FETCH_FAILED",
     scope: "per-show",

@@ -39,7 +39,7 @@ import { ScheduleSection } from "@/components/crew/sections/ScheduleSection";
 import { TravelSection } from "@/components/crew/sections/TravelSection";
 import { VenueSection } from "@/components/crew/sections/VenueSection";
 import { buildCardReportContext } from "@/lib/crew/cardReportContext";
-import { BASE_SECTION_IDS, type SectionId } from "@/lib/crew/resolveActiveSection";
+import type { SectionId } from "@/lib/crew/resolveActiveSection";
 import { createTileRenderLedger } from "@/lib/crew/tileRenderLedger";
 import { hotelVisibleToViewer, type ShowForViewer, type Viewer } from "@/lib/data/getShowForViewer";
 import { resolveViewerContext } from "@/lib/data/viewerContext";
@@ -56,6 +56,7 @@ import {
   dateSuppressed,
   flightVisible,
   leadWithFinancials,
+  memberIdsFor,
   type ViewerCase,
 } from "@/tests/search/_viewerMatrix";
 
@@ -81,9 +82,9 @@ afterEach(() => {
 
 // ── Rendering the page the way CrewShell does ────────────────────────────────
 
-/** `CrewShell` renders Budget only for an entitled viewer; every base section for everyone. */
+/** `CrewShell` renders the home and the viewer's listed sections (`crewSectionsFor`). */
 function openSections(c: ViewerCase): SectionId[] {
-  return c.budgetVisible ? [...BASE_SECTION_IDS, "budget"] : [...BASE_SECTION_IDS];
+  return ["today", ...c.sections];
 }
 
 /** Renders one section with the props `CrewShell` hands it (_CrewShell.tsx `renderOne`). */
@@ -148,7 +149,7 @@ function indexHolds(c: ViewerCase, text: string): boolean {
 
 // ── Fixtures ─────────────────────────────────────────────────────────────────
 
-/** A case on new data, with `budgetVisible` recomputed the way `CrewShell` computes it. */
+/** A case on new data, with `budgetVisible` and the member list recomputed the way `CrewShell` computes them. */
 function caseOf(name: string, viewer: Viewer, data: ShowForViewer, from: ViewerCase): ViewerCase {
   const ctx = resolveViewerContext(viewer, data);
   return {
@@ -157,6 +158,7 @@ function caseOf(name: string, viewer: Viewer, data: ShowForViewer, from: ViewerC
     viewer,
     data,
     budgetVisible: financialsVisible(ctx.viewerFlags, ctx.isAdmin),
+    sections: memberIdsFor(viewer, data),
   };
 }
 

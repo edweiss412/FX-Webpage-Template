@@ -2,9 +2,9 @@
  * buildSearchIndex composition (spec §2.4, plan Task 13).
  *
  * The index is the section builders' entries concatenated in
- * `[...BASE_SECTION_IDS, "budget"]` order, Budget only when the shell renders
- * it (`budgetVisible`), every builder handed the shell's own inputs, and ids
- * unique across the whole index.
+ * `["today", ...CREW_SECTION_IDS]` order, each section only when the shell's
+ * member list (`sections`, from `crewSectionsFor`) holds it, every builder
+ * handed the shell's own inputs, and ids unique across the whole index.
  *
  * The composition cases replace every builder with a stub that returns marker
  * entries, so they test the composer and not the builders: the Budget builder
@@ -13,7 +13,7 @@
  */
 import { afterEach, describe, expect, test, vi } from "vitest";
 
-import { BASE_SECTION_IDS, type SectionId } from "@/lib/crew/resolveActiveSection";
+import { CREW_SECTION_IDS, type SectionId } from "@/lib/crew/resolveActiveSection";
 import { buildSearchIndex } from "@/lib/search/buildSearchIndex";
 import { SECTION_BUILDERS, type SectionBuildInput } from "@/lib/search/sections";
 import type { SearchEntry } from "@/lib/search/types";
@@ -25,7 +25,7 @@ import {
   leadWithFinancials,
 } from "@/tests/search/_viewerMatrix";
 
-const INDEX_ORDER: readonly SectionId[] = [...BASE_SECTION_IDS, "budget"];
+const INDEX_ORDER: readonly SectionId[] = ["today", ...CREW_SECTION_IDS];
 
 afterEach(() => {
   vi.restoreAllMocks();
@@ -60,8 +60,11 @@ function stubBuilders(): Map<SectionId, SectionBuildInput[]> {
 }
 
 describe("composition", () => {
-  test("concatenates every builder in [...BASE_SECTION_IDS, 'budget'] order when Budget is visible", () => {
-    premiseHolds("the lead case is entitled to Budget", leadWithFinancials.budgetVisible);
+  test("concatenates every builder in ['today', ...CREW_SECTION_IDS] order when every section is listed", () => {
+    premiseHolds(
+      "the lead case lists every section",
+      CREW_SECTION_IDS.every((id) => leadWithFinancials.sections.includes(id)),
+    );
     const calls = stubBuilders();
 
     const index = buildSearchIndex(leadWithFinancials);
@@ -82,14 +85,35 @@ describe("composition", () => {
     }
   });
 
-  test("leaves Budget out, without calling its builder, when Budget is not visible", () => {
-    premiseHolds("the crew case is not entitled to Budget", !crewNoTransport.budgetVisible);
+  test("leaves Budget out, without calling its builder, when Budget is not listed", () => {
+    premiseHolds(
+      "the crew case does not list Budget",
+      !crewNoTransport.sections.includes("budget"),
+    );
     const calls = stubBuilders();
 
     const index = buildSearchIndex(crewNoTransport);
 
-    expect([...new Set(index.entries.map((e) => e.section))]).toEqual([...BASE_SECTION_IDS]);
+    expect([...new Set(index.entries.map((e) => e.section))]).toEqual(
+      INDEX_ORDER.filter((id) => id !== "budget"),
+    );
     expect(calls.has("budget")).toBe(false);
+  });
+
+  test("reads the shell's member list, not budgetVisible, to choose the sections", () => {
+    // Each pairing flips one input against the other, so a composer that kept
+    // reading budgetVisible gets one of the two wrong.
+    for (const budgetVisible of [true, false]) {
+      vi.restoreAllMocks();
+      const calls = stubBuilders();
+      const sections: SectionId[] = budgetVisible ? ["venue"] : ["venue", "budget"];
+      const index = buildSearchIndex({ ...fullContent, budgetVisible, sections });
+      expect(
+        [...new Set(index.entries.map((e) => e.section))],
+        `budgetVisible ${budgetVisible}`,
+      ).toEqual(INDEX_ORDER.filter((id) => id === "today" || sections.includes(id)));
+      expect(calls.has("budget"), `budgetVisible ${budgetVisible}`).toBe(!budgetVisible);
+    }
   });
 
   test("passes staticPreview through and still builds the index (Doug's preview searches like crew)", () => {
@@ -98,8 +122,10 @@ describe("composition", () => {
 
     const index = buildSearchIndex(input);
 
-    expect(index.entries.length).toBe(BASE_SECTION_IDS.length * 2);
-    for (const id of BASE_SECTION_IDS) expect(calls.get(id)?.[0]?.staticPreview).toBe(true);
+    const listed: SectionId[] = ["today", ...fullContent.sections];
+    premise("sections fullContent lists", fullContent.sections.length, 0);
+    expect(index.entries.length).toBe(listed.length * 2);
+    for (const id of listed) expect(calls.get(id)?.[0]?.staticPreview).toBe(true);
   });
 });
 

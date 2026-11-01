@@ -131,7 +131,7 @@ import {
 } from "@/lib/crew/crewSections";
 import { CREW_PAGE_CONTAINER } from "@/lib/crew/pageContainer";
 import type { DayRowProps, PassProps } from "@/lib/crew/passModel";
-import type { SectionId } from "@/lib/crew/resolveActiveSection";
+import { canonicalSectionParam, type SectionId } from "@/lib/crew/resolveActiveSection";
 import type { RunCardProps } from "@/lib/crew/runOfShowCard";
 import { buildHomeHref, buildSectionHref } from "@/lib/crew/sectionHref";
 import { cn } from "@/lib/ui/cn";
@@ -149,7 +149,10 @@ export interface CrewSectionsProps {
   initialSection: SectionId;
   /** The viewer's sections in nav order, with peeks (`crewSectionEntries`). */
   sections: readonly CrewSectionEntry[];
-  /** Every body the shell rendered: `today` plus one per listed section. */
+  /**
+   * Every body the shell rendered: `today` plus one per entitled section,
+   * listed or not. The controller opens exactly the ids that have one here.
+   */
   sectionNodes: Partial<Record<SectionId, ReactNode>>;
   /** Rendered at the top of the page column, above the Today block. */
   children?: ReactNode;
@@ -246,6 +249,23 @@ function scrollTargetFor(el: Element): number {
   return el.getBoundingClientRect().top + window.scrollY - margin;
 }
 
+/**
+ * Where a wide landing on `id` ends (PR B plan, decision 1 rule d): its stacked
+ * section's top less that section's scroll margin, else the top of the page with
+ * the spy on Today. Every wide landing reads it (a nav click, a wide `popstate`,
+ * the Today jump, a wide open and a crossing into wide), so a section the stack
+ * does not hold (an entitled, unlisted Agenda) lands where an unknown `s` does.
+ */
+function wideLandingFor(
+  stack: ReadonlyMap<CrewSectionId, HTMLElement>,
+  id: SectionId,
+): { top: number; spy: SectionId; section: HTMLElement | null } {
+  const section = id === "today" ? null : (stack.get(id) ?? null);
+  return section
+    ? { top: scrollTargetFor(section), spy: id, section }
+    : { top: 0, spy: "today", section: null };
+}
+
 /** The target with this exact id inside `root`; compared as a string, so no selector escaping. */
 function findTarget(root: HTMLElement | null, targetId: string): HTMLElement | null {
   if (root === null) return null;
@@ -327,11 +347,17 @@ export function CrewSections({
   const mode = useSyncExternalStore(subscribeMode, clientMode, serverMode);
   const reduced = usePrefersReducedMotion() === true;
 
-  const entitled = useMemo(() => new Set<string>(sections.map((s) => s.id)), [sections]);
+  // The sections this controller opens: a value's current id (a legacy alias
+  // becomes the id that replaced it) when the shell built a body for it, listed
+  // or not (PR B plan, decision 1 rule c). The shell builds one for every
+  // entitled id, so an entitled section the list does not show still opens, and
+  // one the viewer is not entitled to has no body to open.
   const toOpen = useCallback(
-    (id: SectionId | string | null | undefined): CrewSectionId | null =>
-      id && id !== "today" && entitled.has(id) ? (id as CrewSectionId) : null,
-    [entitled],
+    (raw: SectionId | string | null | undefined): CrewSectionId | null => {
+      const id = canonicalSectionParam(raw);
+      return id !== undefined && id !== "today" && Object.hasOwn(sectionNodes, id) ? id : null;
+    },
+    [sectionNodes],
   );
 
   const [openId, setOpenId] = useState<CrewSectionId | null>(() => toOpen(initialSection));
@@ -503,16 +529,16 @@ export function CrewSections({
   /** Wide: scroll the window to a section (or the top for Today). */
   const scrollWide = useCallback(
     (id: SectionId, { focus }: { focus: boolean }) => {
-      const el = id === "today" ? null : (stackRefs.current.get(id as CrewSectionId) ?? null);
-      const top = el ? scrollTargetFor(el) : 0;
-      setSpyActive(el || id === "today" ? id : "today");
-      beginSuppressedScroll(top);
-      window.scrollTo({ top, behavior: reduced ? "auto" : "smooth" });
+      const landing = wideLandingFor(stackRefs.current, id);
+      setSpyActive(landing.spy);
+      beginSuppressedScroll(landing.top);
+      window.scrollTo({ top: landing.top, behavior: reduced ? "auto" : "smooth" });
       if (focus) {
         // Today has no visible heading (its `h2` is visually hidden, and a ring
         // on a 1px clipped box is no ring at all, audit P2-6), so the block it
         // names takes focus: the ring then outlines what the jump landed on.
-        const target = id === "today" ? todayRef.current : el?.querySelector<HTMLElement>("h2");
+        const target =
+          id === "today" ? todayRef.current : landing.section?.querySelector<HTMLElement>("h2");
         target?.focus({ preventScroll: true });
       }
     },
@@ -532,17 +558,17 @@ export function CrewSections({
   // The history and scroll half of a viewport crossing (spec §7):
   //   - into wide, from a deep link's hydration or from compact with a sheet
   //     up: land on that section at once (the sheet already left without its
-  //     exit slide), the URL and the entry's marker untouched;
+  //     exit slide), the URL and the entry's marker untouched; a section the
+  //     stack does not hold lands at the top (`wideLandingFor`);
   //   - into compact: the home at the top, `s` and the marker replaced away.
   useEffect(() => {
     if (crossing === null) return;
     if (crossing.to === "wide") {
-      const el = crossing.section ? stackRefs.current.get(crossing.section) : undefined;
-      if (!crossing.section || !el) return;
-      const top = scrollTargetFor(el);
-      setSpyActive(crossing.section);
-      beginSuppressedScroll(top);
-      window.scrollTo({ top, behavior: "auto" });
+      if (crossing.section === null) return;
+      const landing = wideLandingFor(stackRefs.current, crossing.section);
+      setSpyActive(landing.spy);
+      beginSuppressedScroll(landing.top);
+      window.scrollTo({ top: landing.top, behavior: "auto" });
       return;
     }
     markedRef.current = false;
@@ -607,14 +633,22 @@ export function CrewSections({
   }, [closeEntry]);
 
   // A sheet with no opener to go back to (a deep link) returns focus to the
-  // "All sections" row that opens the same section (audit P2-5).
-  const sheetFallbackFocus = useCallback((id: CrewSectionId): HTMLElement | null => {
-    for (const el of allSectionsRef.current?.querySelectorAll<HTMLElement>("[data-section]") ??
-      []) {
-      if (el.getAttribute("data-section") === id) return el;
-    }
-    return null;
-  }, []);
+  // "All sections" row that opens the same section (audit P2-5). A section the
+  // list does not show (an entitled, unlisted Agenda) has no row, so focus goes
+  // to the Today block, which the nav's Today jump focuses too (PR B plan,
+  // decision 1 rule e), never to <body>. A listed section whose row is gone
+  // with the list (a crossing into wide) takes neither: the crossing's landing
+  // owns the page there, and a focus on the Today block would scroll it away.
+  const sheetFallbackFocus = useCallback(
+    (id: CrewSectionId): HTMLElement | null => {
+      for (const el of allSectionsRef.current?.querySelectorAll<HTMLElement>("[data-section]") ??
+        []) {
+        if (el.getAttribute("data-section") === id) return el;
+      }
+      return sections.some((s) => s.id === id) ? null : todayRef.current;
+    },
+    [sections],
+  );
 
   // A lost entitlement already closed the sheet, during render; its history
   // call follows here, in compact only (wide shows no sheet to close).

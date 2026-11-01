@@ -44,7 +44,7 @@ import {
   type Viewer,
 } from "@/lib/data/getShowForViewer";
 import { buildShowReturnUrl } from "@/lib/crew/buildShowReturnUrl";
-import { BASE_SECTION_IDS } from "@/lib/crew/resolveActiveSection";
+import { canonicalSectionParam } from "@/lib/crew/resolveActiveSection";
 import { createSupabaseServiceRoleClient } from "@/lib/supabase/server";
 import { sanitizePickerRoster } from "@/lib/auth/picker/sanitizePickerRoster";
 import { keepMarkerFor, purgeMarkerFor } from "@/lib/offline/serverMarkers";
@@ -194,9 +194,11 @@ export default async function ShowPage({
   const gateSkip = gate === "skip";
 
   // Task 12 (R4-HIGH-1): the active-section deep-link, validated against the
-  // allow-list ONLY for the redirect builders below (CrewShell receives the
-  // RAW `s` as `rawSection` and resolves activeSection + Budget gate itself).
-  const allowlistedS = [...BASE_SECTION_IDS, "budget"].includes(s ?? "") ? s : undefined;
+  // allow-list ONLY for the redirect builders below, as the id it names now (a
+  // legacy alias becomes the id that replaced it). CrewShell receives the RAW
+  // `s` as `rawSection` and resolves the active section against the viewer's
+  // entitlement itself.
+  const allowlistedS = canonicalSectionParam(s);
 
   const req = await buildShowPageChainRequest();
   const result = await resolveShowPageAccess({ slug, shareToken, req });

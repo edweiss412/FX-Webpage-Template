@@ -48,6 +48,9 @@ export const RETIRED_IDENTIFIERS = [
   "PerShowCrewRow",
   "ResolveAlertButton",
   "RunFinalCASButton",
+  // Crew page redesign PR B, Task 3: every crew section allow-list and order
+  // derives from `CREW_SECTION_IDS` and `canonicalSectionParam`.
+  "BASE_SECTION_IDS",
 ] as const;
 
 /**

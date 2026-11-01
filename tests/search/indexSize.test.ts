@@ -12,17 +12,16 @@ import { expect, test } from "vitest";
 
 import type { Viewer } from "@/lib/data/getShowForViewer";
 import { resolveViewerContext } from "@/lib/data/viewerContext";
-import { buildSearchIndex } from "@/lib/search/buildSearchIndex";
-import type { SectionBuildInput } from "@/lib/search/sections";
+import { buildSearchIndex, type SearchIndexInput } from "@/lib/search/buildSearchIndex";
 import { financialsVisible } from "@/lib/visibility/scopeTiles";
 import { premise } from "@/tests/_shared/premise";
 import { makeShowForViewer } from "@/tests/fixtures/showForViewer";
-import { MATRIX_TODAY, overCaps } from "@/tests/search/_viewerMatrix";
+import { MATRIX_TODAY, memberIdsFor, overCaps } from "@/tests/search/_viewerMatrix";
 
 const OUT = join(process.cwd(), "test-results/search-index-size.json");
 
 /** The seed fixture, seen by its default crew row (`c1`) as `CrewShell` would see it. */
-function seedInput(): SectionBuildInput {
+function seedInput(): SearchIndexInput {
   const data = makeShowForViewer();
   const viewer: Viewer = { kind: "crew", crewMemberId: "c1" };
   const ctx = resolveViewerContext(viewer, data);
@@ -32,6 +31,7 @@ function seedInput(): SectionBuildInput {
     today: MATRIX_TODAY,
     budgetVisible: financialsVisible(ctx.viewerFlags, ctx.isAdmin),
     staticPreview: false,
+    sections: memberIdsFor(viewer, data),
   };
 }
 

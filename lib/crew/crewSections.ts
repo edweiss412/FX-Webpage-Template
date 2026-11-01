@@ -4,12 +4,13 @@
  * One membership list read by both the compact "All sections" card and the
  * wide left nav, so the two can never differ (crew page redesign spec §4.6).
  *
- * PR A keeps today's crew section ids and labels (spec §5.1): the base ids of
- * `BASE_SECTION_IDS` minus `today`, which now means "home, no sheet", plus
- * `budget` only when `financialsVisible` holds. That is the shell's own
- * entitlement (`app/show/[slug]/[shareToken]/_CrewShell.tsx`, `budgetVisible`),
- * computed by the same predicate, so the list, the section bodies the shell
- * builds and `resolveActiveSection` all agree.
+ * Entitlement and membership are two predicates (crew page redesign PR B plan,
+ * decision 1). `crewSectionEntitled` says whether the viewer may see a section
+ * at all: the shell builds a body for every entitled id and resolves `?s=`
+ * against them. Membership, `crewSectionsFor`, is the entitled ids in
+ * `CREW_SECTION_IDS` order; from PR B one content rule narrows it (an Agenda
+ * with nothing in it is entitled and unlisted). PR A's one gate stands: `budget`
+ * only when `financialsVisible` holds. `today` is the home, not a section.
  *
  * Membership never reads the projection's data: a domain whose fetch failed
  * (`tileErrors`) keeps its section listed, and the section shows its own
@@ -20,7 +21,7 @@
  */
 import type { ShowForViewer } from "@/lib/data/getShowForViewer";
 import type { ViewerContext } from "@/lib/data/viewerContext";
-import { BASE_SECTION_IDS, type SectionId } from "@/lib/crew/resolveActiveSection";
+import { CREW_SECTION_IDS, type SectionId } from "@/lib/crew/resolveActiveSection";
 import { sectionPeek, type SectionPeekViewer } from "@/lib/crew/sectionPeek";
 import { financialsVisible } from "@/lib/visibility/scopeTiles";
 
@@ -29,7 +30,7 @@ export type CrewSectionId = Exclude<SectionId, "today">;
 
 export type CrewSection = { id: CrewSectionId; label: string };
 
-/** What membership reads about the viewer: the budget gate's two inputs. */
+/** What entitlement and membership read about the viewer: the budget gate's two inputs. */
 export type CrewSectionsViewer = Pick<ViewerContext, "viewerFlags" | "isAdmin">;
 
 /**
@@ -60,11 +61,42 @@ export function crewSectionLabel(id: SectionId): string {
 /** A listed section plus its one-line peek, as the client receives it. */
 export type CrewSectionEntry = CrewSection & { peek: string | null };
 
+type SectionGate = (data: ShowForViewer, viewer: CrewSectionsViewer) => boolean;
+
+/**
+ * The sections a viewer may be refused, each with the predicate that admits it.
+ * A section with no row here is entitled for every viewer.
+ */
+const SECTION_GATES: Readonly<Partial<Record<CrewSectionId, SectionGate>>> = {
+  budget: (_data, viewer) => financialsVisible(viewer.viewerFlags, viewer.isAdmin),
+};
+
+/**
+ * The sections every viewer is listed, in nav order: the rows the loading
+ * skeleton may show before the projection says who the viewer is, so it never
+ * shows a row that may not render.
+ */
+export const CREW_ALWAYS_SECTION_IDS: readonly CrewSectionId[] = CREW_SECTION_IDS.filter(
+  (id) => !Object.hasOwn(SECTION_GATES, id),
+);
+
+/** Whether this viewer may see the section at all; the home always. */
+export function crewSectionEntitled(
+  id: SectionId,
+  data: ShowForViewer,
+  viewer: CrewSectionsViewer,
+): boolean {
+  if (id === "today") return true;
+  const gate = SECTION_GATES[id];
+  return gate === undefined || gate(data, viewer);
+}
+
 /** The sections this viewer may open, in nav order. */
-export function crewSectionsFor(_data: ShowForViewer, viewer: CrewSectionsViewer): CrewSection[] {
-  const ids: CrewSectionId[] = BASE_SECTION_IDS.flatMap((id) => (id === "today" ? [] : [id]));
-  if (financialsVisible(viewer.viewerFlags, viewer.isAdmin)) ids.push("budget");
-  return ids.map((id) => ({ id, label: CREW_SECTION_LABELS[id] }));
+export function crewSectionsFor(data: ShowForViewer, viewer: CrewSectionsViewer): CrewSection[] {
+  return CREW_SECTION_IDS.filter((id) => crewSectionEntitled(id, data, viewer)).map((id) => ({
+    id,
+    label: CREW_SECTION_LABELS[id],
+  }));
 }
 
 /**

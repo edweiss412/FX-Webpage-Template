@@ -3,7 +3,7 @@
  * wide nav offer a crew viewer in PR A.
  *
  * Spec docs/superpowers/specs/2026-10-26-crew-page-redesign-design.md §4.6 and
- * §5.1. Expected ids come from `BASE_SECTION_IDS`, the budget gate from
+ * §5.1. Expected ids come from `CREW_SECTION_IDS`, the budget gate from
  * `financialsVisible` itself, labels from the one label source and the fetch
  * domains from the projection's own writers, so no case passes on a literal the
  * module under test also happens to contain.
@@ -11,8 +11,19 @@
 import { execFileSync } from "node:child_process";
 import { existsSync, readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
-import { CREW_SECTION_LABELS, crewSectionsFor, type CrewSectionId } from "@/lib/crew/crewSections";
-import { BASE_SECTION_IDS, resolveActiveSection } from "@/lib/crew/resolveActiveSection";
+import {
+  CREW_ALWAYS_SECTION_IDS,
+  CREW_SECTION_LABELS,
+  crewSectionEntitled,
+  crewSectionsFor,
+  type CrewSectionId,
+} from "@/lib/crew/crewSections";
+import {
+  CREW_SECTION_IDS,
+  resolveActiveSection,
+  type SectionId,
+} from "@/lib/crew/resolveActiveSection";
+import { premise, premiseHolds } from "@/tests/_shared/premise";
 import type { ShowForViewer, Viewer } from "@/lib/data/getShowForViewer";
 import { resolveViewerContext } from "@/lib/data/viewerContext";
 import type { RoleFlag } from "@/lib/parser/types";
@@ -74,15 +85,51 @@ function healthyShow(): ShowForViewer {
   });
 }
 
-/** Today's crew ids, minus `today`, which now means "home, no sheet" (spec §5.1). */
-const BASE_LISTED = BASE_SECTION_IDS.filter((id) => id !== "today");
+/** The crew ids every viewer is listed: all of them but the budget the gate decides. */
+const BASE_LISTED = CREW_SECTION_IDS.filter((id) => id !== "budget");
 
 function ctxFor(viewer: Viewer, data: ShowForViewer) {
   return resolveViewerContext(viewer, data);
 }
 
+/** The set `CrewShell` resolves `?s=` against: the home plus every entitled id. */
+function entitledSet(data: ShowForViewer, ctx: ReturnType<typeof ctxFor>): ReadonlySet<SectionId> {
+  return new Set<SectionId>([
+    "today",
+    ...CREW_SECTION_IDS.filter((id) => crewSectionEntitled(id, data, ctx)),
+  ]);
+}
+
+describe("crewSectionEntitled (plan decision 1, PR A's rule)", () => {
+  it("entitled: budget exactly when financialsVisible holds, every other id and today always", () => {
+    const data = healthyShow();
+    const outcomes = new Set<boolean>();
+    for (const { name, viewer } of VIEWERS) {
+      const ctx = ctxFor(viewer, data);
+      const fin = financialsVisible(ctx.viewerFlags, ctx.isAdmin);
+      outcomes.add(fin);
+      expect(crewSectionEntitled("budget", data, ctx), name).toBe(fin);
+      expect(crewSectionEntitled("today", data, ctx), name).toBe(true);
+      for (const id of BASE_LISTED)
+        expect(crewSectionEntitled(id, data, ctx), `${name} ${id}`).toBe(true);
+    }
+    premiseHolds("the viewer set exercises the budget gate both ways", outcomes.size === 2);
+  });
+
+  it("entitled: the skeleton's always table is exactly the ids every viewer is listed, in nav order", () => {
+    const data = healthyShow();
+    const lists = VIEWERS.map(({ viewer }) =>
+      crewSectionsFor(data, ctxFor(viewer, data)).map((s) => s.id),
+    );
+    const everyone = CREW_SECTION_IDS.filter((id) => lists.every((ids) => ids.includes(id)));
+    premise("ids no viewer is refused", everyone.length, 0);
+    premise("ids some viewer is refused", CREW_SECTION_IDS.length - everyone.length, 0);
+    expect([...CREW_ALWAYS_SECTION_IDS]).toEqual(everyone);
+  });
+});
+
 describe("crewSectionsFor (sections, PR A membership)", () => {
-  it("sections: lists the base sections without the home, in today's nav order", () => {
+  it("sections: lists every always-entitled section without the home, in nav order", () => {
     const data = healthyShow();
     const ctx = ctxFor({ kind: "crew", crewMemberId: "c-plain" }, data);
     // Premise: this viewer is one the budget gate refuses, so the list is the base set.
@@ -110,11 +157,10 @@ describe("crewSectionsFor (sections, PR A membership)", () => {
 
   it("sections: every listed id is one the shell's resolver opens for that viewer, and none is missing", () => {
     const data = healthyShow();
-    const candidates = [...BASE_LISTED, "budget"] as const;
     for (const { name, viewer } of VIEWERS) {
       const ctx = ctxFor(viewer, data);
-      const opts = { budgetVisible: financialsVisible(ctx.viewerFlags, ctx.isAdmin) };
-      const opens = candidates.filter((id) => resolveActiveSection(id, opts) === id);
+      const entitled = entitledSet(data, ctx);
+      const opens = CREW_SECTION_IDS.filter((id) => resolveActiveSection(id, entitled) === id);
       expect(
         crewSectionsFor(data, ctx).map((s) => s.id),
         name,

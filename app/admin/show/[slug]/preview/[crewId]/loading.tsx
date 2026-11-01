@@ -17,7 +17,7 @@ import { CrewLoadingSkeleton } from "@/components/crew/CrewLoadingSkeleton";
  * Out - A1", so the strip wraps where most banners do.
  *
  * §4.17 / no-Budget invariant: inherited from `CrewLoadingSkeleton`, whose
- * placeholders derive from BASE_SECTION_IDS. The Budget gate is unknown
+ * placeholders derive from CREW_ALWAYS_SECTION_IDS. The Budget gate is unknown
  * pre-projection, so a Budget entry MUST NEVER flash here.
  */
 export default function Loading() {

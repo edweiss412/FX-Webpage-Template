@@ -1,7 +1,6 @@
 import { Skeleton, SkeletonText } from "@/components/layout/Skeleton";
-import { crewSectionLabel } from "@/lib/crew/crewSections";
+import { CREW_ALWAYS_SECTION_IDS, crewSectionLabel } from "@/lib/crew/crewSections";
 import { CREW_PAGE_CONTAINER } from "@/lib/crew/pageContainer";
-import { BASE_SECTION_IDS } from "@/lib/crew/resolveActiveSection";
 import { cn } from "@/lib/ui/cn";
 
 /**
@@ -34,15 +33,19 @@ import { cn } from "@/lib/ui/cn";
  * rather than drifting.
  *
  * §4.17 / no-Budget invariant: every labelled placeholder derives from
- * BASE_SECTION_IDS. `financialsVisible` is unknown before the projection, so a
- * Budget entry MUST NEVER flash here.
+ * `CREW_ALWAYS_SECTION_IDS`, the sections every viewer is listed. Who the
+ * viewer is stays unknown before the projection, so a gated entry (Budget)
+ * MUST NEVER flash here.
  *
  * Pure server component (no 'use client', no hooks). Decorative only: the
  * enclosing `LoadingShell` announces the load and keeps the no-JS notice.
  */
 
 /** The sections the "All sections" list shows every viewer: Today is the home, not a row. */
-const LIST_IDS = BASE_SECTION_IDS.filter((id) => id !== "today");
+const LIST_IDS = CREW_ALWAYS_SECTION_IDS;
+
+/** The wide nav's items: Today, then the same sections. */
+const NAV_IDS = ["today" as const, ...CREW_ALWAYS_SECTION_IDS];
 
 /** Day buttons in the strip: the day row's equal-width grid holds up to four. */
 const DAY_SLOTS = [0, 1, 2, 3] as const;
@@ -116,12 +119,12 @@ export function CrewLoadingSkeleton() {
         data-testid="crew-loading-body"
         className={cn(CREW_PAGE_CONTAINER, "flex flex-1 items-stretch lg:gap-8")}
       >
-        {/* Left nav column, 1024px and up: `CrewWideNav`'s box, Today then the base sections. */}
+        {/* Left nav column, 1024px and up: `CrewWideNav`'s box, Today then the always-listed sections. */}
         <div
           data-testid="crew-loading-nav"
           className="sticky top-(--crew-sticky-bottom) hidden h-[calc(100dvh-var(--crew-sticky-bottom))] w-60 shrink-0 flex-col gap-1 self-start overflow-y-auto border-r border-border py-6 pr-3 lg:flex"
         >
-          {BASE_SECTION_IDS.map((id) => (
+          {NAV_IDS.map((id) => (
             <div
               key={id}
               data-testid="crew-loading-nav-item"

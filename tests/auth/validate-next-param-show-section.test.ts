@@ -4,8 +4,8 @@
  * The auth-boundary unit test for the ONE surgical relaxation of
  * `validateNextParamDetailed`: on a tokenized crew-route `next`
  * (`/show/<slug>/<64-hex-token>`), re-attach ONLY the allow-listed query
- * params — `s` ∈ [...BASE_SECTION_IDS, "budget"] and `gate` ∈
- * ALLOWED_GATE_VALUES — and DROP every other param. Everything else (the
+ * params — `s` when `canonicalSectionParam` admits it, written as the id it
+ * returns, and `gate` ∈ ALLOWED_GATE_VALUES — and DROP every other param. Everything else (the
  * off-origin / disallowed-prefix rejection, the control-char / `\` / `%2e%2e`
  * rejection, the strip-the-query behavior for NON-show paths) is UNCHANGED.
  *
@@ -23,6 +23,8 @@
 import { beforeEach, describe, expect, test } from "vitest";
 
 import { validateNextParamDetailed, DEFAULT_AUTH_NEXT_PATH } from "@/lib/auth/validateNextParam";
+import { CREW_SECTION_IDS, LEGACY_SECTION_ALIASES } from "@/lib/crew/resolveActiveSection";
+import { premise } from "@/tests/_shared/premise";
 
 const TOKEN = "a1b2c3d4e5f6789012345678901234567890abcdef0123456789abcdef012345";
 const SHOW = `/show/rpas-central/${TOKEN}`;
@@ -51,6 +53,37 @@ describe("validateNextParamDetailed — show-route section/gate preservation", (
     expect(validateNextParamDetailed(`${SHOW}?s=budget`)).toEqual({
       ok: true,
       path: `${SHOW}?s=budget`,
+    });
+  });
+
+  test("every crew section id and today round-trip, with a gate exactly when the next carries one", () => {
+    premise("crew section ids", CREW_SECTION_IDS.length, 0);
+    for (const id of ["today", ...CREW_SECTION_IDS]) {
+      expect(validateNextParamDetailed(`${SHOW}?s=${id}`), id).toEqual({
+        ok: true,
+        path: `${SHOW}?s=${id}`,
+      });
+      expect(validateNextParamDetailed(`${SHOW}?s=${id}&gate=skip`), id).toEqual({
+        ok: true,
+        path: `${SHOW}?s=${id}&gate=skip`,
+      });
+    }
+  });
+
+  test("an alias comes back as the id that replaced it, keeping a gate it was given", () => {
+    // Empty until Task 4 retires `budget`; each alias is then checked here with no edit.
+    for (const [alias, id] of Object.entries(LEGACY_SECTION_ALIASES)) {
+      expect(validateNextParamDetailed(`${SHOW}?s=${alias}&gate=skip`), alias).toEqual({
+        ok: true,
+        path: `${SHOW}?s=${id}&gate=skip`,
+      });
+    }
+  });
+
+  test("an unknown s is dropped and a passed gate kept", () => {
+    expect(validateNextParamDetailed(`${SHOW}?s=constructor&gate=skip`)).toEqual({
+      ok: true,
+      path: `${SHOW}?gate=skip`,
     });
   });
 

@@ -9,8 +9,9 @@
  * `?s=` section deep-link and `?gate=` through to the destination URL.
  *
  * Allow-lists are imported from the single source of truth
- * (lib/crew/resolveActiveSection.ts): `BASE_SECTION_IDS` (+ "budget") for
- * `s`, `ALLOWED_GATE_VALUES` for `gate`. The builder DROPS anything else —
+ * (lib/crew/resolveActiveSection.ts): `canonicalSectionParam` for `s`
+ * (`CREW_SECTION_IDS`, `today` and the legacy aliases, written as the current
+ * id), `ALLOWED_GATE_VALUES` for `gate`. The builder DROPS anything else —
  * an arbitrary `s`/`gate` must never reach the URL (open-redirect / param
  * smuggling defense, mirrored at the validateNextParam boundary).
  *
@@ -24,7 +25,8 @@
 import { describe, expect, test } from "vitest";
 
 import { buildShowReturnUrl } from "@/lib/crew/buildShowReturnUrl";
-import { BASE_SECTION_IDS } from "@/lib/crew/resolveActiveSection";
+import { CREW_SECTION_IDS, LEGACY_SECTION_ALIASES } from "@/lib/crew/resolveActiveSection";
+import { premise } from "@/tests/_shared/premise";
 
 const SLUG = "rpas-central";
 const TOKEN = "a1b2c3d4e5f6789012345678901234567890abcdef0123456789abcdef012345";
@@ -74,10 +76,29 @@ describe("buildShowReturnUrl", () => {
     expect(buildShowReturnUrl(SLUG, TOKEN, { s: "budget" })).toBe(`${BASE}?s=budget`);
   });
 
-  test("every BASE_SECTION_ID is accepted as s", () => {
-    for (const id of BASE_SECTION_IDS) {
-      expect(buildShowReturnUrl(SLUG, TOKEN, { s: id })).toBe(`${BASE}?s=${id}`);
+  test("every crew section id and today round-trip, with a gate exactly when the caller passes one", () => {
+    premise("crew section ids", CREW_SECTION_IDS.length, 0);
+    for (const id of ["today", ...CREW_SECTION_IDS]) {
+      expect(buildShowReturnUrl(SLUG, TOKEN, { s: id }), id).toBe(`${BASE}?s=${id}`);
+      expect(buildShowReturnUrl(SLUG, TOKEN, { s: id, gate: "skip" }), id).toBe(
+        `${BASE}?s=${id}&gate=skip`,
+      );
     }
+  });
+
+  test("an alias is written as the id that replaced it, keeping a gate it was given", () => {
+    // Empty until Task 4 retires `budget`; each alias is then checked here with no edit.
+    for (const [alias, id] of Object.entries(LEGACY_SECTION_ALIASES)) {
+      expect(buildShowReturnUrl(SLUG, TOKEN, { s: alias, gate: "skip" }), alias).toBe(
+        `${BASE}?s=${id}&gate=skip`,
+      );
+    }
+  });
+
+  test("an inherited object key is not a section", () => {
+    expect(buildShowReturnUrl(SLUG, TOKEN, { s: "constructor", gate: "skip" })).toBe(
+      `${BASE}?gate=skip`,
+    );
   });
 
   test("does not carry arbitrary-looking smuggled gate/section values", () => {
