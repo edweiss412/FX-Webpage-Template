@@ -701,7 +701,10 @@ export const DISPOSITION_RULES: DispositionRule[] = [
     // crew-section-toggle.spec.ts and crew-wide-nav.spec.ts), and the panel card
     // geometry case in crew-page.spec.ts loads the lead's preview route. Re-derived
     // from the failure's own count (25 candidates).
-    expectedCount: 25,
+    // 26 since Task 5: the Venue panel's body-under-its-header case in crew-page.spec.ts
+    // loads a crew member's preview route. Re-derived from the failure's own count (26
+    // candidates).
+    expectedCount: 26,
     match: (c) =>
       !isTestTitle(c.matchLineText) &&
       !/^\["\/admin\/show\//.test(c.matchLineText) &&

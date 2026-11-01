@@ -106,7 +106,9 @@ export const REQUIRED = {
   // 53 since the crew page redesign PR B's Task 4 added the crew panel card's header
   // geometry case at 390px and 320px ("billing"). Counted from the observed
   // mobile-safari run.
-  "crew-page.spec.ts": 53,
+  // 55 since Task 5 added the Venue panel's body-under-its-header case at 390px and
+  // 800px ("venue"). Counted from the observed mobile-safari run.
+  "crew-page.spec.ts": 55,
   // The crew page's wide layout (crew page redesign plan PR A, Task 6): eight cases,
   // desktop-chromium ALONE (its testMatch; the wide layout begins at 1024px). Nine
   // since Task 7 added the wide header case (search between title and chip).

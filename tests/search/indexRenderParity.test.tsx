@@ -1172,10 +1172,15 @@ describe("venue", () => {
           facilities(root).includes("Loading dock"),
       ),
     venueCityAndMaps: (root) => {
-      const where = textOf(root, '[data-card-id="venue-where"]');
+      // The city is its own line of the Venue panel (the shared Venue body, PR B
+      // Task 5), not a substring of the name the geocoded city was stripped from.
+      const lines = [
+        ...root.querySelectorAll('[data-card-id="venue-where"] [data-search-target]'),
+      ].map((el) => el.textContent);
       premiseHolds(
-        "venueCityAndMaps renders the City row and the Maps link",
-        where.includes("City") && has(root, '[data-card-id="venue-where"] a[href^="https://"]'),
+        "venueCityAndMaps renders the city line and the Maps link",
+        lines.includes(cityAndMaps.data.show.venue!.city!) &&
+          has(root, '[data-card-id="venue-where"] a[href^="https://"]'),
       );
     },
     venueDiagramForms: (root) =>
@@ -1355,8 +1360,9 @@ describe("venue", () => {
   });
 
   test("error guard: a throwing gallery derivation drops the diagrams block only", () => {
-    // The diagrams block is Venue's one WrappedSection; Where, Facilities and
-    // Venue status render outside it and must be indexed exactly as before.
+    // The diagrams block has its own WrappedSection; Where (inside another),
+    // Facilities and Venue status render outside it and must be indexed exactly
+    // as before.
     const c = diagramsNamedAndUnnamed;
     const intact = build("venue", c).filter((e) => !REGION("venue-diagrams")(e));
     premise("the blocks outside the boundary contribute entries", intact.length, 0);

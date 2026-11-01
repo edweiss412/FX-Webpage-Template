@@ -16,6 +16,7 @@ import {
   CREW_SECTION_LABELS,
   crewSectionEntitled,
   crewSectionsFor,
+  isCrewMovedSection,
   type CrewSectionId,
 } from "@/lib/crew/crewSections";
 import {
@@ -175,17 +176,21 @@ describe("crewSectionsFor (sections, PR A membership)", () => {
     for (const section of sections) {
       expect(section.label, section.id).toBe(CREW_SECTION_LABELS[section.id]);
     }
-    // The one source: a second `venue: "<label>"` table anywhere in the product
+    // The one source: a second `schedule: "<label>"` table anywhere in the product
     // tree is a copy that can drift (the retired sub-nav kept one; so did both
     // loading skeletons until they read this module). Walked from disk, so a new
-    // file is covered by default.
+    // file is covered by default. The canary is a section the crew still names
+    // itself: `venue` read its label from the registry from PR B Task 5 on, so the
+    // crew's table no longer holds it, and `schedule` never moves in PR B
+    // (decision 2).
+    premiseHolds("schedule keeps its crew label", !isCrewMovedSection("schedule"));
     const files = execFileSync("git", ["ls-files", "app", "components", "lib"], {
       encoding: "utf8",
     })
       .split("\n")
       .filter((f) => /\.(ts|tsx)$/.test(f) && existsSync(f));
     expect(files.length, "the walk saw the product tree").toBeGreaterThan(100);
-    const pattern = new RegExp(`\\bvenue:\\s*"${CREW_SECTION_LABELS.venue}"`);
+    const pattern = new RegExp(`\\bschedule:\\s*"${CREW_SECTION_LABELS.schedule}"`);
     const copies = files.filter((f) => pattern.test(readFileSync(f, "utf8")));
     expect(copies).toEqual(["lib/crew/crewSections.ts"]);
   });

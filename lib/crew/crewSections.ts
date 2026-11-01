@@ -43,7 +43,7 @@ export type CrewSectionsViewer = Pick<ViewerContext, "viewerFlags" | "isAdmin">;
  * glyph are its registry record's (decisions 2 and 3), so the crew page and the
  * admin popup name and draw it the same way.
  */
-export const CREW_MOVED_IDS = ["billing"] as const satisfies readonly (CrewSectionId &
+export const CREW_MOVED_IDS = ["billing", "venue"] as const satisfies readonly (CrewSectionId &
   ShowSectionId)[];
 
 type CrewMovedId = (typeof CREW_MOVED_IDS)[number];
@@ -56,7 +56,6 @@ export function isCrewMovedSection(id: CrewSectionId): id is CrewMovedId {
 /** The crew's own names for the sections not yet moved (spec §5.1, PR A's labels). */
 const CREW_OWN_LABELS: Readonly<Record<Exclude<CrewSectionId, CrewMovedId>, string>> = {
   schedule: "Schedule",
-  venue: "Venue",
   travel: "Travel",
   crew: "Crew",
   gear: "Gear",

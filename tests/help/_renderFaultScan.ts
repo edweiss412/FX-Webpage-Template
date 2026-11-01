@@ -945,7 +945,15 @@ export function scanCandidates(): Candidate[] {
       // the arm does not count it. None is a fault branch; 78 kept. Re-derived by
       // running the guard.
       //
-      // Probed: 799 such ternaries under the derived roots, 78 on a
+      // 799 -> 798 on feat/crew-page-redesign-pr-b Task 5: VenueBreakdown's five line
+      // and dock ternaries moved into the shared Venue body
+      // (components/show-panels/VenueBody.tsx, the same arms, each still counted
+      // once), its map-region ternary moved into the body's slot prop (still counted),
+      // and the crew Where card's `hasWhereRows ? <KeyValueRows … /> : null` left
+      // VenueSection with the rows it drew. None is a fault branch; 78 kept.
+      // Re-derived by running the guard.
+      //
+      // Probed: 798 such ternaries under the derived roots, 78 on a
       // fault-vocabulary guard and unclassifiable. 69 of those 78 sit in
       // `"use client"` files, where the guard is interaction state -- `errorCode`,
       // `state.kind === "error"`, `switchStatus === "error"` -- and not a server-render

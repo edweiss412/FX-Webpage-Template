@@ -12,7 +12,6 @@ import {
   BoxIcon,
   CalendarIcon,
   HomeIcon,
-  MapPinIcon,
   PlaneIcon,
   UsersIcon,
 } from "@/components/crew/icons/sectionIcons";
@@ -28,7 +27,6 @@ type CrewMovedId = (typeof CREW_MOVED_IDS)[number];
 const CREW_GLYPHS: Readonly<Record<Exclude<SectionId, CrewMovedId>, SectionGlyph>> = {
   today: HomeIcon,
   schedule: CalendarIcon,
-  venue: MapPinIcon,
   travel: PlaneIcon,
   crew: UsersIcon,
   gear: BoxIcon,

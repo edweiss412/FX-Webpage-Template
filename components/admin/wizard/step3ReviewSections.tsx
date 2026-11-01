@@ -53,7 +53,6 @@ import {
   Phone,
   Theater,
   TriangleAlert,
-  Truck,
   Video,
   Volume2,
   type LucideIcon,
@@ -190,7 +189,12 @@ import {
 import { cn } from "@/lib/ui/cn";
 import { SHOW_SECTION_GROUPS, showSection, type ShowSectionId } from "@/lib/showSections/registry";
 import { BillingBody } from "@/components/show-panels/BillingBody";
-import { EYEBROW_CLASS, EYEBROW_STYLE } from "@/components/show-panels/FieldRowList";
+import {
+  CELL_EYEBROW_CLASS,
+  EYEBROW_CLASS,
+  EYEBROW_STYLE,
+} from "@/components/show-panels/FieldRowList";
+import { VenueBody } from "@/components/show-panels/VenueBody";
 import {
   clearStoredDraftIfUnchanged,
   readStoredDraft,
@@ -449,11 +453,6 @@ function interpretBooleanValue(value: string): "yes" | "no" | null {
   if (/^(n|no|none|false|nope)\b/.test(v)) return "no";
   return null;
 }
-
-/** Uppercase eyebrow label for the redesigned spec cells / group headers. */
-const CELL_EYEBROW_CLASS = cn(
-  "text-[10px] font-semibold uppercase tracking-eyebrow text-text-subtle",
-);
 
 /**
  * Modal section chrome (Task 5 — spec §6.4/§5.2). The review modal wraps each
@@ -1361,56 +1360,26 @@ export function VenueBreakdown({ dfid, venue }: { dfid: string | null; venue: Sh
       {rows.length === 0 ? (
         <p className="text-sm text-text-subtle">No venue details parsed.</p>
       ) : (
-        // Full-bleed body: cancel the panel p-tile-pad and clip to its radius so
-        // the map divider + dock band reach the card edges (one card, no nesting).
-        <div data-testid="venue-body" className="-m-tile-pad overflow-hidden rounded-md">
-          {/* Region A: two-column (stacks below sm) */}
-          <div className="flex flex-col sm:flex-row sm:items-stretch">
-            <div
-              data-testid="venue-text-col"
-              className="flex min-w-0 flex-1 flex-col gap-1 p-tile-pad"
-            >
-              <span className={CELL_EYEBROW_CLASS}>Venue</span>
-              {name ? (
-                <span className="text-lg leading-tight font-bold wrap-break-word text-text-strong">
-                  {name}
-                </span>
-              ) : null}
-              {address || city ? (
-                <span className="mt-1 text-sm/snug text-text-subtle">
-                  {address ? <span className="block wrap-break-word">{address}</span> : null}
-                  {city ? <span className="block wrap-break-word">{city}</span> : null}
-                </span>
-              ) : null}
-            </div>
-            {query || mapHref ? (
+        // The shared Venue body (crew page redesign PR B, Task 5): every line as
+        // parsed, the dock band, the map region in the slot, edge to edge.
+        <VenueBody
+          name={name}
+          address={address}
+          city={city}
+          dock={dock}
+          map={
+            query || mapHref ? (
               <div
                 data-testid="venue-map-region"
                 className="h-40 w-full self-stretch border-t border-border sm:h-auto sm:w-[172px] sm:shrink-0 sm:border-t-0 sm:border-l"
               >
                 <VenueMapTile query={query} mapHref={mapHref} />
               </div>
-            ) : null}
-          </div>
-          {/* Region B: loading-dock footer — only when present */}
-          {dock ? (
-            <div
-              data-testid="venue-dock"
-              className="flex items-start gap-2.5 border-t border-border bg-surface-sunken p-tile-pad"
-            >
-              <span
-                aria-hidden="true"
-                className="grid size-6 shrink-0 place-items-center rounded-sm border border-border bg-surface text-accent-on-bg"
-              >
-                <Truck className="size-3.5" />
-              </span>
-              <div className="min-w-0">
-                <span className={CELL_EYEBROW_CLASS}>Loading dock</span>
-                <p className="mt-0.5 text-sm/snug wrap-break-word text-text">{dock}</p>
-              </div>
-            </div>
-          ) : null}
-        </div>
+            ) : null
+          }
+          sentinels="show"
+          bleed
+        />
       )}
     </BreakdownSection>
   );

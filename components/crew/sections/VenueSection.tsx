@@ -5,31 +5,38 @@
  * the deleted VenueTile / DiagramsTile / ShowStatusTile (venue half) used to
  * carry, into one curated surface:
  *
- *   - Address — the mock 2-line form: street on line 1, locality muted on line 2
- *     (split on the first comma; comma-less → single line). Ported from VenueTile.
- *   - Facilities — the mock `.kvrow` FactRows fact list with 28px sunken
- *     mini-icons: Loading dock (DockIcon, sentinel-guarded), Parking (CarIcon,
- *     gated by `transportTileVisible` so a non-assigned crew member never sees
- *     the lot/permit details — the parking half of §9 test 17), the Room (the
- *     general-session room's parsed name, suppressed when it is the parser's
- *     synthesized fallback), the connectivity rows derived from
- *     `event_details.internet` (either "Wi-Fi network" + "Wi-Fi password" +
- *     "Internet notes" when the cell splits, or the single raw "Crew Wi-Fi" row
- *     when it does not), and Power (`event_details.power`). Every value routes
- *     through `shouldHideGenericOptional`.
- *   - COI status — the AC-4.1 `data-testid="coi-status"` surface, ported from
- *     ShowStatusTile. Sentinel-guarded: when the value is a sentinel/empty the
- *     `<span data-testid="coi-status">` is OMITTED entirely (no empty span).
- *   - Venue notes — `venue.notes`, sentinel-guarded.
+ *   - The Venue panel — the shared Venue body (components/show-panels/
+ *     VenueBody.tsx, crew page redesign PR B Task 5, spec §6.2 `venue` row) in
+ *     the crew panel card titled with the section's registry label ("Venue",
+ *     spec §9.1), card id `venue-where` kept: the venue name, the street and the
+ *     city lines (`venueWhereProps`), sentinels hidden, a search target per line,
+ *     and the Maps link in the body's map slot. The body is CALLED inside its own
+ *     `WrappedSection` (`crew:venue:where`), so a throw is contained and recorded
+ *     (spec §6.1, error containment).
  *   - Maps link — `venue.googleLink`, rendered as an `<a>` ONLY when it parses
  *     as an http(s) URL (`isParseableUrl`, ported from VenueTile) so a sentinel
  *     like "TBD" never becomes a dead `href="TBD"` navigation control (§9 test
  *     33).
+ *   - Facilities — crew-only, below the body: the mock `.kvrow` FactRows fact
+ *     list with 28px sunken mini-icons: Loading dock (DockIcon,
+ *     sentinel-guarded), Parking (CarIcon, gated by `transportTileVisible` so a
+ *     non-assigned crew member never sees the lot/permit details — the parking
+ *     half of §9 test 17), the Room (the general-session room's parsed name,
+ *     suppressed when it is the parser's synthesized fallback), the connectivity
+ *     rows derived from `event_details.internet` (either "Wi-Fi network" + "Wi-Fi
+ *     password" + "Internet notes" when the cell splits, or the single raw "Crew
+ *     Wi-Fi" row when it does not), and Power (`event_details.power`). Every
+ *     value routes through `shouldHideGenericOptional`.
+ *   - Venue status — crew-only, below Facilities: the AC-4.1
+ *     `data-testid="coi-status"` surface, ported from ShowStatusTile, visible to
+ *     every crew member (spec §6.2: COI stays in Venue). Sentinel-guarded: when
+ *     the value is a sentinel/empty the `<span data-testid="coi-status">` is
+ *     OMITTED entirely (no empty span). Then venue notes, sentinel-guarded.
  *   - Diagrams — the ported DiagramsTile, which owns embedded-first ordering
- *     and the MIME allowlist + null-snapshotPath gating. The agenda PDF
- *     relocated to the Schedule section (§4.6) and is no longer here.
- *     Whole-block omission when there's nothing to show is DiagramsTile's own
- *     `null` return.
+ *     and the MIME allowlist + null-snapshotPath gating (they stay in Venue
+ *     through PR B, spec §6.2). The agenda PDF relocated to the Schedule section
+ *     (§4.6) and is no longer here. Whole-block omission when there's nothing to
+ *     show is DiagramsTile's own `null` return.
  *
  * When ALL blocks are hidden, a section-level `<EmptyState data-testid=
  * "section-empty">` renders so the surface is never blank.
@@ -50,21 +57,21 @@ import { DEFAULT_CARD_REPORT, type CardReportContext } from "@/lib/crew/cardRepo
 import { CARD_REGION_MAP } from "@/lib/sheet-links/buildSheetDeepLink";
 import { WrappedSection } from "@/components/crew/WrappedSection";
 import { FactRows } from "@/components/crew/primitives/FactRows";
-import { KeyValueRows } from "@/components/crew/primitives/KeyValueRows";
 import {
   FACILITIES_CARD_ID,
   FACILITIES_TITLE,
   STATUS_CARD_ID,
   STATUS_TITLE,
   WHERE_CARD_ID,
-  WHERE_TITLE,
   venueFactRows,
   venueStatusLines,
   venueTransportVisible,
-  venueWhereRows,
+  venueWhereProps,
 } from "@/components/crew/sections/venueRows";
 import { NewTabHint } from "@/components/shared/NewTabHint";
-import { BuildingIcon, InfoIcon, MapPinIcon } from "@/components/crew/icons/sectionIcons";
+import { PanelCard } from "@/components/show-panels/PanelCard";
+import { VenueBody } from "@/components/show-panels/VenueBody";
+import { BuildingIcon, InfoIcon } from "@/components/crew/icons/sectionIcons";
 import { resolveViewerContext } from "@/lib/data/viewerContext";
 import type { ShowForViewer, Viewer } from "@/lib/data/getShowForViewer";
 import { shouldHideGenericOptional } from "@/lib/visibility/emptyState";
@@ -111,14 +118,16 @@ export function VenueSection({
 
   const venue = data.show.venue;
 
-  // --- Where / Facilities / Venue status rows --------------------------------
+  // --- Venue panel lines / Facilities / Venue status rows ---------------------
   // Derived in the sibling venueRows.ts, which the search builder reads too, so
-  // the page and the index cannot disagree on a row (each carries its search
+  // the page and the index cannot disagree on a line (each carries its search
   // target id). Every value routes through `shouldHideGenericOptional` there.
-  const whereRows = venueWhereRows(venue);
-  // KeyValueRows omits empty/sentinel values, so "are there any present rows?" must
-  // use the same predicate to decide whether the Where card has content.
-  const hasWhereRows = whereRows.some((row) => !shouldHideGenericOptional(row.v));
+  const where = venueWhereProps(venue);
+  // The body hides an empty/sentinel line, so "is there a line to show?" must use
+  // the same predicate to decide whether the Venue panel has content.
+  const hasWhereLines = [where.name, where.address, where.city].some(
+    (line) => line !== null && !shouldHideGenericOptional(line),
+  );
 
   // Maps link — only when the value parses as an http(s) URL. A sentinel like
   // "TBD" is rejected by isParseableUrl so the anchor never becomes a dead
@@ -132,7 +141,7 @@ export function VenueSection({
   // multi-line note doesn't belong in the right-aligned `.v` slot).
   const { coi, notes: venueNotes } = venueStatusLines(data);
 
-  const hasWhere = hasWhereRows || mapHref !== null;
+  const hasWhere = hasWhereLines || mapHref !== null;
   const hasFacts = factRows.length > 0;
   const hasStatus = coi !== null || venueNotes !== null;
 
@@ -171,37 +180,50 @@ export function VenueSection({
   const leftTiles = (
     <>
       {hasWhere ? (
-        <div data-testid="venue-where" data-card-id={WHERE_CARD_ID}>
-          <SectionCard
-            icon={<MapPinIcon />}
-            title={WHERE_TITLE}
-            action={
-              <CardHeaderActions
+        <div data-testid="venue-where">
+          <WrappedSection
+            ledger={ledger}
+            tileId="crew:venue:where"
+            showId={showId}
+            sheetName={data.show.title}
+            render={() => (
+              <PanelCard
+                sectionId="venue"
                 cardId={WHERE_CARD_ID}
-                driveFileId={data.driveFileId}
-                anchor={data.sourceAnchors[CARD_REGION_MAP[WHERE_CARD_ID]]}
-                showId={showId}
-                cardReport={cardReport}
-              />
-            }
-          >
-            {/* Discrete Venue / City / Address rows. KeyValueRows omits any
-                empty/sentinel value, so a blank address shows just Venue + City and
-                a city-less venue shows Venue + Address. */}
-            {hasWhereRows ? <KeyValueRows rows={whereRows} /> : null}
-            {mapHref ? (
-              <a
-                href={mapHref}
-                // An action, not sheet text (spec §2.3 clause 5).
-                data-search-skip=""
-                target="_blank"
-                rel="noopener noreferrer"
-                className="inline-flex min-h-tap-min items-center -mx-1 px-1 py-1.5 text-text underline-offset-4 transition-colors duration-fast hover:text-accent-on-bg hover:underline"
+                actions={
+                  <CardHeaderActions
+                    cardId={WHERE_CARD_ID}
+                    driveFileId={data.driveFileId}
+                    anchor={data.sourceAnchors[CARD_REGION_MAP[WHERE_CARD_ID]]}
+                    showId={showId}
+                    cardReport={cardReport}
+                  />
+                }
               >
-                Open in Maps <NewTabHint />
-              </a>
-            ) : null}
-          </SectionCard>
+                {/* CALLED, not rendered as an element, so a throw from the body
+                    is inside the wrapper's catch (spec §6.1, error containment).
+                    The crew's dock stays in Facilities, so the body draws none. */}
+                {VenueBody({
+                  ...where,
+                  dock: null,
+                  map: mapHref ? (
+                    <a
+                      href={mapHref}
+                      // An action, not sheet text (spec §2.3 clause 5).
+                      data-search-skip=""
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="inline-flex min-h-tap-min items-center -mx-1 px-1 py-1.5 text-text underline-offset-4 transition-colors duration-fast hover:text-accent-on-bg hover:underline"
+                    >
+                      Open in Maps <NewTabHint />
+                    </a>
+                  ) : null,
+                  sentinels: "hide",
+                  bleed: false,
+                })}
+              </PanelCard>
+            )}
+          />
         </div>
       ) : null}
 

@@ -608,7 +608,15 @@ describe("the scanner's population is pinned against resolver drift", () => {
     // marked (the guard reads `budgetFetchFailed(data.tileErrors, ctx)`). Nothing joined or
     // left: membership is still 34, and mapping that ONE row back reproduces 706b9565...
     // byte-for-byte (recomputed from scanCandidates()).
-    expect(digest).toBe("189d511e4042b9a846a4854d03b0096b54b2feeef5257f981024291c2452ac9f");
+    // Regenerated for feat/crew-page-redesign-pr-b Task 5, to the same bar. EXACTLY ONE
+    // input changed, a line number, in the one file of this set the task edits:
+    //   components/crew/sections/VenueSection.tsx 310 -> 332 (+22: the Venue panel's
+    //   WrappedSection, PanelCard and shared-body call replace the Where SectionCard, and
+    //   the header comment names the body)
+    // Same transportation `tile-errors` row, still marked. Nothing joined or left:
+    // membership is still 34, and mapping that ONE row back reproduces 189d511e...
+    // byte-for-byte (recomputed from scanCandidates()).
+    expect(digest).toBe("22d5aa03b70f0e80781042b4bea8b8b37c11542c99be4dfba6c22ab99e725e70");
   });
 });
 

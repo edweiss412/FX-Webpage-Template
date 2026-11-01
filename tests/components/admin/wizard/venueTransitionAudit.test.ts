@@ -15,6 +15,13 @@ const sections = stripCommentsForFile(
   readFileSync(join(ROOT, "components/admin/wizard/step3ReviewSections.tsx"), "utf8"),
   "components/admin/wizard/step3ReviewSections.tsx",
 );
+// The Where core moved to the shared Venue body (crew page redesign PR B plan,
+// Task 5); VenueBreakdown keeps the map region and its predicate (the admin's
+// map slot) and the empty state, and calls the body for the rest.
+const body = stripCommentsForFile(
+  readFileSync(join(ROOT, "components/show-panels/VenueBody.tsx"), "utf8"),
+  "components/show-panels/VenueBody.tsx",
+);
 
 // Slice out ONLY the VenueBreakdown function body so the assertions cannot be
 // satisfied (or violated) by unrelated sections in this large shared file.
@@ -52,25 +59,34 @@ describe("venue card transition inventory (spec §8 — all instant)", () => {
   });
 
   // The three enumerated conditional renders of the venue card (§8) live in
-  // VenueBreakdown, not the tile. Prove they EXIST (non-tautological — a broken
-  // rewrite that drops them fails here) and that each is INSTANT (no transition
-  // or AnimatePresence wrapping the state change).
-  test("VenueBreakdown: enumerated conditional renders exist and are instant", () => {
+  // VenueBreakdown (the map region, its admin slot) and the shared Venue body it
+  // calls (the dock footer), not the tile. Prove they EXIST (non-tautological —
+  // a broken rewrite that drops them fails here) and that each is INSTANT (no
+  // transition or AnimatePresence wrapping the state change).
+  test("VenueBreakdown and the Venue body: enumerated conditional renders exist and are instant", () => {
     const src = venueBreakdownSource();
     // (a) map region rendered when query OR a valid mapHref (VCR-3 link-only).
     expect(src, "map-region conditional").toContain("venue-map-region");
     // VCR-3: the region mounts on `query || mapHref` (not query alone), so a
     // link-only venue still shows a (degraded) tile. Pin the predicate.
     expect(src, "region gated on query || mapHref").toContain("query || mapHref");
-    // (b) dock footer rendered only when loadingDock has content.
-    expect(src, "dock-footer conditional").toContain("venue-dock");
+    // (b) dock footer rendered only when loadingDock has content: the body's.
+    expect(src, "VenueBreakdown calls the shared body").toContain("<VenueBody");
+    expect(body, "dock-footer conditional").toContain("venue-dock");
+    expect(body, "dock footer gated on the dock").toMatch(/\{dockLine \? \(/);
     // (c) directions target: anchor when mapHref, decorative element otherwise —
     // routed through VenueMapTile, which the card always renders.
     expect(src, "map tile mounted").toContain("VenueMapTile");
     // None of these three state changes animates: no transition/AnimatePresence
-    // in the VenueBreakdown region (compound transitions — e.g. dock toggling
-    // while the map region is absent — are therefore instant by construction).
-    expect(src, "no transition classes in VenueBreakdown").not.toMatch(/\btransition(-\w+)?\b/);
-    expect(src, "no AnimatePresence in VenueBreakdown").not.toMatch(/AnimatePresence/);
+    // in the VenueBreakdown region or the body (compound transitions — e.g. dock
+    // toggling while the map region is absent — are therefore instant by
+    // construction).
+    for (const [name, text] of [
+      ["VenueBreakdown", src],
+      ["VenueBody", body],
+    ] as const) {
+      expect(text, `no transition classes in ${name}`).not.toMatch(/\btransition(-\w+)?\b/);
+      expect(text, `no AnimatePresence in ${name}`).not.toMatch(/AnimatePresence/);
+    }
   });
 });

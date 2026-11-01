@@ -424,7 +424,8 @@ export const TAP_TARGET_CENSUS: readonly TapCensusRow[] = [
     // 4775 -> 4795 on feat/warning-card-fixes (UI gate P3: jump targets named by their own heading or title); located by its own element (5-line context match).
     // 4795 -> 4781 on feat/crew-page-redesign-pr-b Task 2 (seven lucide imports moved to lib/showSections/registry.ts, its one import landed, and STEP3_SECTION_GROUPS became one line, all above it); located by its own element (5-line context match).
     // 4781 -> 4760 on feat/crew-page-redesign-pr-b Task 4 (FieldRowList and its eyebrow constants moved to components/show-panels/FieldRowList.tsx, two imports landed, and OpsBreakdown's empty-state ternary became one BillingBody line, all above it); located by its own element (5-line context match).
-    line: 4760,
+    // 4760 -> 4729 on feat/crew-page-redesign-pr-b Task 5 (the cell eyebrow class moved to components/show-panels/FieldRowList.tsx, the Truck import left, two imports landed, and VenueBreakdown's Where core became one VenueBody call, all above it); located by its own element (5-line context match).
+    line: 4729,
     tag: "a",
     category: "full-bleed",
     reason:

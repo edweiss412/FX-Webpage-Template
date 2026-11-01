@@ -161,6 +161,8 @@ const BILLING = "components/crew/sections/BillingSection.tsx";
 const PANEL_CARD = "components/show-panels/PanelCard.tsx";
 const FIELD_ROWS = "components/show-panels/FieldRowList.tsx";
 const BILLING_BODY = "components/show-panels/BillingBody.tsx";
+// PR B plan Task 5: the shared Venue body.
+const VENUE_BODY = "components/show-panels/VenueBody.tsx";
 
 const COMPACT_E2E = "tests/e2e/crew-section-toggle.spec.ts";
 const WIDE_E2E = "tests/e2e/crew-wide-nav.spec.ts";
@@ -849,6 +851,16 @@ const CONDITIONAL_RENDERS: Record<string, { presences: number; renders: Conditio
   [BILLING_BODY]: {
     presences: 0,
     renders: [{ match: "return shown.length === 0 ? (", treatment: T.serverPresence }],
+  },
+  [VENUE_BODY]: {
+    presences: 0,
+    renders: [
+      { match: "{nameLine ? (", treatment: T.serverPresence },
+      { match: "{addressLine || cityLine ? (", treatment: T.serverPresence },
+      { match: "{addressLine ? (", treatment: T.serverPresence },
+      { match: "{cityLine ? (", treatment: T.serverPresence },
+      { match: "{dockLine ? (", treatment: T.serverPresence },
+    ],
   },
 };
 

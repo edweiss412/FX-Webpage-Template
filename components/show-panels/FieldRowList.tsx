@@ -24,6 +24,15 @@ import { cn } from "@/lib/ui/cn";
 export const EYEBROW_CLASS = cn("text-xs font-semibold uppercase text-text-subtle");
 export const EYEBROW_STYLE = { letterSpacing: "var(--tracking-eyebrow)" } as const;
 
+/**
+ * The smaller eyebrow over a body's cells and bands (the Venue body's "Venue"
+ * and "Loading dock"; the admin's transport, hotel and route cells). Moved here
+ * from step3ReviewSections.tsx with the Venue body (PR B plan Task 5).
+ */
+export const CELL_EYEBROW_CLASS = cn(
+  "text-[10px] font-semibold uppercase tracking-eyebrow text-text-subtle",
+);
+
 export type FieldRow = {
   label: string;
   value: string;

@@ -42,14 +42,19 @@ const EXPECTED_TILE_BY_FILE: Record<string, string> = {
   // server-built props, outside every WrappedSection, and own no tileId.
   "HomeSection.tsx": "crew:today:notes",
   "ScheduleSection.tsx": "crew:schedule:days",
-  "VenueSection.tsx": "crew:venue:diagrams",
+  // PR B plan Task 5: the shared Venue body is called inside its own wrapper
+  // (spec §6.1, error containment), ahead of the diagrams block in source order.
+  "VenueSection.tsx": "crew:venue:where,crew:venue:diagrams",
   "TravelSection.tsx": "crew:travel:transport",
   "CrewSection.tsx": "crew:crew:roster",
   "GearSection.tsx": "crew:gear:scope",
   "BillingSection.tsx": "crew:budget:rows",
 };
 
-const EXPECTED_TILE_IDS = Object.values(EXPECTED_TILE_BY_FILE).slice().sort();
+// A file that owns several wrappers lists their ids comma-joined, in source order.
+const EXPECTED_TILE_IDS = Object.values(EXPECTED_TILE_BY_FILE)
+  .flatMap((ids) => ids.split(","))
+  .sort();
 
 function walk(dir: string, acc: string[] = []): string[] {
   for (const entry of readdirSync(join(ROOT, dir))) {

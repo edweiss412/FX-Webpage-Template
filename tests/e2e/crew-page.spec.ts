@@ -3819,6 +3819,101 @@ test.describe("crew loading skeleton — reserves the loaded page's geometry", (
 });
 
 /**
+ * PR B plan Task 5: the shared Venue body sits INSIDE the crew panel card, under
+ * its header. The admin card's box holds the body alone, so there the body
+ * cancels the card's padding and bleeds to its edges; the crew card's box holds
+ * its header too, so the crew passes `bleed: false` and the body keeps to the
+ * padding. A body that bled here would ride up over the header, and from 640px,
+ * where the Maps link takes the right-hand column, over the header's actions.
+ * Measured at a phone width and at a compact width past that breakpoint.
+ */
+test.describe("venue: the Venue panel's body sits under its header (PR B Task 5)", () => {
+  test.setTimeout(180_000);
+
+  const TOL = 0.5;
+  let seeded: Awaited<ReturnType<typeof seedShowWithCrew>>;
+
+  test.beforeAll(async () => {
+    seeded = await seedShowWithCrew({
+      title: "Venue Panel Card Show",
+      dates: {
+        travelIn: "2026-04-19",
+        set: "2026-04-20",
+        showDays: ["2026-04-21", "2026-04-22"],
+        travelOut: "2026-04-23",
+      },
+      crew: [{ name: "Venue Viewer", role: "A1", roleFlags: [] }],
+      venue: {
+        name: "Grand Panel Hall",
+        address: "350 Fifth Ave, New York, NY 10118",
+        googleLink: "https://maps.google.com/?q=grand-panel-hall",
+      },
+    });
+  });
+
+  test.afterAll(async () => {
+    if (seeded) await deleteSeededShow(seeded.driveFileId);
+  });
+
+  for (const width of [390, 800]) {
+    test(`venue: at ${width}px the body and its Maps link lie inside the panel card, below its header`, async ({
+      page,
+    }) => {
+      await page.setViewportSize({ width, height: 844 });
+      await page.clock.setFixedTime(new Date(SHOW_DAY_N_INSTANT));
+      await signOut(page);
+      await signInAs(page, ADMIN_FIXTURE);
+      await page.setExtraHTTPHeaders({
+        "X-Screenshot-Frozen-Now": SHOW_DAY_N_INSTANT,
+        Authorization: `Bearer ${TEST_AUTH_SECRET}`,
+      });
+      const viewer = seeded.crew[0]!;
+      const res = await page.goto(`/admin/show/${seeded.slug}/preview/${viewer.id}?s=venue`, {
+        waitUntil: "domcontentloaded",
+      });
+      expect(res?.status()).toBe(200);
+      await expect(page.getByTestId("crew-shell-sections")).toHaveAttribute(
+        "data-crew-controller-ready",
+        "true",
+        { timeout: 30_000 },
+      );
+      const card = page
+        .getByTestId("crew-section-sheet-dialog")
+        .getByTestId("venue-where")
+        .getByTestId("crew-panel-card");
+      await expect(card).toBeVisible();
+      const link = card.getByRole("link", { name: /Open in Maps/ });
+      await expect(link).toBeVisible();
+      const box = await rectOf(card);
+      const header = await rectOf(card.locator('[data-slot="panel-card-header"]'));
+      const actions = await rectOf(card.locator('[data-slot="section-card-action"]'));
+      const body = await rectOf(card.getByTestId("venue-body"));
+      const maps = await rectOf(link);
+
+      expect(body.top, "the body starts below the header").toBeGreaterThanOrEqual(
+        header.bottom - TOL,
+      );
+      for (const [name, r] of [
+        ["body", body],
+        ["Maps link", maps],
+      ] as const) {
+        expect(r.left, `${name} left`).toBeGreaterThanOrEqual(box.left - TOL);
+        expect(r.right, `${name} right`).toBeLessThanOrEqual(box.right + TOL);
+        expect(r.bottom, `${name} bottom`).toBeLessThanOrEqual(box.bottom + TOL);
+      }
+      const apart =
+        maps.right <= actions.left + TOL ||
+        actions.right <= maps.left + TOL ||
+        maps.bottom <= actions.top + TOL ||
+        actions.bottom <= maps.top + TOL;
+      expect(apart, `Maps ${JSON.stringify(maps)} vs actions ${JSON.stringify(actions)}`).toBe(
+        true,
+      );
+    });
+  }
+});
+
+/**
  * PR B plan Task 4: the crew panel card (spec §6.1 line 290) carries the admin
  * card's 28px icon chip, an h3 label and the card's header actions. Class parity
  * with the admin card is a Vitest case (tests/components/show-panels/
