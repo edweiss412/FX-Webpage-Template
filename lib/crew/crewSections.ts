@@ -47,6 +47,7 @@ export const CREW_MOVED_IDS = [
   "billing",
   "venue",
   "crew",
+  "contacts",
 ] as const satisfies readonly (CrewSectionId & ShowSectionId)[];
 
 type CrewMovedId = (typeof CREW_MOVED_IDS)[number];

@@ -198,12 +198,14 @@ export const FIXTURE_INDEX: SearchIndex = {
       value: "Producer",
     },
     { section: "crew", region: "crew-roster", group: "Crew", label: "Maria Chen", value: "A1" },
+    // Contacts: their own section from crew page redesign PR B Task 7. The crew page
+    // never lists the client contact, so the fixture's contact is the venue's.
     {
-      section: "crew",
+      section: "contacts",
       region: "crew-contacts",
-      group: "Key contacts",
+      group: "Contacts",
       label: "Priya Patel",
-      value: "Client contact",
+      value: "Venue contact",
     },
     // Gear
     {

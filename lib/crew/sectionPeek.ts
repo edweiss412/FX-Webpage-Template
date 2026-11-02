@@ -128,6 +128,12 @@ function crewPeek(data: ShowForViewer): string | null {
   return count === 0 ? null : plural(count, "person", "people");
 }
 
+/** The venue and in-house AV contacts the Contacts section lists; never the client contact. */
+function contactsPeek(data: ShowForViewer): string | null {
+  const count = Array.isArray(data.contacts) ? data.contacts.length : 0;
+  return count === 0 ? null : plural(count, "contact", "contacts");
+}
+
 /** The pack list's case count, only on a day its gate shows it to this viewer. */
 function gearPeek(data: ShowForViewer, viewer: SectionPeekViewer): string | null {
   const cases = data.pullSheet;
@@ -162,6 +168,8 @@ export function sectionPeek(
       return travelPeek(data, viewer);
     case "crew":
       return crewPeek(data);
+    case "contacts":
+      return contactsPeek(data);
     case "gear":
       return gearPeek(data, viewer);
     case "billing":

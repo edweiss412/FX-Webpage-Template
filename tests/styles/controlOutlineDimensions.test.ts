@@ -76,9 +76,11 @@ const PAIRS: ReadonlyArray<{
     childClass: "size-8",
   },
   {
-    label: "step3 contact icon: 32px visual inside the 44px link",
-    file: "components/admin/wizard/step3ReviewSections.tsx",
-    anchor: "aria-label={`${action} ${displayName}`}",
+    // The admin popup's contact links render from the shared Contacts body since
+    // crew page redesign PR B Task 7 (the anchor moved with them; same property).
+    label: "contacts body contact icon: 32px visual inside the 44px link",
+    file: "components/show-panels/ContactsBody.tsx",
+    anchor: "aria-label={`${verb} ${d.heading}`}",
     window: 500,
     parentClass: "size-tap-min",
     childMarker: "place-items-center",

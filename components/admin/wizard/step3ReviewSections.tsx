@@ -160,7 +160,6 @@ import { shouldHideGenericOptional } from "@/lib/visibility/emptyState";
 import { isWarnSeverity } from "@/lib/parser/dataGaps";
 import { candidateLabel } from "@/lib/parser/candidateLabel";
 import { labelFromRawSnippet } from "@/lib/parser/rawSnippet";
-import { Avatar } from "@/components/atoms/Avatar";
 import { CrewRowActions, type CrewRowOutcome } from "@/components/admin/wizard/CrewRowActions";
 import { AgendaScheduleBlock } from "@/components/crew/AgendaScheduleBlock";
 import { DressCodeLines } from "@/components/crew/DressCodeLines";
@@ -190,10 +189,12 @@ import { cn } from "@/lib/ui/cn";
 import { SHOW_SECTION_GROUPS, showSection, type ShowSectionId } from "@/lib/showSections/registry";
 import { BillingBody } from "@/components/show-panels/BillingBody";
 import { CrewBody } from "@/components/show-panels/CrewBody";
+import { ContactsBody, contactBlocks } from "@/components/show-panels/ContactsBody";
 import {
   CELL_EYEBROW_CLASS,
   EYEBROW_CLASS,
   EYEBROW_STYLE,
+  contentRows,
 } from "@/components/show-panels/FieldRowList";
 import { VenueBody } from "@/components/show-panels/VenueBody";
 import {
@@ -289,22 +290,11 @@ export function roomHasScope(r: RoomRow): boolean {
 
 /**
  * Build {label,value} rows from [label, rawValue] pairs, keeping only as-parsed
- * content (hasContent — non-null, non-whitespace string). Used by the operator
- * review-modal field-group sections (Venue / Ops / Transport / Contacts).
+ * content. It lives with the shared section bodies in components/show-panels/
+ * (crew page redesign PR B plan Task 7, the Contacts body's blocks read it) and
+ * is re-exported here under the same name, so every admin import is unchanged.
  */
-export function contentRows(
-  pairs: ReadonlyArray<readonly [string, unknown]>,
-): { label: string; value: string }[] {
-  const out: { label: string; value: string }[] = [];
-  // Coerce-then-keep (String().trim(), length > 0) — matches the EventDetails +
-  // RoomsDetail modal sections (#195/#197): a non-string JSONB value still shows
-  // as text, sentinels (TBD/N/A) show as-parsed, empty/whitespace is omitted.
-  for (const [label, val] of pairs) {
-    const value = String(val ?? "").trim();
-    if (value.length > 0) out.push({ label, value });
-  }
-  return out;
-}
+export { contentRows } from "@/components/show-panels/FieldRowList";
 
 // Defensive coercion for the untyped-on-the-wire JSONB (§4.3/§4.6): anything
 // that isn't an array becomes [].
@@ -1210,45 +1200,17 @@ export function BreakdownSection({
 
 /**
  * The contact "blocks" the contacts body renders (client primary + optional
- * secondary + venue / in-house-AV rows). Extracted so the §6.1 rail count and
- * the body derive the SAME number (count={blocks.length}, the existing
- * contract) without duplicating the shaping logic.
+ * secondary + venue / in-house-AV rows). It lives with the shared Contacts body
+ * in components/show-panels/ (crew page redesign PR B plan Task 7) and is
+ * re-exported here under the same name, so the §6.1 rail count, the freshness
+ * projection and every admin import of it are unchanged.
  */
-export function contactBlocks(
-  clientContact: ClientContact | null,
-  contacts: ContactRow[],
-): Array<{ key: string; kind: string; name: string; rows: { label: string; value: string }[] }> {
-  // Client people: primary + optional secondary (null-safe). Each a "Client
-  // contact" (the second flagged "(secondary)" so the operator can tell the lead
-  // client rep from the backup). Index keys avoid same-name React key collisions.
-  const clientPeople = [clientContact, clientContact?.secondary].filter(Boolean) as {
-    name: string;
-    phone: string | null;
-    email: string | null;
-    officePhone?: string | null;
-  }[];
-  return [
-    ...clientPeople.map((p, i) => ({
-      key: `client-${i}`,
-      kind: i === 0 ? "Client contact" : "Client contact (secondary)",
-      name: p.name,
-      rows: contentRows([
-        ["Phone", p.phone],
-        ["Email", p.email],
-        ["Office", p.officePhone],
-      ]),
-    })),
-    ...contacts.map((c, i) => ({
-      key: `contact-${i}`,
-      kind: c.kind === "in_house_av" ? "In-house AV" : "Venue contact",
-      name: c.name ?? "",
-      rows: contentRows([
-        ["Phone", c.phone],
-        ["Email", c.email],
-      ]),
-    })),
-  ].filter((b) => hasContent(b.name) || b.rows.length > 0);
-}
+export { contactBlocks } from "@/components/show-panels/ContactsBody";
+
+/** The admin's call link: the number as parsed (`contentRows` trims it). */
+const adminTelHref = (phone: string): string => `tel:${phone}`;
+/** The admin's email link: the address as parsed. */
+const adminMailtoHref = (email: string): string => `mailto:${email}`;
 
 export function ContactsBreakdown({
   dfid,
@@ -1266,66 +1228,23 @@ export function ContactsBreakdown({
       label="Contacts"
       count={blocks.length}
     >
-      {blocks.length === 0 ? (
-        <p className="text-sm text-text-subtle">No contacts parsed.</p>
-      ) : (
-        // Crew-row layout (owner decision 2026-07-06): avatar left, name +
-        // contact-kind subline, and the phone/email as right-aligned icon-only
-        // action buttons — the SAME anchor DOM the CrewBreakdown rows use
-        // (size-tap-min hit box wrapping a 32px bordered square). The raw number/
-        // address moves into the button's aria-label rather than showing as text.
-        <ul className="flex flex-col">
-          {blocks.map((b) => {
-            const displayName = hasContent(b.name) ? b.name : b.kind;
-            return (
-              <li key={b.key} className="flex items-center gap-3 py-1">
-                <Avatar name={hasContent(b.name) ? b.name : null} />
-                <span className="min-w-0 flex-1">
-                  <span className="block wrap-break-word text-sm font-medium text-text-strong">
-                    {displayName}
-                  </span>
-                  {hasContent(b.name) ? (
-                    <span className="block wrap-break-word text-xs text-text-subtle">{b.kind}</span>
-                  ) : null}
-                </span>
-                {b.rows.length > 0 ? (
-                  // Adjacent anchors sit flush (no gap) so the 44×44 hit areas
-                  // never overlap; the centered 32px visuals leave a natural gutter.
-                  <span className="flex shrink-0 items-center">
-                    {b.rows.map((r) => {
-                      const isEmail = r.label === "Email";
-                      const href = isEmail ? `mailto:${r.value}` : `tel:${r.value}`;
-                      const Icon = isEmail ? Mail : Phone;
-                      // Distinguish a second (office) phone in the accessible name
-                      // so two Call buttons on one contact stay tellable apart.
-                      const action = isEmail
-                        ? "Email"
-                        : r.label === "Office"
-                          ? "Call the office for"
-                          : "Call";
-                      return (
-                        <a
-                          key={r.label}
-                          href={href}
-                          data-testid={`wizard-step3-card-${dfid}-contact-${b.key}-${
-                            isEmail ? "email" : r.label.toLowerCase()
-                          }`}
-                          aria-label={`${action} ${displayName}`}
-                          className="inline-flex size-tap-min items-center justify-center focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring"
-                        >
-                          <span className="grid size-8 place-items-center rounded-sm border border-text-faint text-text-subtle">
-                            <Icon aria-hidden="true" className="size-4" />
-                          </span>
-                        </a>
-                      );
-                    })}
-                  </span>
-                ) : null}
-              </li>
-            );
-          })}
-        </ul>
-      )}
+      {/* Crew-row layout (owner decision 2026-07-06): avatar left, name +
+          contact-kind subline, and the phone/email as right-aligned icon-only
+          action buttons, the SAME anchor DOM the CrewBreakdown rows use
+          (size-tap-min hit box wrapping a 32px bordered square). The raw number/
+          address moves into the button's aria-label rather than showing as text.
+          The list is the shared Contacts body (crew page redesign spec §6.2). */}
+      <ContactsBody
+        includeClient
+        clientContact={clientContact}
+        contacts={contacts}
+        showNotes={false}
+        telHref={adminTelHref}
+        mailtoHref={adminMailtoHref}
+        sentinels="show"
+        actionsPlacement="end"
+        testIdPrefix={`wizard-step3-card-${dfid}`}
+      />
     </BreakdownSection>
   );
 }

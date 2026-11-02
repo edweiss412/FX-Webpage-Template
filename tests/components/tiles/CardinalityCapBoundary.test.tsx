@@ -9,8 +9,9 @@
  *   - Crew roster      — CREW_INLINE_CAP = 8  (CrewSection, exported)
  *                        rows: [data-testid="crew-panel-crew-row"]
  *                        overflow stub: [data-testid="crew-overflow-stub"]
- *   - Key contacts     — CONTACTS_INLINE_CAP = 6 (CrewSection, exported)
- *                        rows: [data-testid="contact-person-row"]
+ *   - Contacts         — CONTACTS_INLINE_CAP = 6 (ContactsSection, exported;
+ *                        its own section from crew page redesign PR B Task 7)
+ *                        rows: [data-testid="crew-panel-contact-row"]
  *                        overflow stub: [data-testid="contacts-overflow-stub"]
  *   - Show notes       — SOURCE_CAP = 8 / TRUNCATE_AT = 280 (HomeSection,
  *                        exported → value pin + behavioral)
@@ -46,11 +47,8 @@
 import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
 import { cleanup, render } from "@testing-library/react";
 
-import {
-  CrewSection,
-  CREW_INLINE_CAP,
-  CONTACTS_INLINE_CAP,
-} from "@/components/crew/sections/CrewSection";
+import { ContactsSection, CONTACTS_INLINE_CAP } from "@/components/crew/sections/ContactsSection";
+import { CrewSection, CREW_INLINE_CAP } from "@/components/crew/sections/CrewSection";
 import { CASE_CAP, GearSection } from "@/components/crew/sections/GearSection";
 import { HomeSection, SOURCE_CAP, TRUNCATE_AT } from "@/components/crew/sections/HomeSection";
 import {
@@ -152,11 +150,11 @@ describe("§8.4 cardinality-cap — Crew roster (CREW_INLINE_CAP, CrewSection)",
 });
 
 // ─────────────────────────────────────────────────────────────────────
-// Key contacts — CONTACTS_INLINE_CAP = 6 (full cap-1 / cap / cap+1 matrix)
+// Contacts — CONTACTS_INLINE_CAP = 6 (full cap-1 / cap / cap+1 matrix)
 // Not covered by any Phase-3 section test — fully owned here.
 // ─────────────────────────────────────────────────────────────────────
 
-describe("§8.4 cardinality-cap — Key contacts (CONTACTS_INLINE_CAP, CrewSection)", () => {
+describe("§8.4 cardinality-cap — Contacts (CONTACTS_INLINE_CAP, ContactsSection)", () => {
   function makeContacts(count: number): ContactRow[] {
     return Array.from({ length: count }, (_, i) => ({
       kind: "venue" as const,
@@ -169,7 +167,7 @@ describe("§8.4 cardinality-cap — Key contacts (CONTACTS_INLINE_CAP, CrewSecti
 
   function renderContacts(count: number) {
     return render(
-      <CrewSection
+      <ContactsSection
         {...ledgerProp()}
         data={makeShowForViewer({ contacts: makeContacts(count) })}
         viewer={VIEWER}
@@ -183,7 +181,7 @@ describe("§8.4 cardinality-cap — Key contacts (CONTACTS_INLINE_CAP, CrewSecti
     "contacts cap boundary at %i",
     (n) => {
       const c = renderContacts(n);
-      const rows = c.querySelectorAll('[data-testid="contact-person-row"]').length;
+      const rows = c.querySelectorAll('[data-testid="crew-panel-contact-row"]').length;
       const stub = c.querySelector('[data-testid="contacts-overflow-stub"]');
       if (n <= CONTACTS_INLINE_CAP) {
         expect(rows).toBe(n);

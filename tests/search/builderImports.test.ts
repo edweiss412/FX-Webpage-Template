@@ -162,18 +162,19 @@ describe("search index server boundary", () => {
       "the scan followed venue.ts's import of components/crew/diagramItems.ts",
       followed.includes("components/crew/diagramItems.ts"),
     );
-    // And it went past the first level: PersonRow.tsx is imported by crewRows.ts, never by a
-    // lib/search file, so only a transitive walk reaches it.
-    const PERSON_ROW = "components/crew/primitives/PersonRow.tsx";
+    // And it went past the first level: CrewBody.tsx is imported by crewRows.ts, never by a
+    // lib/search file, so only a transitive walk reaches it. (PersonRow.tsx held this
+    // role until the contacts moved onto the shared Contacts body, PR B Task 7.)
+    const CREW_BODY = "components/show-panels/CrewBody.tsx";
     premiseHolds(
-      `no lib/search file imports ${PERSON_ROW} directly`,
+      `no lib/search file imports ${CREW_BODY} directly`,
       SEARCH_FILES.every(({ path, source }) =>
         valueImports(path, source).every(
-          (spec) => resolveImport(path, spec) !== join(ROOT, PERSON_ROW),
+          (spec) => resolveImport(path, spec) !== join(ROOT, CREW_BODY),
         ),
       ),
     );
-    premiseHolds(`the scan followed ${PERSON_ROW}`, followed.includes(PERSON_ROW));
+    premiseHolds(`the scan followed ${CREW_BODY}`, followed.includes(CREW_BODY));
 
     expect(violations).toEqual([]);
   });

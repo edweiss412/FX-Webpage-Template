@@ -165,6 +165,9 @@ const BILLING_BODY = "components/show-panels/BillingBody.tsx";
 const VENUE_BODY = "components/show-panels/VenueBody.tsx";
 // PR B plan Task 6: the shared Crew roster body.
 const CREW_BODY = "components/show-panels/CrewBody.tsx";
+// PR B plan Task 7: the shared Contacts body and the crew Contacts section.
+const CONTACTS_BODY = "components/show-panels/ContactsBody.tsx";
+const CONTACTS = "components/crew/sections/ContactsSection.tsx";
 
 const COMPACT_E2E = "tests/e2e/crew-section-toggle.spec.ts";
 const WIDE_E2E = "tests/e2e/crew-wide-nav.spec.ts";
@@ -886,6 +889,41 @@ const CONDITIONAL_RENDERS: Record<string, { presences: number; renders: Conditio
       { match: "return member.underRow != null ? (", treatment: T.serverPresence },
       { match: "{members.length === 0 ? (", treatment: T.serverPresence },
       { match: "{hidden > 0 ? overflow(hidden) : null}", treatment: T.serverPresence },
+    ],
+  },
+  [CONTACTS_BODY]: {
+    presences: 0,
+    renders: [
+      // A row with no name and nothing to tap: no row.
+      { match: "if (d === null) return null;", treatment: T.serverPresence },
+      { match: "{d.name !== null ? (", treatment: T.serverPresence },
+      { match: "d.actions.length > 0 ? (", treatment: T.serverPresence },
+      { match: "d.notes !== null ? (", treatment: T.serverPresence },
+      // The admin's end-of-row actions or the crew's actions under the identity.
+      { match: 'return actionsPlacement === "end" ? (', treatment: T.serverPresence },
+      { match: "{notesLine === null ? (", treatment: T.serverPresence },
+      { match: "{blocks.length === 0 ? (", treatment: T.serverPresence },
+      {
+        match: "{hidden > 0 && props.overflow !== undefined ? props.overflow(hidden) : null}",
+        treatment: T.serverPresence,
+      },
+    ],
+  },
+  [CONTACTS]: {
+    presences: 0,
+    renders: [
+      // The admin-only fetch-failure block, the section's empty state, the card.
+      {
+        match: '{contactsFetchFailed ? <SectionTileError domain="contacts" /> : null}',
+        treatment: T.serverPresence,
+      },
+      { match: "{!hasContacts && !contactsFetchFailed ? (", treatment: T.serverPresence },
+      { match: "{hasContacts ? (", treatment: T.serverPresence },
+      // The overflow line's plural.
+      {
+        match: '{hidden === 1 ? "more contact" : "more contacts"}',
+        treatment: T.serverPresence,
+      },
     ],
   },
 };

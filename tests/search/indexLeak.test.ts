@@ -32,8 +32,10 @@ import { createElement, type JSX } from "react";
 import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
 
 import { BillingSection } from "@/components/crew/sections/BillingSection";
+import { CONTACTS_INLINE_CAP } from "@/components/crew/sections/contactsRows";
+import { ContactsSection } from "@/components/crew/sections/ContactsSection";
 import { CrewSection } from "@/components/crew/sections/CrewSection";
-import { CONTACTS_INLINE_CAP, CREW_INLINE_CAP } from "@/components/crew/sections/crewRows";
+import { CREW_INLINE_CAP } from "@/components/crew/sections/crewRows";
 import { GearSection } from "@/components/crew/sections/GearSection";
 import { ScheduleSection } from "@/components/crew/sections/ScheduleSection";
 import { TravelSection } from "@/components/crew/sections/TravelSection";
@@ -112,6 +114,8 @@ function sectionElement(id: SectionId, c: ViewerCase): JSX.Element {
       return createElement(TravelSection, props);
     case "crew":
       return createElement(CrewSection, props);
+    case "contacts":
+      return createElement(ContactsSection, props);
     case "gear":
       return createElement(GearSection, props);
     case "billing":

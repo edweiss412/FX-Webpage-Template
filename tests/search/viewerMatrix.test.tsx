@@ -19,6 +19,7 @@ import type { JSX } from "react";
 import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
 
 import { BillingSection } from "@/components/crew/sections/BillingSection";
+import { ContactsSection } from "@/components/crew/sections/ContactsSection";
 import { CrewSection } from "@/components/crew/sections/CrewSection";
 import { GearSection } from "@/components/crew/sections/GearSection";
 import { ScheduleSection } from "@/components/crew/sections/ScheduleSection";
@@ -90,6 +91,7 @@ function renderSection(id: SectionId, c: ViewerCase): HTMLElement {
     venue: () => <VenueSection {...props} />,
     travel: () => <TravelSection {...props} />,
     crew: () => <CrewSection {...props} />,
+    contacts: () => <ContactsSection {...props} />,
     gear: () => <GearSection {...props} />,
     billing: () => <BillingSection {...props} />,
   };

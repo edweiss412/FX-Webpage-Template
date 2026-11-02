@@ -16,7 +16,7 @@ vi.mock("@/lib/adminAlerts/upsertAdminAlert", () => ({
 import { HomeSection } from "@/components/crew/sections/HomeSection";
 import { TravelSection } from "@/components/crew/sections/TravelSection";
 import { VenueSection } from "@/components/crew/sections/VenueSection";
-import { CrewSection } from "@/components/crew/sections/CrewSection";
+import { ContactsSection } from "@/components/crew/sections/ContactsSection";
 import { GearSection } from "@/components/crew/sections/GearSection";
 import { ScheduleSection } from "@/components/crew/sections/ScheduleSection";
 import { BillingSection } from "@/components/crew/sections/BillingSection";
@@ -150,14 +150,15 @@ test("hotel fetch error on the home (the hotel fact): admin degraded, crew omiss
 });
 
 // ---------------------------------------------------------------------------
-// contacts → admin degraded / crew omission (Crew key-contacts; ungated)
+// contacts → admin degraded / crew omission (the Contacts section, its own
+// section from crew page redesign PR B Task 7; ungated)
 // ---------------------------------------------------------------------------
 test("contacts fetch error: admin sees degraded block, crew sees omission (ungated)", () => {
   upsertSpy.mockClear();
   const data = makeShowForViewer(err("contacts"));
 
   const admin = render(
-    <CrewSection {...ledgerProp()} data={data} viewer={ADMIN} today={TODAY} showId={SHOW_ID} />,
+    <ContactsSection {...ledgerProp()} data={data} viewer={ADMIN} today={TODAY} showId={SHOW_ID} />,
   );
   const block = admin.container.querySelector('[data-testid="section-tile-error-contacts"]');
   expect(block).not.toBeNull();
@@ -166,7 +167,7 @@ test("contacts fetch error: admin sees degraded block, crew sees omission (ungat
   // Crew sees omission even though the contacts gate is viewer-independent:
   // only admin renders the visible degraded block; crew gets null.
   const crew = render(
-    <CrewSection {...ledgerProp()} data={data} viewer={CREW} today={TODAY} showId={SHOW_ID} />,
+    <ContactsSection {...ledgerProp()} data={data} viewer={CREW} today={TODAY} showId={SHOW_ID} />,
   );
   expect(crew.container.querySelector('[data-testid="section-tile-error-contacts"]')).toBeNull();
   expect(upsertSpy).toHaveBeenCalledTimes(0);

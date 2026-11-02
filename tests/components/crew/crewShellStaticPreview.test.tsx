@@ -336,12 +336,15 @@ describe("staged adapter output through the REAL CrewShell", () => {
     });
 
     expect(sectionKeys().sort()).toEqual(
-      ["billing", "crew", "gear", "schedule", "today", "travel", "venue"].sort(),
+      ["billing", "contacts", "crew", "gear", "schedule", "today", "travel", "venue"].sort(),
     );
 
     const text = container.textContent ?? "";
     // Per-section content, each value read off the fixture.
-    expect(text).toContain(parse.contacts[0]!.name!); // crew / contacts body
+    // The contacts body, its own section from PR B Task 7.
+    const contactsText =
+      container.querySelector('[data-testid="node-contacts"]')?.textContent ?? "";
+    expect(contactsText).toContain(parse.contacts[0]!.name!);
     expect(text).toContain(parse.pullSheet![0]!.caseLabel); // gear body
     expect(text).toContain(parse.hotelReservations[0]!.hotel_name!); // travel body
     expect(text).toContain(parse.show.venue!.name); // venue body

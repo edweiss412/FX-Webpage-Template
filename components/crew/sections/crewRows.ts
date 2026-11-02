@@ -5,14 +5,13 @@
  *
  * The roster is the shared Crew body's crew props (`rosterPanel`, crew page
  * redesign PR B Task 6, components/show-panels/CrewBody.tsx); its search lines
- * come from `crewBodyIdentity`, the body's own identity predicate. The key
- * contacts are still `PersonRow` rows (`contactPersons`), whose lines come from
- * `personRowLines`, PersonRow's render predicate. Either way a row that renders
- * no line has none, and a row cut by an inline cap is not in the list at all.
+ * come from `crewBodyIdentity`, the body's own identity predicate, so a row that
+ * renders no line has none, and a row cut by the inline cap is not in the list
+ * at all. The contacts are their own section from PR B Task 7
+ * (contactsRows.ts); the crew's call, text and email builders here serve both.
  *
  * Non-client module: the builder runs on the server and imports it.
  */
-import { personRowLines, type Person } from "@/components/crew/primitives/PersonRow";
 import {
   crewBodyIdentity,
   type CrewBodyMember,
@@ -35,69 +34,13 @@ import { shouldHideGenericOptional } from "@/lib/visibility/emptyState";
 export const CREW_INLINE_CAP = 8;
 
 /**
- * Cardinality cap for the key-contacts column before its overflow affordance
- * renders. Ported verbatim from ContactsTile (CONTACTS_INLINE_CAP = 6).
- */
-export const CONTACTS_INLINE_CAP = 6;
-
-/**
  * The roster card's `data-card-id` (the search region). Its title, and so the
  * search `group` of its lines, is the registry label of `crew` (plan decision 4).
  */
 export const ROSTER_CARD_ID = "crew-roster";
 
-/** The key-contacts card: title and `data-card-id`. */
-export const CONTACTS_TITLE = "Key contacts";
-export const CONTACTS_CARD_ID = "crew-contacts";
-
-/** Human-readable fallback heading for a nameless contact row. */
-export function contactFallbackLabel(kind: ShowForViewer["contacts"][number]["kind"]): string {
-  switch (kind) {
-    case "venue":
-      return "Venue contact";
-    case "in_house_av":
-      return "In-house AV";
-    default:
-      return "Contact";
-  }
-}
-
 /** A search entry without the parts the builder adds (section and copy). */
 export type CrewSearchLine = Omit<SearchEntry, "section" | "copy">;
-
-export type CrewPersonRow = {
-  /** React key, as the section has always keyed the row. */
-  key: string;
-  /** PersonRow props, `searchTarget` included when the row renders a line. */
-  person: Person;
-  /** The row's search lines in render order: identity, then notes. */
-  lines: CrewSearchLine[];
-};
-
-function withSearchLines(
-  key: string,
-  person: Person,
-  region: string,
-  group: string,
-  seen: Map<string, number>,
-): CrewPersonRow {
-  const { identity, notes } = personRowLines(person);
-  const lines: CrewSearchLine[] = [];
-  const searchTarget: { identity?: string; notes?: string } = {};
-  if (identity !== null) {
-    const id = entryId("crew", region, group, null, identity.value, seen);
-    searchTarget.identity = id;
-    lines.push({ id, group, label: null, value: identity.value, context: identity.context });
-  }
-  if (notes !== null) {
-    const id = entryId("crew", region, group, null, notes.value, seen);
-    searchTarget.notes = id;
-    lines.push({ id, group, label: null, value: notes.value, context: notes.context });
-  }
-  // Always set, even with no line: a row on the search surface marks its
-  // avatar and action glyphs skip whether or not it has a line to index.
-  return { key, person: { ...person, searchTarget }, lines };
-}
 
 /** The crew's call link: a `tel:` of the digits, none when the phone has none (phase 1 §4.16). */
 export function crewTelHref(phone: string): string | null {
@@ -176,30 +119,4 @@ export function rosterPanel(data: ShowForViewer, viewer: Viewer): RosterPanel {
     },
     lines,
   };
-}
-
-/**
- * The contact rows the "Key contacts" card renders, capped at
- * `CONTACTS_INLINE_CAP`, in `data.contacts` order. Never `show.client_contact`.
- */
-export function contactPersons(data: ShowForViewer): CrewPersonRow[] {
-  const seen = new Map<string, number>();
-  return data.contacts.slice(0, CONTACTS_INLINE_CAP).map((contact, idx) => {
-    const name =
-      contact.name !== null && !shouldHideGenericOptional(contact.name) ? contact.name : undefined;
-    const person: Person = {
-      ...(name !== undefined ? { name } : {}),
-      fallbackLabel: contactFallbackLabel(contact.kind),
-      ...(contact.phone !== null ? { phone: contact.phone } : {}),
-      ...(contact.email !== null ? { email: contact.email } : {}),
-      ...(contact.notes !== null ? { notes: contact.notes } : {}),
-    };
-    return withSearchLines(
-      `${contact.kind}-${idx}`,
-      person,
-      CONTACTS_CARD_ID,
-      CONTACTS_TITLE,
-      seen,
-    );
-  });
 }

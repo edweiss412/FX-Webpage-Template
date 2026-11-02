@@ -261,7 +261,12 @@ const REGISTRY: readonly RegistryRow[] = [
     // square its actions share. That file stands on no tinted plate, so it has no
     // anchor this registry could pin; the derived arm above reads it like any
     // other file. Raw count is now 13, four of them still in comments.
-    neutralFaintCount: 9,
+    // 9 -> 8 on 2026-11-01: the contacts' call, office and email square (on the
+    // neutral row ground) moved into the shared Contacts body,
+    // components/show-panels/ContactsBody.tsx (crew page redesign PR B Task 7), the
+    // square its anchors share. That file stands on no tinted plate either; the
+    // derived arm reads it. Raw count is now 12, four of them still in comments.
+    neutralFaintCount: 8,
   },
 ];
 

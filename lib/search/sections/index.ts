@@ -3,6 +3,7 @@ import type { ShowForViewer, Viewer } from "@/lib/data/getShowForViewer";
 import type { SearchEntry } from "@/lib/search/types";
 
 import { buildBillingEntries } from "./billing";
+import { buildContactsEntries } from "./contacts";
 import { buildCrewEntries } from "./crew";
 import { buildGearEntries } from "./gear";
 import { buildScheduleEntries } from "./schedule";
@@ -41,6 +42,7 @@ export const SECTION_BUILDERS: Record<SectionId, SectionBuilder> = {
   venue: buildVenueEntries,
   travel: buildTravelEntries,
   crew: buildCrewEntries,
+  contacts: buildContactsEntries,
   gear: buildGearEntries,
   billing: buildBillingEntries,
 };

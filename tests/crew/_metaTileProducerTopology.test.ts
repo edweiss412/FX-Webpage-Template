@@ -25,6 +25,7 @@ const SECTION_COMPONENTS = [
   "VenueSection",
   "TravelSection",
   "CrewSection",
+  "ContactsSection",
   "GearSection",
   "BillingSection",
 ] as const;
@@ -47,6 +48,9 @@ const EXPECTED_TILE_BY_FILE: Record<string, string> = {
   "VenueSection.tsx": "crew:venue:where,crew:venue:diagrams",
   "TravelSection.tsx": "crew:travel:transport",
   "CrewSection.tsx": "crew:crew:roster",
+  // PR B plan Task 7: the contacts left the Crew section's wrapper for their own
+  // section and a new tile id (decision 6), so neither id is shared.
+  "ContactsSection.tsx": "crew:contacts:list",
   "GearSection.tsx": "crew:gear:scope",
   "BillingSection.tsx": "crew:budget:rows",
 };

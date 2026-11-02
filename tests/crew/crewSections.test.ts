@@ -13,6 +13,7 @@ import { existsSync, readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
 import {
   CREW_ALWAYS_SECTION_IDS,
+  CREW_MOVED_IDS,
   CREW_SECTION_LABELS,
   crewSectionEntitled,
   crewSectionsFor,
@@ -28,6 +29,7 @@ import { premise, premiseHolds } from "@/tests/_shared/premise";
 import type { ShowForViewer, Viewer } from "@/lib/data/getShowForViewer";
 import { resolveViewerContext } from "@/lib/data/viewerContext";
 import type { RoleFlag } from "@/lib/parser/types";
+import { showSection } from "@/lib/showSections/registry";
 import { financialsVisible } from "@/lib/visibility/scopeTiles";
 import { makeShowForViewer } from "../fixtures/showForViewer";
 
@@ -193,6 +195,30 @@ describe("crewSectionsFor (sections, PR A membership)", () => {
     const pattern = new RegExp(`\\bschedule:\\s*"${CREW_SECTION_LABELS.schedule}"`);
     const copies = files.filter((f) => pattern.test(readFileSync(f, "utf8")));
     expect(copies).toEqual(["lib/crew/crewSections.ts"]);
+  });
+
+  it("sections: contacts is a moved crew id right after crew, entitled and listed for every viewer kind, with or without contacts (PR B Task 7)", () => {
+    // Spec line 240: every moved registry section other than the gated three is
+    // always a member, showing its empty state when empty; spec line 304 moves
+    // the contacts out of the Crew section into their own.
+    const ids: readonly string[] = CREW_SECTION_IDS;
+    expect(ids.indexOf("contacts")).toBe(ids.indexOf("crew") + 1);
+    expect(CREW_MOVED_IDS as readonly string[]).toContain("contacts");
+    const contacts = "contacts" as CrewSectionId;
+    expect(CREW_SECTION_LABELS[contacts]).toBe(showSection("contacts").label);
+    const kinds = new Set<string>();
+    for (const data of [healthyShow(), makeShowForViewer({ crewMembers: ROSTER, contacts: [] })]) {
+      for (const { name, viewer } of VIEWERS) {
+        kinds.add(viewer.kind);
+        const ctx = ctxFor(viewer, data);
+        expect(crewSectionEntitled(contacts, data, ctx), name).toBe(true);
+        expect(
+          crewSectionsFor(data, ctx).map((s) => s.id),
+          `${name} with ${data.contacts.length} contacts`,
+        ).toContain(contacts);
+      }
+    }
+    premiseHolds("every viewer kind is exercised", kinds.size === 3);
   });
 
   it("sections: a domain whose fetch failed keeps every section listed for every viewer", () => {

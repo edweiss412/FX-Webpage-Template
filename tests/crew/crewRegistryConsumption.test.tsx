@@ -106,6 +106,8 @@ const TODAY = new Date("2026-05-14T15:00:00Z");
 function fullData(): ShowForViewer {
   return makeShowForViewer({
     financials: { po: "PO-9", proposal: "PR-9", invoice: "INV-9", invoice_notes: "Net 9" },
+    // The Contacts section draws its panel card only over contacts (PR B Task 7).
+    contacts: [{ kind: "venue", name: "Vic Venue", email: null, phone: "555-0120", notes: null }],
   });
 }
 

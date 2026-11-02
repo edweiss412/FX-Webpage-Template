@@ -460,19 +460,21 @@ test.describe("crew layout dimensions — split-wide ratio + natural height (Tas
     return { assertedSideBySide, assertedStacked };
   }
 
-  // ── Schedule / Venue / Travel / Crew — the four standing split-wide sections.
+  // ── Schedule / Venue / Travel — the three standing split-wide sections.
   // Schedule ALWAYS renders two columns (day cards + times/heads-up); Venue /
-  // Travel / Crew render the split only when BOTH columns have content (one-sided
+  // Travel render the split only when BOTH columns have content (one-sided
   // collapse → flex-col full-width). The 1.6-ratio / side-by-side assertion runs
   // when two columns exist (colCount ≥ 2); the contract is "IF two columns, they
   // are split-wide," never "two columns MUST exist" — except Schedule, which always
   // does, so we pin expectTwoColumns=true for it. Height equality is NOT part of
-  // the contract (items-start, 2026-06-21 owner amendment).
+  // the contract (items-start, 2026-06-21 owner amendment). Crew left this table
+  // in crew page redesign PR B Task 7: its second column, the key contacts, is
+  // its own section, so Crew holds one card and no split; the single card's span
+  // is crew-page.spec.ts's inv2, over Crew and Contacts at the same three legs.
   for (const { section, columnsTestId, expectTwoColumns } of [
     { section: "schedule", columnsTestId: "schedule-column", expectTwoColumns: true },
     { section: "venue", columnsTestId: "venue-column", expectTwoColumns: false },
     { section: "travel", columnsTestId: "travel-column", expectTwoColumns: false },
-    { section: "crew", columnsTestId: "crew-column", expectTwoColumns: false },
   ] as const) {
     test(`${section}: split-wide 1.6 ratio + natural height in the wide column (1024px) / stacked in the sheet (1000px, 390px)`, async ({
       page,
@@ -750,7 +752,8 @@ test.describe("crew layout dimensions — split-wide ratio + natural height (Tas
   });
 
   // ── Avatar is 40px square (Avatar.tsx `size-10`). Reachable on the Crew
-  // section's PersonRow (PersonRow.tsx:145 → <Avatar />). ──
+  // section's roster (the shared Crew body, components/show-panels/CrewBody.tsx
+  // → <Avatar />). ──
   test("avatar is 40px square", async ({ page }, testInfo) => {
     if (testInfo.project.name !== "mobile-safari") return;
     await page.setViewportSize({ width: 1000, height: 1000 });
@@ -877,7 +880,9 @@ test.describe("crew layout dimensions — split-wide ratio + natural height (Tas
      */
     const NOPHANTOM_SECTIONS = [
       { section: "schedule", anchor: "schedule-grid" },
-      { section: "crew", anchor: "section-card" },
+      // The roster's crew panel card (PR B Task 6), the Crew section's one card
+      // since the key contacts' SectionCard left for their own section (Task 7).
+      { section: "crew", anchor: "crew-panel-card" },
       { section: "today", anchor: "section-today" },
       { section: "venue", anchor: "section-venue" },
       { section: "travel", anchor: "section-travel" },

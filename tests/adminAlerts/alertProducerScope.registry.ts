@@ -229,7 +229,8 @@ export const PRODUCER_SCOPE: ProducerScopeRow[] = [
     // props and marker imports (PR #983) sit above it. Same upsertAdminAlert
     // call, confirmed at the new key. 190 -> 193 (crew page redesign PR B,
     // Task 3): the id source import now names CREW_SECTION_IDS on its own lines.
-    site: "app/show/[slug]/[shareToken]/_CrewShell.tsx:193",
+    // 193 -> 194 (Task 7): the ContactsSection import sits above it.
+    site: "app/show/[slug]/[shareToken]/_CrewShell.tsx:194",
     contextKeys: ["failedKeys", "message", "sheet_name", "tileId"],
     code: "TILE_PROJECTION_FETCH_FAILED",
     scope: "per-show",

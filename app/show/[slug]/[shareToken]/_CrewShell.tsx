@@ -46,6 +46,7 @@ import { CrewSections } from "@/components/crew/CrewSections";
 import { CrewSearchField } from "@/components/crew/search/CrewSearchField";
 import { CrewSearchProvider } from "@/components/crew/search/CrewSearchProvider";
 import { BillingSection } from "@/components/crew/sections/BillingSection";
+import { ContactsSection } from "@/components/crew/sections/ContactsSection";
 import { CrewSection } from "@/components/crew/sections/CrewSection";
 import { GearSection } from "@/components/crew/sections/GearSection";
 import { HomeSection } from "@/components/crew/sections/HomeSection";
@@ -459,6 +460,17 @@ export async function CrewShell({
       case "crew":
         return (
           <CrewSection
+            data={data}
+            viewer={viewer}
+            today={today}
+            showId={showId}
+            ledger={tileLedger}
+            cardReport={cardReport}
+          />
+        );
+      case "contacts":
+        return (
+          <ContactsSection
             data={data}
             viewer={viewer}
             today={today}

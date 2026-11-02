@@ -119,6 +119,12 @@ function transport(schedule: TransportScheduleEntry[]): TransportationRow {
   };
 }
 
+/** The venue contacts the Contacts section lists (never the client contact). */
+const CONTACTS: ShowForViewer["contacts"] = [
+  { kind: "venue", name: "Vic Venue", email: null, phone: "555-0120", notes: null },
+  { kind: "in_house_av", name: null, email: "av@venue.example", phone: null, notes: null },
+];
+
 /** A show where every section has something to peek at. */
 function fullShow(): ShowForViewer {
   return makeShowForViewer({
@@ -132,6 +138,7 @@ function fullShow(): ShowForViewer {
     transportation: transport([...CONTENT_LEGS, BLANK_LEG]),
     pullSheet: Array.from({ length: 14 }, (_, i) => ({ caseLabel: `Case ${i + 1}`, items: [] })),
     financials: { po: "PO-4471", proposal: null, invoice: null, invoice_notes: null },
+    contacts: CONTACTS,
   });
 }
 
@@ -193,6 +200,25 @@ describe("sectionPeek (peek, spec §4.6)", () => {
     const solo = makeShowForViewer({ crewMembers: [ROSTER[0]!] });
     expect(solo.crewMembers).toHaveLength(1);
     expect(peek("crew", solo, crew("c-plain"))).toBe("1 person");
+  });
+
+  it("peek: contacts counts the contacts the Contacts section lists, never the client contact, null at zero", () => {
+    const client = { name: "Dana Clientside", phone: "555-0100", email: null };
+    const show = makeShowForViewer({
+      crewMembers: ROSTER,
+      contacts: CONTACTS,
+      show: { client_contact: client },
+    });
+    expect(peek("contacts", show, crew("c-plain"))).toBe(`${CONTACTS.length} contacts`);
+    const solo = makeShowForViewer({ crewMembers: ROSTER, contacts: [CONTACTS[0]!] });
+    expect(peek("contacts", solo, crew("c-plain"))).toBe("1 contact");
+    // A client contact alone is not a contact the section lists.
+    const clientOnly = makeShowForViewer({
+      crewMembers: ROSTER,
+      contacts: [],
+      show: { client_contact: client },
+    });
+    expect(peek("contacts", clientOnly, ADMIN)).toBeNull();
   });
 
   it("peek: gear counts a pack list only on the days its phase and stage gates show it", () => {

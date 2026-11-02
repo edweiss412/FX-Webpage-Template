@@ -623,7 +623,14 @@ describe("the scanner's population is pinned against resolver drift", () => {
     // Same contacts `tile-errors` row (`contactsFetchFailed ? <SectionTileError`), still
     // marked. Nothing joined or left: membership is still 34, and mapping that ONE row
     // back reproduces 22d5aa03... byte-for-byte (recomputed from scanCandidates()).
-    expect(digest).toBe("ad0554f5a0ff60ac1b4a5bab56ee101a65e169d8c62624eb2e966a5fd7c86aba");
+    // Regenerated for feat/crew-page-redesign-pr-b Task 7, to the same bar. EXACTLY ONE
+    // input changed, the file and line of one row: the contacts left the Crew section
+    // for their own, and their fetch-failure block with them:
+    //   components/crew/sections/CrewSection.tsx:138 -> components/crew/sections/ContactsSection.tsx:84
+    // Same contacts `tile-errors` row (`contactsFetchFailed ? <SectionTileError`), still
+    // marked. Nothing joined or left: membership is still 34, and mapping that ONE row
+    // back reproduces ad0554f5... byte-for-byte (recomputed from scanCandidates()).
+    expect(digest).toBe("94cc5057a409c22ebc5adbd59366ae00fe15126bc0ad312836f3345cea84e1bb");
   });
 });
 

@@ -40,6 +40,28 @@ export type FieldRow = {
   searchTarget?: string;
 };
 
+/**
+ * Build {label,value} rows from [label, rawValue] pairs, keeping only as-parsed
+ * content (non-null, non-whitespace). Used by the operator review-modal
+ * field-group sections (Venue / Ops / Transport / Contacts) and the shared
+ * Contacts body's blocks. Moved here from step3ReviewSections.tsx with the
+ * Contacts body (PR B plan Task 7); the admin file re-exports it under the same
+ * name.
+ */
+export function contentRows(
+  pairs: ReadonlyArray<readonly [string, unknown]>,
+): { label: string; value: string }[] {
+  const out: { label: string; value: string }[] = [];
+  // Coerce-then-keep (String().trim(), length > 0) — matches the EventDetails +
+  // RoomsDetail modal sections (#195/#197): a non-string JSONB value still shows
+  // as text, sentinels (TBD/N/A) show as-parsed, empty/whitespace is omitted.
+  for (const [label, val] of pairs) {
+    const value = String(val ?? "").trim();
+    if (value.length > 0) out.push({ label, value });
+  }
+  return out;
+}
+
 export function FieldRowList({ rows }: { rows: readonly FieldRow[] }) {
   return (
     <ul className="flex flex-col">

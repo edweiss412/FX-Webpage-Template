@@ -278,6 +278,8 @@ describe("§15 table 3: the step-3 single-state visuals stay instant (derived)",
     // moved visual: without it the roster's call, text and email square is lost.
     premise("the step-3 file imports shared bodies", STEP3_FILES.size, 1);
     expect(STEP3_FILES).toContain("components/show-panels/CrewBody.tsx");
+    // And the contacts' call and email square, which left with the Contacts body (Task 7).
+    expect(STEP3_FILES).toContain("components/show-panels/ContactsBody.tsx");
   });
 
   it("the derivation finds the two visuals §15 names", () => {
@@ -291,7 +293,8 @@ describe("§15 table 3: the step-3 single-state visuals stay instant (derived)",
     // itself, never as a painted child, so it cannot enter this filter. It was
     // three until the crew roster's call and email squares, two JSX sites, moved
     // into the shared Crew body as one site that its call, text and email
-    // actions map through (PR B Task 6); the contacts' square is the other.
+    // actions map through (PR B Task 6); the contacts' square is the other, in the
+    // shared Contacts body since PR B Task 7, still one site.
     expect(visuals.map((el) => `${el.file}:${el.line} <${el.tag}>`)).toHaveLength(2);
   });
 

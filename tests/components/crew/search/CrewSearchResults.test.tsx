@@ -48,6 +48,7 @@ const LABEL: Record<SectionId, string> = {
   venue: "Venue",
   travel: "Travel",
   crew: "Crew",
+  contacts: "Contacts",
   gear: "Gear",
   billing: "Billing & docs",
 };
@@ -250,7 +251,8 @@ describe("chips (spec §6.3)", () => {
     const chipSections = chips()
       .map((c) => c.getAttribute("data-section"))
       .filter((s): s is SectionId => s !== null && s !== "all");
-    expect(chipSections).toHaveLength(7);
+    // Every section the zebra index has a line in, which is every key of LABEL.
+    expect(chipSections).toHaveLength(Object.keys(LABEL).length);
     for (const section of chipSections) {
       const chip = chips().find((c) => c.getAttribute("data-section") === section)!;
       const chipLabel = chip.querySelector("[data-chip-label]")!.textContent;

@@ -1112,6 +1112,9 @@ describe("sheet-link phrase containment (spec §7.10)", () => {
         "components/crew/primitives/CardHeaderActions.tsx": 1,
         "components/crew/primitives/SourceLink.tsx": 5,
         "components/crew/sections/BillingSection.tsx": 1,
+        // The contacts card's source link left CrewSection for its own section
+        // (PR B Task 7); the roster's stays there.
+        "components/crew/sections/ContactsSection.tsx": 1,
         "components/crew/sections/CrewSection.tsx": 1,
         "components/crew/sections/GearSection.tsx": 1,
         "components/crew/sections/HomeSection.tsx": 1,
@@ -1269,12 +1272,15 @@ describe("sheet-link phrase containment (spec §7.10)", () => {
         "components/admin/BellPanel.tsx": 1,
         // The component this whole guard contains.
         "components/admin/SheetIconLink.tsx": 1,
-        // The contacts' icon-only tel:/mailto: anchor (one site, both rows) plus
-        // the staged-diagram image anchor (img-only, aria-labeled — the r37
-        // attribute-expression fix surfaced it) — neither is a sheet link. Four
-        // until the crew roster's call and email anchors moved into the shared
-        // Crew body (PR B Task 6), the row below.
-        "components/admin/wizard/step3ReviewSections.tsx": 2,
+        // The staged-diagram image anchor (img-only, aria-labeled — the r37
+        // attribute-expression fix surfaced it), not a sheet link. Four until the
+        // crew roster's call and email anchors moved into the shared Crew body (PR B
+        // Task 6), two until the contacts' tel:/mailto: anchor moved into the shared
+        // Contacts body (Task 7), the rows below.
+        "components/admin/wizard/step3ReviewSections.tsx": 1,
+        // The contacts' icon-only call, office and email action: one anchor site
+        // the rows map through, not a sheet link.
+        "components/show-panels/ContactsBody.tsx": 1,
         // The crew roster's icon-only call, text and email action: one anchor
         // site the actions map through, not a sheet link.
         "components/show-panels/CrewBody.tsx": 1,

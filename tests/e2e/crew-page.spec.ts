@@ -528,29 +528,45 @@ test.describe("crew redesign layout invariants (§4.9 / test 12)", () => {
     }
   });
 
-  // ── Invariant 2 — Crew two columns (the roster | Key contacts) ──
-  // The split reads the body's CONTAINER, not the window (DESIGN.md §6): in the
-  // wide column (1024px) the two columns sit side by side at the 1.6fr/1fr
-  // ratio with `items-start` (natural height — the short "Key contacts" card is
-  // NOT stretched to the tall roster; 2026-06-21 owner amendment). In the
-  // section sheet they STACK, at 760px (the 480px panel) as at 390px.
-  test("inv2: Crew columns side-by-side (natural height) in the wide column, stacked in the sheet", async ({
+  // ── Invariant 2 — Crew and Contacts: one card spanning the section ──
+  // Until crew page redesign PR B Task 7 the Crew section held two columns (the
+  // roster | Key contacts) that split side by side in the wide column and stacked
+  // in the sheet. The contacts are their own section now (spec line 304), so each
+  // section holds ONE panel card. The failure mode carried over is the column
+  // geometry: a single card must span its section's body, never sit in a split
+  // track that leaves the rest of the row blank. Measured at the same three
+  // legs (the 1024px wide column, the 480px sheet at 760px, the 390px sheet),
+  // against the section root, every width derived.
+  test("inv2: the Crew and Contacts sections each hold one panel card spanning the section, in the wide column and the sheet", async ({
     page,
   }) => {
     for (const leg of SPLIT_LEGS) {
       await page.setViewportSize({ width: leg.width, height: 1000 });
-      await gotoSection(page, "crew");
-      const cols = page.getByTestId("crew-column");
-      const colCount = await cols.count();
-      expect(colCount, "crew section must render at least one crew-column").toBeGreaterThan(0);
-      if (colCount >= 2) {
-        // Height equality is deliberately NOT asserted (items-start).
-        await expectColumnsFollowSplit(cols.nth(0), cols.nth(1), {
-          split: leg.split,
-          container: leg.container,
-          label: `@${leg.width}px crew`,
-          tolPx: TOL,
-        });
+      for (const section of ["crew", "contacts"] as const) {
+        await gotoSection(page, section);
+        const root = page.getByTestId(`section-${section}`);
+        const cards = root.locator('[data-testid="crew-panel-card"]');
+        await expect(cards, `@${leg.width}px ${section}: exactly one panel card`).toHaveCount(1);
+        await expect(root.getByTestId("crew-column")).toHaveCount(0);
+        const sectionBox = await rectOf(root);
+        const card = await rectOf(cards.first());
+        expect(card.height, `@${leg.width}px ${section} card height`).toBeGreaterThan(1);
+        expect(
+          Math.abs(card.left - sectionBox.left),
+          `@${leg.width}px ${section} card starts at the section's left edge; card=${card.left} section=${sectionBox.left}`,
+        ).toBeLessThanOrEqual(TOL);
+        expect(
+          Math.abs(card.width - sectionBox.width),
+          `@${leg.width}px ${section} card spans the section's width; card=${card.width} section=${sectionBox.width}`,
+        ).toBeLessThanOrEqual(TOL);
+        // The section fills the body that bounds it (the size container the old
+        // two-column split read), so the card spans that body's content box too.
+        const container = await splitContainerOf(root);
+        expect(container.testid, `@${leg.width}px ${section}'s size container`).toBe(leg.container);
+        expect(
+          Math.abs(sectionBox.width - container.width),
+          `@${leg.width}px ${section} spans ${leg.container}'s content box; section=${sectionBox.width} body=${container.width}`,
+        ).toBeLessThanOrEqual(TOL);
       }
     }
   });

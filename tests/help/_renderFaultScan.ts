@@ -964,7 +964,18 @@ export function scanCandidates(): Candidate[] {
       // actions' placement, the hosting row and the empty state. None is a fault
       // branch; 78 kept. Re-derived by running the guard.
       //
-      // Probed: 801 such ternaries under the derived roots, 78 on a
+      // 801 -> 802 on feat/crew-page-redesign-pr-b Task 7: ContactsBreakdown's list
+      // moved into the shared Contacts body (components/show-panels/ContactsBody.tsx).
+      // Three ternaries left the admin list (the empty state, the kind subline and the
+      // actions); CrewSection's five (the contacts fetch-failure block, the both-empty
+      // state, the roster and contacts column wrappers, the contacts overflow stub) gave
+      // way to one (the roster's empty state or card); the new
+      // ContactsSection holds three (the fetch-failure block, the empty state, the card)
+      // and the body five (the kind subline, the actions, the note, the actions'
+      // placement and the empty state). None is a fault branch; 78 kept. Re-derived by
+      // running the guard.
+      //
+      // Probed: 802 such ternaries under the derived roots, 78 on a
       // fault-vocabulary guard and unclassifiable. 69 of those 78 sit in
       // `"use client"` files, where the guard is interaction state -- `errorCode`,
       // `state.kind === "error"`, `switchStatus === "error"` -- and not a server-render

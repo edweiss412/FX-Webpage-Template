@@ -12,7 +12,15 @@
  * group's slot (crew page redesign PR B plan, decision 2). `today` is the home,
  * not a section, so it is not one of them.
  */
-export const CREW_SECTION_IDS = ["venue", "crew", "schedule", "travel", "gear", "billing"] as const;
+export const CREW_SECTION_IDS = [
+  "venue",
+  "crew",
+  "contacts",
+  "schedule",
+  "travel",
+  "gear",
+  "billing",
+] as const;
 
 /** A `?s=` value the page resolves: the home or a crew section. */
 export type SectionId = "today" | (typeof CREW_SECTION_IDS)[number];

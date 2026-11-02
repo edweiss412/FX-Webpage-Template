@@ -17,8 +17,9 @@
  *   - hotel address / confirmation / notes → TravelSection "Hotels".
  *   - venue notes / loadingDock / googleLink (+URL guard) → VenueSection.
  *   - dress code → HomeSection "Dress code".
- *   - contact phone/email/notes (dead-link guard) → CrewSection → PersonRow.
- *   - crew member phone/email (dead-link guard) → CrewSection → PersonRow.
+ *   - contact phone/email/notes (dead-link guard) → ContactsSection →
+ *     ContactsBody (crew page redesign PR B Task 7).
+ *   - crew member phone/email (dead-link guard) → CrewSection → CrewBody.
  *   - room audio/video/lighting scope → GearSection scope cards.
  *   - financials po/proposal/invoice/invoice_notes → BillingSection.
  *   - pack-list item cat/subCat taxonomy → GearSection pack list.
@@ -32,6 +33,7 @@
 import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
 import { cleanup, render } from "@testing-library/react";
 
+import { ContactsSection } from "@/components/crew/sections/ContactsSection";
 import { CrewSection } from "@/components/crew/sections/CrewSection";
 import { GearSection } from "@/components/crew/sections/GearSection";
 import { TravelSection } from "@/components/crew/sections/TravelSection";
@@ -470,10 +472,11 @@ describe("§8.3 sentinel-hiding — Venue (VenueSection)", () => {
 });
 
 // ─────────────────────────────────────────────────────────────────────
-// Contact + crew actionable links → CrewSection → PersonRow
+// Contact + crew actionable links → ContactsSection / CrewSection → the
+// shared Contacts and Crew bodies (crew page redesign PR B Tasks 6 and 7)
 // ─────────────────────────────────────────────────────────────────────
 
-describe("§8.3 actionable-link guard — Key contacts (CrewSection → PersonRow)", () => {
+describe("§8.3 actionable-link guard — Contacts (ContactsSection → ContactsBody)", () => {
   function contact(over: Partial<ContactRow>) {
     const contacts: ContactRow[] = [
       {
@@ -486,7 +489,7 @@ describe("§8.3 actionable-link guard — Key contacts (CrewSection → PersonRo
       },
     ];
     return render(
-      <CrewSection
+      <ContactsSection
         {...ledgerProp()}
         data={makeShowForViewer({ contacts })}
         viewer={ADMIN}
@@ -530,7 +533,7 @@ describe("§8.3 actionable-link guard — Key contacts (CrewSection → PersonRo
   });
 });
 
-describe("§8.3 actionable-link guard — Crew roster (CrewSection → PersonRow)", () => {
+describe("§8.3 actionable-link guard — Crew roster (CrewSection → CrewBody)", () => {
   function crew(over: { phone?: string | null; email?: string | null }) {
     return render(
       <CrewSection
