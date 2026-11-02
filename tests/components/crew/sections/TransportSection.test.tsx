@@ -230,8 +230,8 @@ describe("transport: the section's empty and degraded states", () => {
 
 // ═════════════════════════════════════════════════════════════════════════════
 // Moved from the retired Travel section's suites (crew page redesign PR B
-// Task 9): TravelSection.test.tsx (its ground-transport half),
-// TravelSection.flight.test.tsx and TravelSection.transportIdPath.test.tsx.
+// Task 9): the Travel section's suite (its ground-transport half),
+// the Travel section's flight suite and the Travel section's transport-id-path suite.
 // Each case keeps its fixture values and the defect it catches; where it pinned
 // Travel layout the shared transport body no longer has (the `.travelrow` icon
 // square and its primary/meta lines, "With" before the riders, the leg's date
@@ -388,7 +388,7 @@ function suppressionData(over?: {
   });
 }
 
-describe("transport: ground-transport gate and fields (moved from TravelSection.test.tsx)", () => {
+describe("transport: ground-transport gate and fields (moved from the Travel section's suite)", () => {
   test("transport: unassigned crew see no ground-transport PII; admin sees the full field set", () => {
     const data = makeShowForViewer({
       transportation: {
@@ -545,7 +545,7 @@ describe("transport: ground-transport gate and fields (moved from TravelSection.
 });
 
 // --- M2: per-leg sentinel hiding (impeccable dual-gate fix wave) -------------
-describe("transport: per-leg sentinel hiding (moved from TravelSection.test.tsx)", () => {
+describe("transport: per-leg sentinel hiding (moved from the Travel section's suite)", () => {
   /**
    * A leg whose date/time are sentinels ("TBD" / "N/A") must NOT leak those
    * literals into the rendered route. The stage ("RENTAL PICKUP") is real
@@ -626,7 +626,7 @@ describe("transport: per-leg sentinel hiding (moved from TravelSection.test.tsx)
 // never a hardcoded literal; negative sweeps run over the whole section root and
 // positive ones are scoped to the card that must carry them.
 // ---------------------------------------------------------------------------
-describe("transport: ground-leg date suppression (moved from TravelSection.test.tsx)", () => {
+describe("transport: ground-leg date suppression (moved from the Travel section's suite)", () => {
   test("transport: unknown_asterisk viewer — a ground leg keeps its time and names, never its date", () => {
     // Failure modes: a gate that hides the whole card instead of the dates; a
     // `dateTime` attribute leaking while the visible text is suppressed.
@@ -795,7 +795,7 @@ describe("transport: ground-leg date suppression (moved from TravelSection.test.
 // real stage labels. So this is ruled the way spec §4 limit 8 rules
 // `transportNotes` and `hotelAddress`: a date typed into a non-date field is
 // editorial content. The cases below pin the RULING.
-describe("transport: documented limit on typed dates (moved from TravelSection.test.tsx)", () => {
+describe("transport: documented limit on typed dates (moved from the Travel section's suite)", () => {
   test("transport: DOCUMENTED LIMIT — a date typed into a leg's stage or time still renders", () => {
     const data = withRestriction(
       suppressionData({
@@ -832,7 +832,7 @@ describe("transport: documented limit on typed dates (moved from TravelSection.t
   });
 });
 
-// ── Transport owner id path (moved from TravelSection.transportIdPath.test.tsx) ──
+// ── Transport owner id path (moved from the Travel section's transport-id-path suite) ──
 //
 // The default crew row is { id: "c1", name: "Test Crew" }; the garbled driver
 // "Doug Larson Loadout" does NOT name-match "Test Crew", so the ONLY path that can
@@ -869,7 +869,7 @@ describe("transport: the owner id path", () => {
   });
 });
 
-// ── Your flight (moved from TravelSection.flight.test.tsx) ──────────────────
+// ── Your flight (moved from the Travel section's flight suite) ──────────────────
 
 // Post-8.2: an unmatched viewer id fails closed upstream (never reaches a section),
 // so the viewer is a real roster member. c1 (the default fixture crew row) has empty

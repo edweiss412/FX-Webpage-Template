@@ -240,11 +240,10 @@ export const TRANSPORT_CARD_ID = "travel-getting-there";
  * then; a leg with neither writes nothing.
  */
 export function crewLegTime(date: string | null, time: string | null): string {
-  const parts = [
-    date !== null ? formatIsoDate(date, "weekday") : null,
-    time !== null ? normalizeMeridiem(time) : null,
-  ].filter((p): p is string => p !== null && p.length > 0);
-  return parts.length > 0 ? `leaves ${parts.join(" ")}` : "";
+  const day = date !== null ? formatIsoDate(date, "weekday") : "";
+  const at = time !== null ? normalizeMeridiem(time) : "";
+  const when = day !== "" && at !== "" ? `${day} ${at}` : day || at;
+  return when !== "" ? `leaves ${when}` : "";
 }
 
 /** The crew's leg options: the ride count in the "All sections" peek reads them too. */

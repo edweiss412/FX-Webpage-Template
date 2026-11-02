@@ -202,7 +202,7 @@ describe("hotels: the section's empty and degraded states", () => {
 
 // ═════════════════════════════════════════════════════════════════════════════
 // Moved from the retired Travel section's suite (crew page redesign PR B Task
-// 9): the hotel half of TravelSection.test.tsx. Each case keeps its fixture
+// 9): the hotel half of the Travel section's suite. Each case keeps its fixture
 // values and the defect it catches; where it pinned Travel layout the shared
 // hotel card no longer has (the `travel-hotel-name` line, the two-column split,
 // the "May 13" stay spelling), it keeps the field-level claim the layout carried
@@ -322,7 +322,7 @@ function bareStay(checkIn: string | null, checkOut: string | null): HotelReserva
   };
 }
 
-describe("hotels: order and structured form (moved from TravelSection.test.tsx)", () => {
+describe("hotels: order and structured form (moved from the Travel section's suite)", () => {
   test("hotels: reservations stack by ordinal, regardless of array order", () => {
     // The hotel half of "unassigned crew see no ground-transport PII; admin sees the full
     // field set; hotels stack by ordinal" (its transport half is in TransportSection.test.tsx).
@@ -410,7 +410,7 @@ describe("hotels: order and structured form (moved from TravelSection.test.tsx)"
 // via `travelDateSpellings`, never a hardcoded literal; negative sweeps run over
 // the whole section root and positive ones are scoped to the card.
 // ---------------------------------------------------------------------------
-describe("hotels: stay date suppression (moved from TravelSection.test.tsx)", () => {
+describe("hotels: stay date suppression (moved from the Travel section's suite)", () => {
   test("hotels: unknown_asterisk viewer — a hotel keeps its name and confirmation, never check-in/check-out", () => {
     const root = renderHotels(withRestriction(stayData(), SUPPRESSED), CREW);
     const block = hotelsCard(root);
