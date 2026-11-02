@@ -14,8 +14,12 @@
  *   sentinels as parsed, the judgment marker in the `marker` slot, the
  *   `data-hotel-index` jump target, and `HotelCard`'s two `useId` values passed
  *   in as `nameId` and `guestsLabelId`.
- * - Crew (plan Task 9): `showConfirmation: true`, `showNotes: true`,
- *   `showGuests: false`, `hideDates` when the viewer's dates are suppressed.
+ * - Crew (`hotelsPanel`, components/crew/sections/hotelsRows.ts, plan Task 9):
+ *   `showConfirmation: true`, `showNotes: true`, `showGuests: false`,
+ *   `hideDates` when the viewer's dates are suppressed, sentinels hidden,
+ *   `placeholders: false` (a nameless stay is not called "Hotel" and a missing
+ *   stay end is not "Not listed": the crew card showed neither), and a search
+ *   target per line (`targets`).
  *
  * Dates are shown as parsed (a non-ISO value echoes verbatim). The hotel name is
  * never sentinel-gated: neither surface gates it today.
@@ -35,6 +39,16 @@ import { dateStubParts } from "@/lib/format/date";
 import type { HotelReservationRow } from "@/lib/parser/types";
 import { cn } from "@/lib/ui/cn";
 import { shouldHideGenericOptional } from "@/lib/visibility/emptyState";
+
+/** Search targets by line (crew); the admin passes none, so its DOM carries no marker. */
+export type HotelCardBodyTargets = {
+  name?: string;
+  address?: string;
+  checkIn?: string;
+  checkOut?: string;
+  confirmation?: string;
+  notes?: string;
+};
 
 export type HotelCardBodyProps = {
   /** The reservation, already gated by the caller. */
@@ -61,6 +75,36 @@ export type HotelCardBodyProps = {
   sentinels: "show" | "hide";
   /** Given, the card is `${testIdPrefix}-hotel-card`. */
   testIdPrefix?: string;
+  /**
+   * true (the default, admin): a blank hotel name reads "Hotel" and a missing
+   * stay end "Not listed". false (crew): neither renders, as the crew card
+   * showed only the fields a reservation has.
+   */
+  placeholders?: boolean;
+  /**
+   * Search targets (crew). Given, the night count is skipped and each stay end's
+   * text reads as words (its label, day, month and weekday spaced apart), so the
+   * line its target names can be indexed.
+   */
+  targets?: HotelCardBodyTargets;
+};
+
+/** One end of the stay as the card writes it: the date stub's parts, raw text, or nothing. */
+export type StayEndText =
+  | { kind: "date"; iso: string; day: string; month: string; weekday: string }
+  | { kind: "raw"; text: string }
+  | { kind: "missing" };
+
+/** What the card renders, field by field: the crew index reads it, so the two cannot disagree. */
+export type HotelCardLines = {
+  /** The name line, or null when it renders none (a blank name without placeholders). */
+  name: string | null;
+  address: string | null;
+  /** Null when the stub does not render that end. */
+  checkIn: StayEndText | null;
+  checkOut: StayEndText | null;
+  confirmation: string | null;
+  notes: string | null;
 };
 
 /** A value to render, or null: blank, or a sentinel the surface hides. */
@@ -72,6 +116,49 @@ function shown(value: string | null, sentinels: "show" | "hide"): string | null 
 /** The card's name: the hotel's, else "Hotel". The admin's marker names it too. */
 export function hotelCardLabel(hotel: HotelReservationRow): string {
   return hotel.hotel_name || "Hotel";
+}
+
+function stayEnd(value: string | null): StayEndText {
+  const parts = value ? dateStubParts(value) : null;
+  if (parts === null) return { kind: "missing" };
+  if (parts.kind === "raw") return { kind: "raw", text: parts.text };
+  return {
+    kind: "date",
+    iso: value ?? "",
+    day: parts.day,
+    month: parts.month,
+    weekday: parts.weekday,
+  };
+}
+
+/**
+ * The lines the card renders for these props, in render order. The body renders
+ * from this, and the crew search index reads it (spec §2.4).
+ */
+export function hotelCardLines(
+  h: HotelReservationRow,
+  {
+    showConfirmation,
+    showNotes,
+    hideDates,
+    sentinels,
+    placeholders = true,
+  }: Pick<
+    HotelCardBodyProps,
+    "showConfirmation" | "showNotes" | "hideDates" | "sentinels" | "placeholders"
+  >,
+): HotelCardLines {
+  const showDates = !hideDates && Boolean(h.check_in || h.check_out);
+  const end = (value: string | null): StayEndText | null =>
+    !showDates || (!placeholders && !value) ? null : stayEnd(value);
+  return {
+    name: placeholders ? hotelCardLabel(h) : h.hotel_name || null,
+    address: shown(h.hotel_address, sentinels),
+    checkIn: end(h.check_in),
+    checkOut: end(h.check_out),
+    confirmation: showConfirmation ? shown(h.confirmation_no, sentinels) : null,
+    notes: showNotes ? shown(h.notes, sentinels) : null,
+  };
 }
 
 /**
@@ -99,34 +186,51 @@ export function nightsBetween(checkIn: string | null, checkOut: string | null): 
  */
 function StayEnd({
   label,
-  value,
+  end,
   testId,
   alignEnd = false,
+  searchTarget,
+  spaced,
 }: {
   label: string;
-  value: string | null;
+  end: StayEndText;
   testId: string;
   alignEnd?: boolean;
+  /** The end's search target (crew). */
+  searchTarget: string | undefined;
+  /**
+   * Space the end's text nodes apart (crew, with targets). Every space falls
+   * between block or flex boxes, where white space lays out nothing, so only the
+   * text reads differently: "Check in 10 Apr Friday", not "Check in10AprFriday".
+   */
+  spaced: boolean;
 }) {
-  const parts = value ? dateStubParts(value) : null;
+  const gap = spaced ? " " : null;
   return (
-    <div data-testid={testId} className={cn("min-w-0", alignEnd && "text-right")}>
+    <div
+      data-testid={testId}
+      data-search-target={searchTarget}
+      className={cn("min-w-0", alignEnd && "text-right")}
+    >
       <p className={CELL_EYEBROW_CLASS}>{label}</p>
-      {parts === null ? (
+      {gap}
+      {end.kind === "missing" ? (
         <p className="mt-1 text-sm font-medium text-text-subtle">Not listed</p>
-      ) : parts.kind === "raw" ? (
-        <p className="mt-1 wrap-break-word text-xl font-bold text-text-strong">{parts.text}</p>
+      ) : end.kind === "raw" ? (
+        <p className="mt-1 wrap-break-word text-xl font-bold text-text-strong">{end.text}</p>
       ) : (
-        <time dateTime={value ?? undefined} className="mt-1 block">
+        <time dateTime={end.iso} className="mt-1 block">
           <span
             className={cn("flex items-baseline gap-1.5 tabular-nums", alignEnd && "justify-end")}
           >
             <span className="text-3xl font-bold leading-none tracking-daynum text-text-strong">
-              {parts.day}
+              {end.day}
             </span>
-            <span className="text-sm font-semibold text-text-strong">{parts.month}</span>
+            {gap}
+            <span className="text-sm font-semibold text-text-strong">{end.month}</span>
           </span>
-          <span className="mt-1 block text-xs text-text-subtle">{parts.weekday}</span>
+          {gap}
+          <span className="mt-1 block text-xs text-text-subtle">{end.weekday}</span>
         </time>
       )}
     </div>
@@ -146,24 +250,31 @@ export function HotelCardBody({
   hideDates,
   sentinels,
   testIdPrefix,
+  placeholders = true,
+  targets,
 }: HotelCardBodyProps) {
-  const address = shown(h.hotel_address, sentinels);
+  const lines = hotelCardLines(h, {
+    showConfirmation,
+    showNotes,
+    hideDates,
+    sentinels,
+    placeholders,
+  });
+  const { name, address, checkIn, checkOut, confirmation, notes } = lines;
   const names = showGuests
     ? (Array.isArray(h.names) ? h.names : []).filter((n) => shown(n, sentinels) !== null)
     : [];
-  const showDates = !hideDates && Boolean(h.check_in || h.check_out);
   const nights = nightsBetween(h.check_in, h.check_out);
-  const confirmation = showConfirmation ? shown(h.confirmation_no, sentinels) : null;
-  const notes = showNotes ? shown(h.notes, sentinels) : null;
+  const spaced = targets !== undefined;
   return (
     <div
       data-testid={testIdPrefix !== undefined ? `${testIdPrefix}-hotel-card` : undefined}
       // warning-card-fixes §5.5: the card jump's target (same idiom as data-room-nav).
       data-hotel-index={jumpIndex}
       // warning-card-fixes §15 (UI gate P3): the card is a jump's focus target, so it is a
-      // group named by its own hotel name.
+      // group named by its own hotel name (when it renders one).
       role="group"
-      aria-labelledby={nameId}
+      aria-labelledby={name !== null ? nameId : undefined}
       className={
         flat
           ? "@container flex flex-col gap-3"
@@ -173,21 +284,39 @@ export function HotelCardBody({
       {/* §5.4: the judgment marker sits above the hotel name. The card paints no fill
           of its own, so the tag's plate is the panel's surface in both layouts. */}
       {marker}
-      <div className="min-w-0">
-        <p id={nameId} className="wrap-break-word text-base font-semibold text-text-strong">
-          {hotelCardLabel(h)}
-        </p>
-        {address ? (
-          <p className="mt-0.5 flex items-start gap-1.5 text-sm text-text-subtle">
-            <MapPin className="mt-0.5 size-3.5 shrink-0" aria-hidden="true" />
-            <span className="min-w-0 wrap-break-word">{address}</span>
-          </p>
-        ) : null}
-      </div>
+      {name !== null || address ? (
+        <div className="min-w-0">
+          {name !== null ? (
+            <p
+              id={nameId}
+              data-search-target={targets?.name}
+              className="wrap-break-word text-base font-semibold text-text-strong"
+            >
+              {name}
+            </p>
+          ) : null}
+          {address ? (
+            <p className="mt-0.5 flex items-start gap-1.5 text-sm text-text-subtle">
+              <MapPin className="mt-0.5 size-3.5 shrink-0" aria-hidden="true" />
+              <span data-search-target={targets?.address} className="min-w-0 wrap-break-word">
+                {address}
+              </span>
+            </p>
+          ) : null}
+        </div>
+      ) : null}
 
-      {showDates ? (
+      {checkIn !== null || checkOut !== null ? (
         <div className="flex flex-wrap items-start justify-between gap-x-3 gap-y-2 rounded-md bg-surface-sunken px-4 py-3 @2xs:flex-nowrap">
-          <StayEnd label="Check in" value={h.check_in} testId="hotel-stay-check-in" />
+          {checkIn !== null ? (
+            <StayEnd
+              label="Check in"
+              end={checkIn}
+              testId="hotel-stay-check-in"
+              searchTarget={targets?.checkIn}
+              spaced={spaced}
+            />
+          ) : null}
           {/* One row from an 18rem card up: the connector sits between the dates. Below
               that (a 320px phone, or enlarged text, since the query is in rem) it drops
               to its own full-width row under them instead of painting over them. The
@@ -196,23 +325,36 @@ export function HotelCardBody({
               ramp (DESIGN.md §1.2a). It is a ::before BORDER, not a fill: a background
               vanishes in forced-colors mode, and the pseudo-element means no childless
               flex-1 span exists. Without a night count it has nothing to say on its
-              own row, so it only shows in the one-row layout. */}
-          <div
-            className={cn(
-              "relative order-last basis-full items-center justify-center self-center before:absolute before:inset-x-0 before:top-1/2 before:-translate-y-1/2 before:border-t before:border-text-faint @2xs:order-0 @2xs:min-w-fit @2xs:flex-1 @2xs:basis-0",
-              nights === null ? "hidden @2xs:flex" : "flex",
-            )}
-          >
-            {nights !== null ? (
-              <span
-                data-testid="hotel-stay-nights"
-                className="relative whitespace-nowrap bg-surface-sunken px-2 text-xs font-semibold tabular-nums text-text-subtle"
-              >
-                {nights} {nights === 1 ? "night" : "nights"}
-              </span>
-            ) : null}
-          </div>
-          <StayEnd label="Check out" value={h.check_out} testId="hotel-stay-check-out" alignEnd />
+              own row, so it only shows in the one-row layout. Without placeholders a stay
+              with one end draws no connector: there is nothing on its other side. */}
+          {checkIn !== null && checkOut !== null ? (
+            <div
+              {...(spaced ? { "data-search-skip": "" } : {})}
+              className={cn(
+                "relative order-last basis-full items-center justify-center self-center before:absolute before:inset-x-0 before:top-1/2 before:-translate-y-1/2 before:border-t before:border-text-faint @2xs:order-0 @2xs:min-w-fit @2xs:flex-1 @2xs:basis-0",
+                nights === null ? "hidden @2xs:flex" : "flex",
+              )}
+            >
+              {nights !== null ? (
+                <span
+                  data-testid="hotel-stay-nights"
+                  className="relative whitespace-nowrap bg-surface-sunken px-2 text-xs font-semibold tabular-nums text-text-subtle"
+                >
+                  {nights} {nights === 1 ? "night" : "nights"}
+                </span>
+              ) : null}
+            </div>
+          ) : null}
+          {checkOut !== null ? (
+            <StayEnd
+              label="Check out"
+              end={checkOut}
+              testId="hotel-stay-check-out"
+              alignEnd
+              searchTarget={targets?.checkOut}
+              spaced={spaced}
+            />
+          ) : null}
         </div>
       ) : null}
 
@@ -221,13 +363,13 @@ export function HotelCardBody({
       {confirmation !== null || notes !== null ? (
         <dl className="flex flex-col gap-2">
           {confirmation !== null ? (
-            <div className="min-w-0">
+            <div data-search-target={targets?.confirmation} className="min-w-0">
               <dt className={CELL_EYEBROW_CLASS}>Confirmation</dt>
               <dd className="code-value mt-1 wrap-break-word text-sm text-text">{confirmation}</dd>
             </div>
           ) : null}
           {notes !== null ? (
-            <div className="min-w-0">
+            <div data-search-target={targets?.notes} className="min-w-0">
               <dt className={CELL_EYEBROW_CLASS}>Notes</dt>
               <dd className="mt-1 wrap-break-word text-sm text-text-subtle">{notes}</dd>
             </div>

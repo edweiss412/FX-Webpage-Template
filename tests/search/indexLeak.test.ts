@@ -38,7 +38,8 @@ import { CrewSection } from "@/components/crew/sections/CrewSection";
 import { CREW_INLINE_CAP } from "@/components/crew/sections/crewRows";
 import { GearSection } from "@/components/crew/sections/GearSection";
 import { ScheduleSection } from "@/components/crew/sections/ScheduleSection";
-import { TravelSection } from "@/components/crew/sections/TravelSection";
+import { HotelsSection } from "@/components/crew/sections/HotelsSection";
+import { TransportSection } from "@/components/crew/sections/TransportSection";
 import { VenueSection } from "@/components/crew/sections/VenueSection";
 import { buildCardReportContext } from "@/lib/crew/cardReportContext";
 import type { SectionId } from "@/lib/crew/resolveActiveSection";
@@ -110,8 +111,10 @@ function sectionElement(id: SectionId, c: ViewerCase): JSX.Element {
       return createElement(ScheduleSection, props);
     case "venue":
       return createElement(VenueSection, props);
-    case "travel":
-      return createElement(TravelSection, props);
+    case "hotels":
+      return createElement(HotelsSection, props);
+    case "transport":
+      return createElement(TransportSection, props);
     case "crew":
       return createElement(CrewSection, props);
     case "contacts":

@@ -70,7 +70,10 @@ vi.mock("@/components/crew/sections/ScheduleSection", () => ({
   ScheduleSection: spy("schedule"),
 }));
 vi.mock("@/components/crew/sections/VenueSection", () => ({ VenueSection: spy("venue") }));
-vi.mock("@/components/crew/sections/TravelSection", () => ({ TravelSection: spy("travel") }));
+vi.mock("@/components/crew/sections/HotelsSection", () => ({ HotelsSection: spy("hotels") }));
+vi.mock("@/components/crew/sections/TransportSection", () => ({
+  TransportSection: spy("transport"),
+}));
 vi.mock("@/components/crew/sections/CrewSection", () => ({ CrewSection: spy("crew") }));
 vi.mock("@/components/crew/sections/GearSection", () => ({ GearSection: spy("gear") }));
 vi.mock("@/components/crew/sections/BillingSection", () => ({ BillingSection: spy("billing") }));

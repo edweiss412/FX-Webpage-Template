@@ -12,9 +12,9 @@
  * Field → new owner map:
  *   - venue/hotel/room/transport/contact notes aggregation → HomeSection
  *     "Show notes" + the transport-source visibility gate.
- *   - transportation driver/vehicle/plate/color/parking/notes → TravelSection
- *     "Getting there".
- *   - hotel address / confirmation / notes → TravelSection "Hotels".
+ *   - transportation driver/vehicle/plate/color/parking/notes → TransportSection
+ *     the Transport card (PR B Task 9; it was Travel's "Getting there").
+ *   - hotel address / confirmation / notes → HotelsSection (PR B Task 9).
  *   - venue notes / loadingDock / googleLink (+URL guard) → VenueSection.
  *   - dress code → HomeSection "Dress code".
  *   - contact phone/email/notes (dead-link guard) → ContactsSection →
@@ -36,7 +36,8 @@ import { cleanup, render } from "@testing-library/react";
 import { ContactsSection } from "@/components/crew/sections/ContactsSection";
 import { CrewSection } from "@/components/crew/sections/CrewSection";
 import { GearSection } from "@/components/crew/sections/GearSection";
-import { TravelSection } from "@/components/crew/sections/TravelSection";
+import { HotelsSection } from "@/components/crew/sections/HotelsSection";
+import { TransportSection } from "@/components/crew/sections/TransportSection";
 import { VenueSection } from "@/components/crew/sections/VenueSection";
 import { BillingSection } from "@/components/crew/sections/BillingSection";
 import { HomeSection } from "@/components/crew/sections/HomeSection";
@@ -242,13 +243,13 @@ describe("§8.3 sentinel-hiding — Dress code (HomeSection, the home body)", ()
 });
 
 // ─────────────────────────────────────────────────────────────────────
-// Transportation fields → TravelSection "Getting there"
+// Transportation fields → TransportSection, the Transport card (PR B Task 9)
 // ─────────────────────────────────────────────────────────────────────
 
-describe("§8.3 sentinel-hiding — Transportation (TravelSection)", () => {
+describe("§8.3 sentinel-hiding — Transportation (TransportSection)", () => {
   function travel(over: Record<string, unknown>) {
     return render(
-      <TravelSection
+      <TransportSection
         {...ledgerProp()}
         data={makeShowForViewer({
           transportation: {
@@ -291,7 +292,7 @@ describe("§8.3 sentinel-hiding — Transportation (TravelSection)", () => {
     });
   }
 
-  test("all transport fields sentinel → Getting there omitted (no orphan block)", () => {
+  test("all transport fields sentinel → Transport card omitted (no orphan block)", () => {
     const c = travel({
       driver_name: "TBD",
       driver_phone: "TBD",
@@ -302,7 +303,7 @@ describe("§8.3 sentinel-hiding — Transportation (TravelSection)", () => {
       parking: "TBD",
       notes: "TBD",
     });
-    expect(c.querySelector('[data-testid="travel-getting-there"]')).toBeNull();
+    expect(c.querySelector('[data-card-id="travel-getting-there"]')).toBeNull();
     expect(html(c)).not.toContain("TBD");
     expect(html(c)).not.toContain("N/A");
     expect(html(c)).not.toContain("TBA");
@@ -333,13 +334,13 @@ describe("§8.3 sentinel-hiding — Transportation (TravelSection)", () => {
 });
 
 // ─────────────────────────────────────────────────────────────────────
-// Hotel reservation fields → TravelSection "Hotels"
+// Hotel reservation fields → HotelsSection (PR B Task 9)
 // ─────────────────────────────────────────────────────────────────────
 
-describe("§8.3 sentinel-hiding — Hotel reservation (TravelSection)", () => {
+describe("§8.3 sentinel-hiding — Hotel reservation (HotelsSection)", () => {
   function hotel(over: Record<string, unknown>) {
     return render(
-      <TravelSection
+      <HotelsSection
         {...ledgerProp()}
         data={makeShowForViewer({
           hotelReservations: [

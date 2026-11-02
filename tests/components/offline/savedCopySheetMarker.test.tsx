@@ -38,7 +38,7 @@ import { CREW_SECTION_LABELS, type CrewSectionId } from "@/lib/crew/crewSections
 
 const PATH = "/show/demo-show/abc123";
 const SAVED_AT = "2026-10-27T11:30:00.000Z";
-const SECTIONS: CrewSectionId[] = ["schedule", "venue", "travel", "crew", "gear"];
+const SECTIONS: CrewSectionId[] = ["schedule", "venue", "hotels", "crew", "gear"];
 /** Next's own history keys, as its patched history leaves them on an entry. */
 const NEXT_STATE = { __NA: true, _N: 1, __PRIVATE_NEXTJS_INTERNALS_TREE: {} };
 

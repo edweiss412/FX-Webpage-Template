@@ -28,7 +28,7 @@
  * that is either a CARD_REGION_MAP key (→ must carry the helper-derived link) or
  * an OUT_OF_SCOPE_CARDS id (→ must carry no link).
  *
- * The eight sections are rendered REAL (synchronous Server Components resolved by
+ * The nine sections are rendered REAL (synchronous Server Components resolved by
  * a synchronous render — WrappedSection invokes its `render()` inline). The
  * crew client islands read matchMedia, which jsdom lacks — stub it (mirrors
  * crewShellSections.test.tsx).
@@ -38,7 +38,8 @@ import { cleanup, render } from "@testing-library/react";
 
 import { ContactsSection } from "@/components/crew/sections/ContactsSection";
 import { CrewSection } from "@/components/crew/sections/CrewSection";
-import { TravelSection } from "@/components/crew/sections/TravelSection";
+import { HotelsSection } from "@/components/crew/sections/HotelsSection";
+import { TransportSection } from "@/components/crew/sections/TransportSection";
 import { VenueSection } from "@/components/crew/sections/VenueSection";
 import { GearSection } from "@/components/crew/sections/GearSection";
 import { ScheduleSection } from "@/components/crew/sections/ScheduleSection";
@@ -188,7 +189,7 @@ function renderSection(node: React.ReactNode) {
   return render(<>{node}</>);
 }
 
-/** Render all eight sections into ONE container so the walker sees every card. */
+/** Render all nine sections into ONE container so the walker sees every card. */
 function renderAllSections(data: ShowForViewer) {
   pinCrewClock(FROZEN_TODAY);
   return renderSection(
@@ -208,7 +209,16 @@ function renderAllSections(data: ShowForViewer) {
         today={FROZEN_TODAY}
         showId="show-1"
       />
-      <TravelSection
+      {/* Travel's three cards, split by PR B Task 9: travel-hotels in Hotels,
+          travel-flight and travel-getting-there in Transport (card ids kept). */}
+      <HotelsSection
+        {...ledgerProp()}
+        data={data}
+        viewer={adminViewer}
+        today={FROZEN_TODAY}
+        showId="show-1"
+      />
+      <TransportSection
         {...ledgerProp()}
         data={data}
         viewer={adminViewer}

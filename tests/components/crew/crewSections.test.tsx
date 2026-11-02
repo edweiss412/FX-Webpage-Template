@@ -112,7 +112,7 @@ function popTo(search: string, state: unknown = null) {
 }
 
 function entries(billing: boolean): CrewSectionEntry[] {
-  const ids: CrewSectionId[] = ["schedule", "venue", "travel", "crew", "gear"];
+  const ids: CrewSectionId[] = ["schedule", "venue", "hotels", "crew", "gear"];
   if (billing) ids.push("billing");
   return ids.map((id) => ({
     id,
@@ -135,7 +135,7 @@ function nodes(billing: boolean, over: Partial<Record<SectionId, ReactNode>> = {
     today: body("today"),
     schedule: body("schedule"),
     venue: body("venue"),
-    travel: body("travel"),
+    hotels: body("hotels"),
     crew: body("crew"),
     gear: body("gear"),
   };
@@ -420,18 +420,18 @@ describe("CrewSections, compact: home and sheet (spec §5.2)", () => {
 
   it("sheet: a realtime refresh with fresh sectionNodes keeps the sheet open and shows the fresh body", () => {
     const { rerender } = renderController("today");
-    fireEvent.click(row("travel"));
+    fireEvent.click(row("hotels"));
     rerender(
       <CrewSections
         initialSection="today"
         sections={entries(false)}
         sectionNodes={nodes(false, {
-          travel: <div data-testid="body-travel">FRESH travel content</div>,
+          hotels: <div data-testid="body-hotels">FRESH hotels content</div>,
         })}
       />,
     );
-    expect(sheet()).toHaveAttribute("data-section", "travel");
-    expect(within(sheet()!).getByText("FRESH travel content")).toBeInTheDocument();
+    expect(sheet()).toHaveAttribute("data-section", "hotels");
+    expect(within(sheet()!).getByText("FRESH hotels content")).toBeInTheDocument();
     expect(routerPush).not.toHaveBeenCalled();
   });
 

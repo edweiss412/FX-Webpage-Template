@@ -30,11 +30,12 @@
  *   - the hotel quick fact (`selectQuickFacts`, `lib/crew/quickFacts.ts`) —
  *     omitted, since naming tonight's hotel states a night the viewer works
  *   - the "All sections" peeks (`lib/crew/sectionPeek.ts`) — the Schedule peek
- *     and the Travel peek's hotel part are withheld; ground-transport legs are
- *     counted through `visibleTransportLegs` with dates hidden
- *   - TravelSection's ground-transport leg dates — gated (arc A)
- *   - TravelSection's hotel check-in/check-out rows — gated (arc A)
- *   - TravelSection's personal flight block — gated (arc A): the structured date,
+ *     and the Hotels peek are withheld; the Transport peek counts the legs the
+ *     Transport body draws with dates hidden (`transportRouteLegs`)
+ *   - TransportSection's ground-transport leg days — gated (arc A; the Travel
+ *     section's until crew page redesign PR B Task 9 split it)
+ *   - HotelsSection's check-in/check-out stub — gated (arc A)
+ *   - TransportSection's personal flight block — gated (arc A): the structured date,
  *     its `dateRaw` fallback arm, the Today/Next chip, the upcoming-row highlight
  *     (the same claim rendered as styling), and raw-fallback rows, which are
  *     WITHHELD ENTIRELY because `seg.raw` cannot be split into date and non-date
@@ -53,8 +54,8 @@
  *     over the peer's day privacy. Not an oversight and not a leak — the marker's
  *     semantics are "which days YOU work is unconfirmed", and a peer's days are
  *     not the viewer's schedule. Re-open trigger: the owner revisits the call.
- *   - TravelSection's sheet-authored free text — `transportNotes`, `hotelAddress`,
- *     and the hotel `stayRows` values. These are prose fields, not date fields; a
+ *   - HotelsSection's and TransportSection's sheet-authored free text — the
+ *     transport notes, the hotel address, and the hotel confirmation and notes. These are prose fields, not date fields; a
  *     date an author types into one is editorial content the operator chose to
  *     write, not the system asserting the viewer's schedule. Arc A §4 limit 8.
  *     Re-open trigger: a real leak report through one of these fields.

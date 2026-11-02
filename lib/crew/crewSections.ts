@@ -9,9 +9,13 @@
  * at all: the shell builds a body for every entitled id and resolves `?s=`
  * against them. Membership, `crewSectionsFor`, is the entitled ids in
  * `CREW_SECTION_IDS` order; from PR B one content rule narrows it (an Agenda
- * with nothing in it is entitled and unlisted). PR A's one gate stands, under
- * the registry id: `billing` only when `financialsVisible` holds. `today` is the
- * home, not a section.
+ * with nothing in it is entitled and unlisted). Two gates (spec line 240):
+ * `billing` only when `financialsVisible` holds, and `transport` for an admin,
+ * a viewer `transportTileVisible` admits, or a viewer whose "Your flight" card
+ * renders a row (PR B Task 9). A viewer with neither has nothing the section
+ * may show them, and an empty state there would claim no transport exists
+ * when it is only withheld, so the section is not theirs (plan decision 1).
+ * `today` is the home, not a section.
  *
  * Membership never reads the projection's data: a domain whose fetch failed
  * (`tileErrors`) keeps its section listed, and the section shows its own
@@ -22,18 +26,23 @@
  */
 import type { ShowForViewer } from "@/lib/data/getShowForViewer";
 import type { ViewerContext } from "@/lib/data/viewerContext";
+import { suppressesDates } from "@/lib/crew/dateSuppression";
+import { viewerFlightShown } from "@/lib/crew/flightDisplay";
 import { CREW_SECTION_IDS, type SectionId } from "@/lib/crew/resolveActiveSection";
 import { sectionPeek, type SectionPeekViewer } from "@/lib/crew/sectionPeek";
 import { showSection, type ShowSectionId } from "@/lib/showSections/registry";
-import { financialsVisible } from "@/lib/visibility/scopeTiles";
+import { financialsVisible, transportTileVisible } from "@/lib/visibility/scopeTiles";
 
 /** A section the list and the nav can open. `today` is the home, not a section. */
 export type CrewSectionId = Exclude<SectionId, "today">;
 
 export type CrewSection = { id: CrewSectionId; label: string };
 
-/** What entitlement and membership read about the viewer: the billing gate's two inputs. */
-export type CrewSectionsViewer = Pick<ViewerContext, "viewerFlags" | "isAdmin">;
+/**
+ * What entitlement and membership read about the viewer: the billing gate's two
+ * inputs, and the date restriction the Transport gate's own-flight rule reads.
+ */
+export type CrewSectionsViewer = Pick<ViewerContext, "viewerFlags" | "isAdmin" | "dateRestriction">;
 
 /**
  * The crew sections moved onto a shared body (components/show-panels/), named
@@ -48,6 +57,8 @@ export const CREW_MOVED_IDS = [
   "venue",
   "crew",
   "contacts",
+  "hotels",
+  "transport",
 ] as const satisfies readonly (CrewSectionId & ShowSectionId)[];
 
 type CrewMovedId = (typeof CREW_MOVED_IDS)[number];
@@ -60,7 +71,6 @@ export function isCrewMovedSection(id: CrewSectionId): id is CrewMovedId {
 /** The crew's own names for the sections not yet moved (spec §5.1, PR A's labels). */
 const CREW_OWN_LABELS: Readonly<Record<Exclude<CrewSectionId, CrewMovedId>, string>> = {
   schedule: "Schedule",
-  travel: "Travel",
   gear: "Gear",
 };
 
@@ -98,6 +108,17 @@ type SectionGate = (data: ShowForViewer, viewer: CrewSectionsViewer) => boolean;
  */
 const SECTION_GATES: Readonly<Partial<Record<CrewSectionId, SectionGate>>> = {
   billing: (_data, viewer) => financialsVisible(viewer.viewerFlags, viewer.isAdmin),
+  transport: (data, viewer) =>
+    viewer.isAdmin ||
+    transportTileVisible({
+      transportation: data.transportation,
+      viewerId: data.viewerId,
+      transportationOwnerIds: data.transportationOwnerIds,
+      viewerName: data.viewerName,
+      viewerNameAliases: data.viewerNameAliases,
+      isAdmin: viewer.isAdmin,
+    }) ||
+    viewerFlightShown(data.viewerFlightInfo, suppressesDates(viewer.dateRestriction)),
 };
 
 /**

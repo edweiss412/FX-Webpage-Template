@@ -4,7 +4,7 @@ import { render } from "@testing-library/react";
 import { BillingSection } from "@/components/crew/sections/BillingSection";
 import { makeShowForViewer } from "@/tests/fixtures/showForViewer";
 import { financialsVisible } from "@/lib/visibility/scopeTiles";
-import { crewSectionEntitled } from "@/lib/crew/crewSections";
+import { crewSectionEntitled, type CrewSectionsViewer } from "@/lib/crew/crewSections";
 import {
   CREW_SECTION_IDS,
   resolveActiveSection,
@@ -44,7 +44,11 @@ test("BillingSection renders financials iff financialsVisible; the SAME predicat
   ).toContain("PO-1");
   // The SAME single predicate gates the section selection: a non-lead's direct
   // ?s=billing, or the old ?s=budget, falls back to today.
-  const nonLead = { viewerFlags: [], isAdmin: false };
+  const nonLead: CrewSectionsViewer = {
+    viewerFlags: [],
+    isAdmin: false,
+    dateRestriction: { kind: "none" },
+  };
   expect(crewSectionEntitled("billing", lead, nonLead)).toBe(financialsVisible([], false));
   const entitled = new Set<SectionId>(
     CREW_SECTION_IDS.filter((id) => crewSectionEntitled(id, lead, nonLead)),

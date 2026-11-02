@@ -24,16 +24,20 @@ export function MiniAvatar({
   sizeClass,
   testId,
   ringed = true,
+  searchSkip = false,
 }: {
   name: string;
   sizeClass: string;
   testId?: string;
   ringed?: boolean;
+  /** Mark the initials as skipped by crew search: they are not sheet text. */
+  searchSkip?: boolean;
 }) {
   return (
     <span
       aria-hidden="true"
       data-testid={testId}
+      {...(searchSkip ? { "data-search-skip": "" } : {})}
       style={{ backgroundColor: avatarColor(name) }}
       className={cn(
         "grid shrink-0 place-items-center rounded-pill font-semibold text-white",

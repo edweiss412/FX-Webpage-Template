@@ -46,7 +46,8 @@ const LABEL: Record<SectionId, string> = {
   today: "Today",
   schedule: "Schedule",
   venue: "Venue",
-  travel: "Travel",
+  hotels: "Hotels",
+  transport: "Transport",
   crew: "Crew",
   contacts: "Contacts",
   gear: "Gear",
@@ -242,7 +243,11 @@ describe("chips (spec §6.3)", () => {
     // "Today", then the membership `crewSectionsFor` returns, Billing included for an admin.
     const items = [
       { id: "today" as const, label: CREW_TODAY_LABEL },
-      ...crewSectionsFor(makeShowForViewer(), { viewerFlags: [], isAdmin: true }),
+      ...crewSectionsFor(makeShowForViewer(), {
+        viewerFlags: [],
+        isAdmin: true,
+        dateRestriction: { kind: "none" },
+      }),
     ];
     const { container } = render(
       <CrewWideNav items={items} active="today" hrefFor={(id) => `?s=${id}`} />,
@@ -377,8 +382,12 @@ describe("copy (spec §6.4, §6.5)", () => {
     ).toBeNull();
 
     search("confirmation");
-    const flight = entryWhere({ section: "travel", group: "Your flight", label: "Confirmation" });
-    const hotel = entryWhere({ section: "travel", group: "Hotels", label: "Confirmation" });
+    const flight = entryWhere({
+      section: "transport",
+      group: "Your flight",
+      label: "Confirmation",
+    });
+    const hotel = entryWhere({ section: "hotels", group: "Hotels", label: "Confirmation" });
     expect(
       within(rowFor(flight)).getByRole("button", { name: "Copy flight confirmation" }),
     ).toBeInTheDocument();
@@ -418,8 +427,12 @@ describe("copy (spec §6.4, §6.5)", () => {
     expect(value(entryWhere({ section: "gear", group: "Other" }))).not.toHaveClass(codeClass);
 
     search("confirmation");
-    const flight = entryWhere({ section: "travel", group: "Your flight", label: "Confirmation" });
-    const hotel = entryWhere({ section: "travel", group: "Hotels", label: "Confirmation" });
+    const flight = entryWhere({
+      section: "transport",
+      group: "Your flight",
+      label: "Confirmation",
+    });
+    const hotel = entryWhere({ section: "hotels", group: "Hotels", label: "Confirmation" });
     expect(value(flight)).toHaveClass(codeClass);
     expect(value(hotel)).toHaveClass(codeClass);
   });
@@ -487,7 +500,7 @@ describe("copy (spec §6.4, §6.5)", () => {
     renderResults({
       entries: buildEntries([
         {
-          section: "travel",
+          section: "hotels",
           region: "travel-hotels",
           group: "Hotels",
           label: "Booking",
@@ -495,7 +508,7 @@ describe("copy (spec §6.4, §6.5)", () => {
           copy: { kind: "flightConfirmation", text: "ZK4410" },
         },
         {
-          section: "travel",
+          section: "transport",
           region: "travel-flight",
           group: "Your flight",
           label: "Booking",

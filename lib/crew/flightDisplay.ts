@@ -236,3 +236,74 @@ export function pickUpcomingIndex(segments: FlightSegment[], todayIso: string): 
   }
   return null;
 }
+
+/**
+ * The flight card's structured-vs-raw decision, extracted so the card, the
+ * date-suppression filter (`visibleFlightSegments`) and the Transport section's
+ * membership (`viewerFlightShown`) read it from ONE place. Moved here from the
+ * Travel section's rows module when Travel split into Hotels and Transport
+ * (crew page redesign PR B Task 9), so lib/crew/crewSections.ts can read it. Two copies of this
+ * predicate would drift, and the drift is silent: the filter would withhold a
+ * row the card would have rendered structurally (content lost) or keep one the
+ * card renders raw (a date leaked through the fallback).
+ */
+export function flightRowFields(
+  seg: FlightSegment,
+  hideDates: boolean,
+): {
+  carrier: string | null;
+  route: string;
+  conf: string | null;
+  showStructured: boolean;
+} {
+  // `flightNo`, `airline` and `conf` are the parser's UNVALIDATED REMAINDER: it
+  // claims the date, route and times, then assigns whatever tokens are left to
+  // these. So an ordinary duplicated-date authoring mistake ("5/13 MAY13 LGA -
+  // ORD", or a leading ISO date) puts a date in them, and it renders outside
+  // `dateLabel` where none of the date gates can see it.
+  //
+  // The rule under suppression is CLOSED, not a recognizer: render only the
+  // fields whose SHAPE cannot express a date — the route (airport codes, three
+  // letters each side of a separator) and the times (`h:mm am/pm`) — and
+  // withhold the remainder. Recognizing dates inside the remainder instead would
+  // mean enumerating spellings, which does not terminate and gets a wider
+  // target every round. `flightNo` is in the withheld set precisely because its
+  // own shape (`^[A-Z]{1,3}\d{1,4}[A-Z]?$`) ACCEPTS "MAY13".
+  //
+  // The cost is the carrier name and confirmation code, for suppressed viewers
+  // only; route and times are what a crew member reads off a phone anyway.
+  const carrier = hideDates ? null : (seg.flightNo ?? seg.airline);
+  const route =
+    seg.origin && seg.dest ? `${seg.origin} → ${seg.dest}` : (seg.origin ?? seg.dest ?? "");
+  const conf = hideDates ? null : seg.conf;
+  const hasContent = Boolean(carrier || route || seg.depTime || seg.arrTime);
+  return { carrier, route, conf, showStructured: seg.structured && hasContent };
+}
+
+/**
+ * The segments the "Your flight" card renders, in the order given. LEAK SITE 3
+ * (the row-set half): under date suppression a raw-fallback row, which prints
+ * `seg.raw` verbatim, date included by construction, is withheld whole; the
+ * content cost is a documented limit.
+ */
+export function visibleFlightSegments(
+  segments: readonly FlightSegment[],
+  hideDates: boolean,
+): FlightSegment[] {
+  return hideDates
+    ? segments.filter((seg) => flightRowFields(seg, hideDates).showStructured)
+    : [...segments];
+}
+
+/**
+ * Whether the viewer's "Your flight" card renders a row: the Transport section's
+ * own-flight membership rule (plan decision 1; spec line 240). Which parts are
+ * segments, and which render, does not depend on the year (it only dates a
+ * segment), so any year counts them; the card itself dates them with the
+ * show's year.
+ */
+export function viewerFlightShown(flightInfo: string | null, hideDates: boolean): boolean {
+  return (
+    visibleFlightSegments(parseFlightItinerary(flightInfo, 2000).segments, hideDates).length > 0
+  );
+}

@@ -7,7 +7,10 @@
  * the section's own helper called here, never a copy of its rule:
  *
  *   - Gear's pack list through `isPackListVisibleToday` (GearSection).
- *   - Ground-transport legs through `transportTileVisible` (TravelSection).
+ *   - Ground-transport legs through `transportTileVisible` (TransportSection),
+ *     counted with the Transport body's own leg rule under the crew's options
+ *     (`transportRouteLegs`, `crewTransportLegOptions`), so the ride count is
+ *     the route the section draws.
  *   - Every date, and the hotel, withheld when `suppressesDates` holds; show
  *     days through `visibleShowDays` (ScheduleSection).
  *   - Billing through `financialsVisible` (BillingSection), and nothing when
@@ -19,12 +22,13 @@
  *
  * Pure and server-safe.
  */
+import { crewTransportLegOptions } from "@/components/crew/sections/transportRows";
+import { transportRouteLegs } from "@/components/show-panels/TransportBody";
 import type { ShowForViewer } from "@/lib/data/getShowForViewer";
 import type { ViewerContext } from "@/lib/data/viewerContext";
 import type { CrewSectionId } from "@/lib/crew/crewSections";
 import { visibleShowDays } from "@/lib/crew/agendaDisplay";
 import { suppressesDates } from "@/lib/crew/dateSuppression";
-import { visibleTransportLegs } from "@/lib/crew/transportLegs";
 import { formatIsoDate } from "@/lib/format/date";
 import { venueDisplay } from "@/lib/venue/venueLocation";
 import { shouldHideGenericOptional } from "@/lib/visibility/emptyState";
@@ -40,7 +44,6 @@ export type SectionPeekViewer = Pick<
   "isAdmin" | "viewerFlags" | "dateRestriction" | "stageRestriction"
 > & { today: Date };
 
-const SEPARATOR = " · ";
 const ISO_DATE = /^\d{4}-\d{2}-\d{2}$/;
 
 /** Trimmed text, or null when empty or a sentinel. */
@@ -81,8 +84,8 @@ function venuePeek(data: ShowForViewer): string | null {
   return present(venueDisplay(venue).name ?? venue.name);
 }
 
-/** The hotel line: one name, or a count when the viewer has several. Never under date suppression. */
-function hotelPart(data: ShowForViewer, viewer: SectionPeekViewer): string | null {
+/** The Hotels peek: one name, or a count when the viewer has several. Never under date suppression. */
+function hotelsPeek(data: ShowForViewer, viewer: SectionPeekViewer): string | null {
   if (suppressesDates(viewer.dateRestriction)) return null;
   // A partial projection still renders the page (the shell's guard discipline),
   // so a missing list reads as no hotels rather than throwing.
@@ -99,8 +102,8 @@ function hotelPart(data: ShowForViewer, viewer: SectionPeekViewer): string | nul
   return names.length === 1 ? names[0]! : plural(names.length, "hotel", "hotels");
 }
 
-/** The ground-transport line: the legs the section shows, only when the transport gate holds. */
-function ridesPart(data: ShowForViewer, viewer: SectionPeekViewer): string | null {
+/** The Transport peek: the rides the section's route shows, only when the transport gate holds. */
+function transportPeek(data: ShowForViewer, viewer: SectionPeekViewer): string | null {
   const transportation = data.transportation;
   const visible = transportTileVisible({
     transportation,
@@ -112,15 +115,8 @@ function ridesPart(data: ShowForViewer, viewer: SectionPeekViewer): string | nul
   });
   if (!visible || transportation === null || !Array.isArray(transportation.schedule)) return null;
   const hideDates = suppressesDates(viewer.dateRestriction);
-  const legs = visibleTransportLegs(transportation.schedule, hideDates);
+  const legs = transportRouteLegs(transportation, crewTransportLegOptions(hideDates));
   return legs.length === 0 ? null : plural(legs.length, "ride", "rides");
-}
-
-function travelPeek(data: ShowForViewer, viewer: SectionPeekViewer): string | null {
-  const parts = [hotelPart(data, viewer), ridesPart(data, viewer)].filter(
-    (part): part is string => part !== null,
-  );
-  return parts.length === 0 ? null : parts.join(SEPARATOR);
 }
 
 function crewPeek(data: ShowForViewer): string | null {
@@ -164,8 +160,10 @@ export function sectionPeek(
       return schedulePeek(data, viewer);
     case "venue":
       return venuePeek(data);
-    case "travel":
-      return travelPeek(data, viewer);
+    case "hotels":
+      return hotelsPeek(data, viewer);
+    case "transport":
+      return transportPeek(data, viewer);
     case "crew":
       return crewPeek(data);
     case "contacts":

@@ -14,7 +14,8 @@ vi.mock("@/lib/adminAlerts/upsertAdminAlert", () => ({
 }));
 
 import { HomeSection } from "@/components/crew/sections/HomeSection";
-import { TravelSection } from "@/components/crew/sections/TravelSection";
+import { HotelsSection } from "@/components/crew/sections/HotelsSection";
+import { TransportSection } from "@/components/crew/sections/TransportSection";
 import { VenueSection } from "@/components/crew/sections/VenueSection";
 import { ContactsSection } from "@/components/crew/sections/ContactsSection";
 import { GearSection } from "@/components/crew/sections/GearSection";
@@ -116,21 +117,21 @@ test("rooms fetch error: admin sees degraded block, crew sees omission, no upser
 });
 
 // ---------------------------------------------------------------------------
-// hotel → admin degraded / crew omission (Travel Hotels; gate = isAdmin)
+// hotel → admin degraded / crew omission (the Hotels section, PR B Task 9; gate = isAdmin)
 // ---------------------------------------------------------------------------
 test("hotel fetch error: admin sees degraded block, crew sees omission", () => {
   upsertSpy.mockClear();
   const data = makeShowForViewer(err("hotel"));
 
   const admin = render(
-    <TravelSection {...ledgerProp()} data={data} viewer={ADMIN} today={TODAY} showId={SHOW_ID} />,
+    <HotelsSection {...ledgerProp()} data={data} viewer={ADMIN} today={TODAY} showId={SHOW_ID} />,
   );
   const block = admin.container.querySelector('[data-testid="section-tile-error-hotel"]');
   expect(block).not.toBeNull();
   assertHumanReadable(block!.textContent ?? "");
 
   const crew = render(
-    <TravelSection {...ledgerProp()} data={data} viewer={CREW} today={TODAY} showId={SHOW_ID} />,
+    <HotelsSection {...ledgerProp()} data={data} viewer={CREW} today={TODAY} showId={SHOW_ID} />,
   );
   // hotel gate is admin-only → crew never sees the degraded block (gate false).
   expect(crew.container.querySelector('[data-testid="section-tile-error-hotel"]')).toBeNull();
@@ -185,7 +186,13 @@ test("transportation fetch error: admin sees degraded; assigned crew sees degrad
   const data = withBench(err("transportation"));
 
   const admin = render(
-    <TravelSection {...ledgerProp()} data={data} viewer={ADMIN} today={TODAY} showId={SHOW_ID} />,
+    <TransportSection
+      {...ledgerProp()}
+      data={data}
+      viewer={ADMIN}
+      today={TODAY}
+      showId={SHOW_ID}
+    />,
   );
   const block = admin.container.querySelector('[data-testid="section-tile-error-transportation"]');
   expect(block).not.toBeNull();
@@ -193,7 +200,7 @@ test("transportation fetch error: admin sees degraded; assigned crew sees degrad
 
   // Gate NOT satisfied for unassigned crew → neither data NOR a degraded block.
   const unassigned = render(
-    <TravelSection
+    <TransportSection
       {...ledgerProp()}
       data={data}
       viewer={UNASSIGNED}
@@ -204,7 +211,7 @@ test("transportation fetch error: admin sees degraded; assigned crew sees degrad
   expect(
     unassigned.container.querySelector('[data-testid="section-tile-error-transportation"]'),
   ).toBeNull();
-  expect(unassigned.container.querySelector('[data-testid="travel-getting-there"]')).toBeNull();
+  expect(unassigned.container.querySelector('[data-card-id="travel-getting-there"]')).toBeNull();
 
   expect(upsertSpy).toHaveBeenCalledTimes(0);
 });
@@ -342,10 +349,10 @@ test("admin can distinguish fetch-error from absence — financials", () => {
 test("successful transportation (no error) renders data for assignee, not a degraded block", () => {
   const data = makeShowForViewer({ transportation: TRANSPORT, tileErrors: {} });
   const crew = render(
-    <TravelSection {...ledgerProp()} data={data} viewer={CREW} today={TODAY} showId={SHOW_ID} />,
+    <TransportSection {...ledgerProp()} data={data} viewer={CREW} today={TODAY} showId={SHOW_ID} />,
   );
   expect(
     crew.container.querySelector('[data-testid="section-tile-error-transportation"]'),
   ).toBeNull();
-  expect(crew.container.querySelector('[data-testid="travel-getting-there"]')).not.toBeNull();
+  expect(crew.container.querySelector('[data-card-id="travel-getting-there"]')).not.toBeNull();
 });

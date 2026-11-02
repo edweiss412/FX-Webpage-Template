@@ -18,12 +18,7 @@ import { buildSearchIndex } from "@/lib/search/buildSearchIndex";
 import { SECTION_BUILDERS, type SectionBuildInput } from "@/lib/search/sections";
 import type { SearchEntry } from "@/lib/search/types";
 import { premise, premiseHolds } from "@/tests/_shared/premise";
-import {
-  ALL_CASES,
-  crewNoTransport,
-  fullContent,
-  leadWithFinancials,
-} from "@/tests/search/_viewerMatrix";
+import { ALL_CASES, adminViewer, crewNoTransport, fullContent } from "@/tests/search/_viewerMatrix";
 
 const INDEX_ORDER: readonly SectionId[] = ["today", ...CREW_SECTION_IDS];
 
@@ -61,13 +56,15 @@ function stubBuilders(): Map<SectionId, SectionBuildInput[]> {
 
 describe("composition", () => {
   test("concatenates every builder in ['today', ...CREW_SECTION_IDS] order when every section is listed", () => {
+    // The admin case: from PR B Task 9 a crew lead with no flight and no ride is
+    // not listed Transport, so the case that lists every section is the admin's.
     premiseHolds(
-      "the lead case lists every section",
-      CREW_SECTION_IDS.every((id) => leadWithFinancials.sections.includes(id)),
+      "the admin case lists every section",
+      CREW_SECTION_IDS.every((id) => adminViewer.sections.includes(id)),
     );
     const calls = stubBuilders();
 
-    const index = buildSearchIndex(leadWithFinancials);
+    const index = buildSearchIndex(adminViewer);
 
     expect(index.entries.map((e) => e.id)).toEqual(
       INDEX_ORDER.flatMap((id) => [`${id}:marker:2`, `${id}:marker:1`]),
@@ -77,9 +74,9 @@ describe("composition", () => {
     for (const id of INDEX_ORDER) {
       const seen = calls.get(id) ?? [];
       expect(seen).toHaveLength(1);
-      expect(seen[0]!.data).toBe(leadWithFinancials.data);
-      expect(seen[0]!.viewer).toBe(leadWithFinancials.viewer);
-      expect(seen[0]!.today).toBe(leadWithFinancials.today);
+      expect(seen[0]!.data).toBe(adminViewer.data);
+      expect(seen[0]!.viewer).toBe(adminViewer.viewer);
+      expect(seen[0]!.today).toBe(adminViewer.today);
       expect(seen[0]!.billingVisible).toBe(true);
       expect(seen[0]!.staticPreview).toBe(false);
     }
@@ -87,15 +84,16 @@ describe("composition", () => {
 
   test("leaves Billing out, without calling its builder, when Billing is not listed", () => {
     premiseHolds(
-      "the crew case does not list Billing",
-      !crewNoTransport.sections.includes("billing"),
+      "the crew case does not list Billing, nor (no flight, no ride) Transport",
+      !crewNoTransport.sections.includes("billing") &&
+        !crewNoTransport.sections.includes("transport"),
     );
     const calls = stubBuilders();
 
     const index = buildSearchIndex(crewNoTransport);
 
     expect([...new Set(index.entries.map((e) => e.section))]).toEqual(
-      INDEX_ORDER.filter((id) => id !== "billing"),
+      INDEX_ORDER.filter((id) => id !== "billing" && id !== "transport"),
     );
     expect(calls.has("billing")).toBe(false);
   });

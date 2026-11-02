@@ -108,6 +108,34 @@ function fullData(): ShowForViewer {
     financials: { po: "PO-9", proposal: "PR-9", invoice: "INV-9", invoice_notes: "Net 9" },
     // The Contacts section draws its panel card only over contacts (PR B Task 7).
     contacts: [{ kind: "venue", name: "Vic Venue", email: null, phone: "555-0120", notes: null }],
+    // Hotels and Transport draw theirs only over a reservation and a transport row
+    // (PR B Task 9); the admin passes the transport gate.
+    hotelReservations: [
+      {
+        ordinal: 0,
+        hotel_name: "Harbor Inn",
+        hotel_address: null,
+        names: [],
+        confirmation_no: null,
+        check_in: null,
+        check_out: null,
+        notes: null,
+      },
+    ],
+    transportation: {
+      driver_name: "Dee Driver",
+      driver_phone: null,
+      driver_email: null,
+      loadout_name: null,
+      loadout_phone: null,
+      loadout_email: null,
+      vehicle: null,
+      license_plate: null,
+      color: null,
+      parking: null,
+      schedule: [],
+      notes: null,
+    },
   });
 }
 

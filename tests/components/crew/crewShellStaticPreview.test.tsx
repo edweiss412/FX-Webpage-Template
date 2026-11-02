@@ -336,7 +336,17 @@ describe("staged adapter output through the REAL CrewShell", () => {
     });
 
     expect(sectionKeys().sort()).toEqual(
-      ["billing", "contacts", "crew", "gear", "schedule", "today", "travel", "venue"].sort(),
+      [
+        "billing",
+        "contacts",
+        "crew",
+        "gear",
+        "hotels",
+        "schedule",
+        "today",
+        "transport",
+        "venue",
+      ].sort(),
     );
 
     const text = container.textContent ?? "";

@@ -17,7 +17,8 @@ export const CREW_SECTION_IDS = [
   "crew",
   "contacts",
   "schedule",
-  "travel",
+  "hotels",
+  "transport",
   "gear",
   "billing",
 ] as const;
@@ -34,6 +35,9 @@ export type SectionId = "today" | (typeof CREW_SECTION_IDS)[number];
 export const LEGACY_SECTION_ALIASES: Readonly<Record<string, (typeof CREW_SECTION_IDS)[number]>> = {
   // PR B plan Task 4: the lead-only money section moved to the registry's id.
   budget: "billing",
+  // PR B plan Task 9: Travel split into Hotels and Transport; an old Travel link
+  // opens Hotels, the section every viewer is listed (spec line 242).
+  travel: "hotels",
 };
 
 /**

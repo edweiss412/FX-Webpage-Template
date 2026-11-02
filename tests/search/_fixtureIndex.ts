@@ -148,32 +148,10 @@ export const FIXTURE_INDEX: SearchIndex = {
       label: null,
       value: "Grand Ballroom floor plan",
     },
-    // Travel
+    // Hotels (PR B Task 9: the Hotels card of the retired Travel section)
+    { section: "hotels", region: "travel-hotels", group: "Hotels", label: null, value: HYATT },
     {
-      section: "travel",
-      region: "travel-flight",
-      group: "Your flight",
-      label: null,
-      value: "UA 1452 ORD to LGA, 7:05 PM",
-    },
-    {
-      section: "travel",
-      region: "travel-flight",
-      group: "Your flight",
-      label: "Confirmation",
-      value: "QX7RTP",
-      copy: { kind: "flightConfirmation", text: "QX7RTP" },
-    },
-    {
-      section: "travel",
-      region: "travel-getting-there",
-      group: "Getting there",
-      label: "Load out",
-      value: "Truck departs 11:00 PM from the Balbo Dr entrance",
-    },
-    { section: "travel", region: "travel-hotels", group: "Hotels", label: null, value: HYATT },
-    {
-      section: "travel",
+      section: "hotels",
       region: "travel-hotels",
       group: "Hotels",
       label: "Check-in",
@@ -181,13 +159,36 @@ export const FIXTURE_INDEX: SearchIndex = {
       context: [HYATT],
     },
     {
-      section: "travel",
+      section: "hotels",
       region: "travel-hotels",
       group: "Hotels",
       label: "Confirmation",
       value: "83920174",
       context: [HYATT],
       copy: { kind: "hotelConfirmation", text: "83920174" },
+    },
+    // Transport (PR B Task 9: Your flight and Getting there, now "Transport")
+    {
+      section: "transport",
+      region: "travel-flight",
+      group: "Your flight",
+      label: null,
+      value: "UA 1452 ORD to LGA, 7:05 PM",
+    },
+    {
+      section: "transport",
+      region: "travel-flight",
+      group: "Your flight",
+      label: "Confirmation",
+      value: "QX7RTP",
+      copy: { kind: "flightConfirmation", text: "QX7RTP" },
+    },
+    {
+      section: "transport",
+      region: "travel-getting-there",
+      group: "Transport",
+      label: "Load out",
+      value: "Truck departs 11:00 PM from the Balbo Dr entrance",
     },
     // Crew
     {

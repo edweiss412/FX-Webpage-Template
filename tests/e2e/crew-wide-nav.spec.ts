@@ -54,6 +54,7 @@ import { join } from "node:path";
 import { test, expect, type Page } from "@playwright/test";
 import { CREW_SECTION_LABELS, type CrewSectionId } from "@/lib/crew/crewSections";
 import { CREW_SECTION_IDS } from "@/lib/crew/resolveActiveSection";
+import { showSection } from "@/lib/showSections/registry";
 import { SCROLL_SPY_OFFSET_PX, activeSectionFor } from "@/lib/ui/scrollSpy";
 import { ADMIN_FIXTURE } from "./helpers/fixtures";
 import { signInAs, signOut } from "./helpers/signInAs";
@@ -356,8 +357,8 @@ test.describe("crew wide nav (spec §5.3)", () => {
     await load(page, "?s=today");
     const indicator = page.getByTestId("crew-wide-nav-indicator");
     await expect(indicator).toHaveCount(1);
-    await navItem(page, "travel").click();
-    await expect(navItem(page, "travel")).toHaveAttribute("aria-current", "true");
+    await navItem(page, "hotels").click();
+    await expect(navItem(page, "hotels")).toHaveAttribute("aria-current", "true");
     await expect
       .poll(async () =>
         page.evaluate(() => {
@@ -1430,6 +1431,159 @@ test.describe("billing: the budget alias, wide (PR B Task 4)", () => {
       await expect(navItem(page, "billing"), s).toHaveCount(0);
       expect(await page.evaluate(() => window.scrollY), s).toBe(0);
       expect(await page.content(), s).not.toContain(PO);
+    }
+  });
+});
+
+/**
+ * PR B plan Task 9: the `travel` alias in the wide layout (spec §5.1 "Legacy
+ * ids"), and every PR A id landing where it lands now. A plain admin on the share
+ * route, entitled to every section. The new ids are spelled as strings and their
+ * labels read from the show section registry, a moved section's label source, so
+ * these cases typecheck before the crew id union carries `hotels`.
+ */
+test.describe("hotels and transport: the travel alias, wide (PR B Task 9)", () => {
+  test.setTimeout(180_000);
+
+  const HOTELS_LABEL = showSection("hotels").label;
+  const HOTEL_NAME = "Wide Larkspur Inn";
+  const GUEST = "Wade Wideguest";
+  let seeded: Awaited<ReturnType<typeof seedShowWithCrew>>;
+
+  test.beforeAll(async () => {
+    seeded = await seedShowWithCrew({
+      title: "Hotels Transport Wide Show",
+      dates: {
+        travelIn: "2026-04-19",
+        set: "2026-04-20",
+        showDays: ["2026-04-21", "2026-04-22"],
+        travelOut: "2026-04-23",
+      },
+      crew: [{ name: GUEST, role: "A1" }],
+      hotelReservations: [
+        {
+          ordinal: 1,
+          hotelName: HOTEL_NAME,
+          hotelAddress: "12 Wharf Row",
+          checkIn: "2026-04-19",
+          checkOut: "2026-04-23",
+          names: [GUEST],
+        },
+      ],
+      transportation: {
+        driverName: "Wendell Axle",
+        vehicle: "Silver Sprinter",
+        schedule: [
+          {
+            stage: "Shuttle to the venue",
+            date: "2026-04-21",
+            time: "7:00am",
+            assigned_names: [GUEST],
+          },
+        ],
+      },
+    });
+  });
+
+  test.afterAll(async () => {
+    if (seeded) await deleteSeededShow(seeded.driveFileId);
+  });
+
+  test.beforeEach(async ({ page }) => {
+    await page.setExtraHTTPHeaders({
+      "X-Screenshot-Frozen-Now": SHOW_DAY_N_INSTANT,
+      Authorization: `Bearer ${TEST_AUTH_SECRET}`,
+    });
+    await page.clock.setFixedTime(new Date(SHOW_DAY_N_INSTANT));
+    await page.setViewportSize(WIDE);
+    await signOut(page);
+    await signInAs(page, ADMIN_FIXTURE);
+  });
+
+  /** The share route, where the signed-in admin views the show as an admin. */
+  function share(): string {
+    return `/show/${seeded.slug}/${seeded.shareToken}`;
+  }
+
+  async function loadWide(page: Page, path: string) {
+    const res = await page.goto(path, { waitUntil: "domcontentloaded" });
+    expect(res?.status(), `${path} must render`).toBe(200);
+    const root = page.getByTestId("crew-shell-sections");
+    await expect(root).toHaveAttribute("data-crew-controller-ready", "true", { timeout: 30_000 });
+    await expect(root).toHaveAttribute("data-crew-mode", "wide");
+  }
+
+  const navItem = (page: Page, id: string) =>
+    page.getByTestId("crew-wide-nav").locator(`[data-section="${id}"]`);
+
+  test("hotels: ?s=travel lands on Hotels for an admin", async ({ page }) => {
+    await loadWide(page, `${share()}?s=travel`);
+    const stacked = page.locator('[data-testid="crew-wide-section"][data-section="hotels"]');
+    await expect(stacked).toContainText(HOTEL_NAME);
+    await expect(navItem(page, "hotels")).toHaveAttribute("aria-current", "true", {
+      timeout: 5000,
+    });
+    await expect(navItem(page, "hotels")).toHaveText(HOTELS_LABEL);
+    // One section replaced by two: no Travel item or stacked Travel section is left.
+    await expect(navItem(page, "travel")).toHaveCount(0);
+    await expect(
+      page.locator('[data-testid="crew-wide-section"][data-section="travel"]'),
+    ).toHaveCount(0);
+    await expect.poll(() => page.evaluate(() => window.scrollY)).toBeGreaterThan(0);
+  });
+
+  test("hotels and transport: every PR A section id lands on its section, or at the top on Today, in wide", async ({
+    page,
+  }) => {
+    // The historical union at lib/crew/resolveActiveSection.ts:1 as of 7e927e927,
+    // each with the nav item it lands on now.
+    const PR_A_IDS: ReadonlyArray<readonly [string, string]> = [
+      ["today", "today"],
+      ["schedule", "schedule"],
+      ["venue", "venue"],
+      ["travel", "hotels"],
+      ["crew", "crew"],
+      ["gear", "gear"],
+      ["budget", "billing"],
+    ];
+    for (const [s, lands] of PR_A_IDS) {
+      await loadWide(page, `${share()}?s=${s}`);
+      if (lands === "today") {
+        await expect(navItem(page, lands), s).toHaveAttribute("aria-current", "true", {
+          timeout: 5000,
+        });
+        await expect.poll(() => page.evaluate(() => window.scrollY), { message: s }).toBe(0);
+        continue;
+      }
+      await expect(
+        page.locator(`[data-testid="crew-wide-section"][data-section="${lands}"]`),
+        s,
+      ).toHaveCount(1);
+      // Landed: the section's top sits at its scroll margin below the viewport top
+      // (scrollWide's target), unless the page ran out of room first. A short
+      // section near the end (Gear on this show) cannot reach the top, and the
+      // scroll-spy then names the last section in view, so the nav's current item
+      // is not the landing's evidence here; where the section is.
+      await expect
+        .poll(
+          () =>
+            page.evaluate((id) => {
+              const el = document.querySelector(
+                `[data-testid="crew-wide-section"][data-section="${id}"]`,
+              );
+              if (!(el instanceof HTMLElement)) return "missing";
+              const top = el.getBoundingClientRect().top;
+              const margin = parseFloat(getComputedStyle(el).scrollMarginTop || "0");
+              const atEnd =
+                window.scrollY + window.innerHeight >= document.documentElement.scrollHeight - 1;
+              return Math.abs(top - margin) <= 1 ||
+                (atEnd && top >= margin - 1 && top < window.innerHeight)
+                ? "landed"
+                : `top ${top}, margin ${margin}, scrollY ${window.scrollY}`;
+            }, lands),
+          { message: s },
+        )
+        .toBe("landed");
     }
   });
 });

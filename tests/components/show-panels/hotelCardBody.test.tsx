@@ -293,3 +293,72 @@ describe("the admin renders hotel cards through the shared body (spec line 289)"
     expect(screen.getByText("…and 2 more hotels")).toBeInTheDocument();
   });
 });
+
+describe("HotelCardBody crew props (PR B Task 9: the crew keeps exactly the fields it shows today)", () => {
+  const squash = (s: string | null | undefined) => (s ?? "").replace(/\s+/g, " ").trim();
+
+  test("placeholders false: a nameless hotel has no name line and is never called 'Hotel'; the default keeps the admin's 'Hotel'", () => {
+    const nameless = { ...HOTEL, hotel_name: null };
+    const crew = card({ hotel: nameless, placeholders: false });
+    expect(crew).not.toHaveTextContent(/^Hotel|\bHotel\b/);
+    expect(crew.querySelector("#hotel-name-id")).toBeNull();
+    expect(crew.hasAttribute("aria-labelledby")).toBe(false);
+    // Its other fields stay.
+    expect(crew).toHaveTextContent(HOTEL.hotel_address!);
+    cleanup();
+    const admin = card({ hotel: nameless });
+    expect(admin.querySelector("#hotel-name-id")?.textContent).toBe("Hotel");
+  });
+
+  test("placeholders false: a stay with one end shows that end alone, no 'Not listed' and no connector; the default says 'Not listed'", () => {
+    const oneEnd = { ...HOTEL, check_out: null };
+    const crew = card({ hotel: oneEnd, placeholders: false });
+    expect(crew.querySelector('[data-testid="hotel-stay-check-in"]')).not.toBeNull();
+    expect(crew.querySelector('[data-testid="hotel-stay-check-out"]')).toBeNull();
+    expect(crew).not.toHaveTextContent("Not listed");
+    expect(crew.querySelector('[class*="before:border-t"]')).toBeNull();
+    cleanup();
+    const admin = card({ hotel: oneEnd });
+    expect(admin.querySelector('[data-testid="hotel-stay-check-out"]')).toHaveTextContent(
+      "Not listed",
+    );
+  });
+
+  test("targets: each shown line carries its own target, the night count is skipped, and without targets the body emits no marker", () => {
+    const targets = {
+      name: "t-name",
+      address: "t-address",
+      checkIn: "t-in",
+      checkOut: "t-out",
+      confirmation: "t-conf",
+      notes: "t-notes",
+    };
+    const root = card({ showConfirmation: true, showNotes: true, targets });
+    const at = (id: string) => root.querySelector(`[data-search-target="${id}"]`);
+    expect(squash(at("t-name")?.textContent)).toBe(HOTEL.hotel_name);
+    expect(squash(at("t-address")?.textContent)).toBe(HOTEL.hotel_address);
+    expect(at("t-in")).toBe(root.querySelector('[data-testid="hotel-stay-check-in"]'));
+    expect(at("t-out")).toBe(root.querySelector('[data-testid="hotel-stay-check-out"]'));
+    expect(squash(at("t-conf")?.textContent)).toBe(`Confirmation${HOTEL.confirmation_no}`);
+    expect(squash(at("t-notes")?.textContent)).toBe(`Notes${HOTEL.notes}`);
+    const nights = root.querySelector('[data-testid="hotel-stay-nights"]');
+    premiseHolds("the stay has a night count", nights !== null);
+    expect(nights!.closest("[data-search-skip]")).not.toBeNull();
+    cleanup();
+    expect(
+      card({ showConfirmation: true, showNotes: true }).querySelector(
+        "[data-search-target], [data-search-skip], [data-search-group]",
+      ),
+    ).toBeNull();
+  });
+
+  test("targets: a stay end's text reads as words (label, day, month, weekday), so its line can be indexed", () => {
+    const root = card({ targets: { checkIn: "t-in", checkOut: "t-out" } });
+    expect(squash(root.querySelector('[data-search-target="t-in"]')?.textContent)).toBe(
+      "Check in 10 Apr Friday",
+    );
+    expect(squash(root.querySelector('[data-search-target="t-out"]')?.textContent)).toBe(
+      "Check out 13 Apr Monday",
+    );
+  });
+});

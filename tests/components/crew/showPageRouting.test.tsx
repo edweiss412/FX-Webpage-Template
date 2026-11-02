@@ -83,6 +83,13 @@ describe("buildShowReturnUrl", () => {
     );
   });
 
+  test('the old "travel" is written as "hotels", and a gate it was given is kept (PR B Task 9)', () => {
+    expect(buildShowReturnUrl(SLUG, TOKEN, { s: "travel" })).toBe(`${BASE}?s=hotels`);
+    expect(buildShowReturnUrl(SLUG, TOKEN, { s: "travel", gate: "skip" })).toBe(
+      `${BASE}?s=hotels&gate=skip`,
+    );
+  });
+
   test("every crew section id and today round-trip, with a gate exactly when the caller passes one", () => {
     premise("crew section ids", CREW_SECTION_IDS.length, 0);
     for (const id of ["today", ...CREW_SECTION_IDS]) {

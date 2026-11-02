@@ -173,6 +173,9 @@ const CONTACTS = "components/crew/sections/ContactsSection.tsx";
 const HOTEL_CARD_BODY = "components/show-panels/HotelCardBody.tsx";
 const TRANSPORT_BODY = "components/show-panels/TransportBody.tsx";
 const MINI_AVATAR = "components/show-panels/MiniAvatar.tsx";
+// PR B plan Task 9: the crew Hotels and Transport sections that replace Travel.
+const HOTELS = "components/crew/sections/HotelsSection.tsx";
+const TRANSPORT = "components/crew/sections/TransportSection.tsx";
 
 const COMPACT_E2E = "tests/e2e/crew-section-toggle.spec.ts";
 const WIDE_E2E = "tests/e2e/crew-wide-nav.spec.ts";
@@ -918,12 +921,21 @@ const CONDITIONAL_RENDERS: Record<string, { presences: number; renders: Conditio
     presences: 0,
     renders: [
       // A stay end: "Not listed", a non-ISO value echoed, or the date stub.
-      { match: "{parts === null ? (", treatment: T.serverPresence },
-      { match: ') : parts.kind === "raw" ? (', treatment: T.serverPresence },
+      { match: '{end.kind === "missing" ? (', treatment: T.serverPresence },
+      { match: ') : end.kind === "raw" ? (', treatment: T.serverPresence },
+      // PR B Task 9: without placeholders (crew) a blank name has no line, and the
+      // name block itself renders only when it holds a name or an address.
+      { match: "{name !== null || address ? (", treatment: T.serverPresence },
+      { match: "{name !== null ? (", treatment: T.serverPresence },
       { match: "{address ? (", treatment: T.serverPresence },
-      { match: "{showDates ? (", treatment: T.serverPresence },
+      // The stub renders when either end does; without placeholders a missing end
+      // and the connector beside it do not.
+      { match: "{checkIn !== null || checkOut !== null ? (", treatment: T.serverPresence },
+      { match: "{checkIn !== null ? (", treatment: T.serverPresence },
+      { match: "{checkIn !== null && checkOut !== null ? (", treatment: T.serverPresence },
       { match: "{nights !== null ? (", treatment: T.serverPresence },
       { match: '{nights} {nights === 1 ? "night" : "nights"}', treatment: T.serverPresence },
+      { match: "{checkOut !== null ? (", treatment: T.serverPresence },
       { match: "{confirmation !== null || notes !== null ? (", treatment: T.serverPresence },
       { match: "{confirmation !== null ? (", treatment: T.serverPresence },
       { match: "{notes !== null ? (", treatment: T.serverPresence },
@@ -940,18 +952,55 @@ const CONDITIONAL_RENDERS: Record<string, { presences: number; renders: Conditio
       { match: "{email !== null ? (", treatment: T.serverPresence },
       { match: "mailtoHref !== null ? (", treatment: T.serverPresence },
       { match: "{cellCount > 0 ? (", treatment: T.serverPresence },
-      { match: "{hasDriver ? (", treatment: T.serverPresence },
-      { match: "{hasLoadout ? (", treatment: T.serverPresence },
-      { match: "{hasVehicle ? (", treatment: T.serverPresence },
-      { match: "{vehicle !== null ? (", treatment: T.serverPresence },
-      { match: "{hasParking ? (", treatment: T.serverPresence },
+      { match: "{driver !== null ? (", treatment: T.serverPresence },
+      { match: "{loadout !== null ? (", treatment: T.serverPresence },
+      { match: "{vehicleCell !== null ? (", treatment: T.serverPresence },
+      { match: "{vehicleCell.vehicle !== null ? (", treatment: T.serverPresence },
+      { match: "{parking !== null ? (", treatment: T.serverPresence },
       { match: "{routeLegs.length > 0 ? (", treatment: T.serverPresence },
+      // PR B Task 9: a crew leg kept without a stage draws no stage line.
+      { match: "{leg.stage !== null ? (", treatment: T.serverPresence },
       { match: "{leg.when ? (", treatment: T.serverPresence },
       { match: "{leg.names.length > 0 ? (", treatment: T.serverPresence },
-      { match: "{notes !== null ? <p", treatment: T.serverPresence },
+      { match: "{notes !== null ? (", treatment: T.serverPresence },
     ],
   },
   [MINI_AVATAR]: { presences: 0, renders: [] },
+  [HOTELS]: {
+    presences: 0,
+    renders: [
+      // The admin-only fetch-failure block, the section's empty state, the card.
+      {
+        match: '{hotelFetchFailed ? <SectionTileError domain="hotel" /> : null}',
+        treatment: T.serverPresence,
+      },
+      { match: "{!hasHotels && !hotelFetchFailed ? (", treatment: T.serverPresence },
+      { match: "{hasHotels ? (", treatment: T.serverPresence },
+    ],
+  },
+  [TRANSPORT]: {
+    presences: 0,
+    renders: [
+      // The fetch-failure block, Your flight (moved verbatim from Travel), the
+      // section's empty state and the Transport card.
+      {
+        match: '{transportFetchFailed ? <SectionTileError domain="transportation" /> : null}',
+        treatment: T.serverPresence,
+      },
+      { match: "{showFlight ? (", treatment: T.serverPresence },
+      { match: "{row.structured ? (", treatment: T.serverPresence },
+      { match: "{dateLabel || isNext ? (", treatment: T.serverPresence },
+      { match: "{dateLabel ? <span>{dateLabel}</span> : null}", treatment: T.serverPresence },
+      { match: "{isNext ? (", treatment: T.serverPresence },
+      { match: "{carrier ? (", treatment: T.serverPresence },
+      { match: "{carrier && route ? (", treatment: T.serverPresence },
+      { match: "{seg.depTime && seg.arrTime ? (", treatment: T.serverPresence },
+      { match: "{conf ? (", treatment: T.serverPresence },
+      { match: "{flight.confirmation !== null ? (", treatment: T.serverPresence },
+      { match: "{allHidden && !transportFetchFailed ? (", treatment: T.serverPresence },
+      { match: "{panel !== null && hasTransport ? (", treatment: T.serverPresence },
+    ],
+  },
   [CONTACTS]: {
     presences: 0,
     renders: [

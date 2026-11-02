@@ -46,8 +46,12 @@ export const REQUIRED = {
   // 31 since the crew page redesign PR B's Task 4 added three "billing" cases (?s=budget
   // opens Billing for a lead preview, Back then Forward over an s=budget entry, a
   // non-lead's ?s=budget and ?s=billing land home). Counted from the observed
+  // mobile-safari run. 38 since PR B's Task 9 added seven "hotels"/"transport"
+  // cases (?s=travel opens Hotels, Back then Forward over an s=travel entry, the
+  // flight-only viewer's Transport, the viewer with neither, the date-suppressed
+  // Hotels, the "leaves" time line, every PR A id). Counted from the observed
   // mobile-safari run.
-  "crew-section-toggle.spec.ts": 31,
+  "crew-section-toggle.spec.ts": 38,
   "picker-flow.spec.ts": 7,
   "alert-action-links.spec.ts": 4,
   // 3 SFS-1 cases + 3 seeded agenda-fold cases.
@@ -135,8 +139,10 @@ export const REQUIRED = {
   // guard's live Playwright resolution (26). Twenty-eight since the crew page
   // redesign PR B's Task 4 added two "billing" cases (?s=budget lands on Billing for
   // a lead preview; a non-lead's ?s=budget and ?s=billing land at the top on Today).
+  // Counted from the observed desktop-chromium run. Thirty since PR B's Task 9 added
+  // two (?s=travel lands on Hotels; every PR A id lands on its section or Today).
   // Counted from the observed desktop-chromium run.
-  "crew-wide-nav.spec.ts": 28,
+  "crew-wide-nav.spec.ts": 30,
   // 9, and the number is the MATRIX rather than a multiple (plan
   // 2026-08-09-quick-wins-2 "e2e harness readiness"). theme-toggle runs two arms:
   //   arm (a) — 4 standalone-toggle cases, BOTH projects            = 8
@@ -180,8 +186,9 @@ export const REQUIRED = {
   // ("Total: 8 tests in 1 file"), not from arithmetic. Re-derive with --list after
   // adding or removing a case. 12 since review repair R1-F1 added two cases at each
   // viewport (a Today run-of-show result reveals its line after the viewer picked
-  // another day, and after the device clock passed midnight).
-  "crew-search.spec.ts": 12,
+  // another day, and after the device clock passed midnight). 14 since PR B's Task 9
+  // added one at each viewport (a hotel-name result reveals its line in Hotels).
+  "crew-search.spec.ts": 14,
   // The census, across mobile-safari + desktop-chromium. The checker enforces
   // `executed >= min`, so THE NUMBER IS THE GUARD: a row of 1 would let every
   // case but one skip while CI stayed green, which is exactly what the registry

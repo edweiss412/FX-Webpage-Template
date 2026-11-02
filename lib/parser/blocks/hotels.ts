@@ -339,7 +339,7 @@ export function parseGuestCell(cell: string): {
  *
  * Also strips artifacts the live cells carry that the exporter preserves so the
  * crew render stays clean (hotel_name = bold line, hotel_address = subtle line,
- * TravelSection): ria wraps its address in literal double-quotes; fintech's
+ * HotelsSection): ria wraps its address in literal double-quotes; fintech's
  * Holiday Inn embeds U+200C ZWNJ. Conf# removal is the caller's job — run
  * stripConfTokens FIRST so a "<dash> #<digits>" run can't masquerade as a street
  * number (the leading-\s anchor below already rejects a "#5001397" with no

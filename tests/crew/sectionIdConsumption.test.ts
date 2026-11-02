@@ -268,7 +268,11 @@ describe("CREW_SECTION_IDS and the always table are read where they are used", (
     const reversed = await withReversedIds();
     const { crewSectionsFor } = await import("@/lib/crew/crewSections");
     const data: ShowForViewer = makeShowForViewer();
-    const ids = crewSectionsFor(data, { viewerFlags: [], isAdmin: true }).map((s) => s.id);
+    const ids = crewSectionsFor(data, {
+      viewerFlags: [],
+      isAdmin: true,
+      dateRestriction: { kind: "none" },
+    }).map((s) => s.id);
     expect(ids).toEqual(reversed);
   });
 

@@ -54,6 +54,10 @@ export const RETIRED_IDENTIFIERS = [
   // Crew page redesign PR B, Task 4: the lead-only money section is
   // components/crew/sections/BillingSection.tsx, on the shared Billing body.
   "BudgetSection",
+  // Crew page redesign PR B, Task 9: Travel split into
+  // components/crew/sections/HotelsSection.tsx and TransportSection.tsx, on the
+  // shared hotel card and Transport bodies.
+  "TravelSection",
 ] as const;
 
 /**
@@ -366,6 +370,75 @@ export const RETIRED_IDENTIFIER_EXEMPTIONS: readonly ExemptionRow[] = [
     text: "// module BudgetSection renders from. Already a member through travelRows.ts,",
     reason:
       "A dated population-join record (crew search Task 6) explaining why lib/search/entryId.ts joined nothing then; the file it names was current when the record was written.",
+  },  {
+    kind: "line",
+    file: "tests/help/_metaRenderFaultMarking.test.ts",
+    text: "//   components/crew/sections/TravelSection.tsx 700/701 -> 484/485 (-216: the row",
+    reason:
+      "A dated digest-regeneration record (crew search, the Travel section task): it names the input that moved, in the file it lived in then. The PR B Task 9 record below it names that file's successors.",
+  },
+  {
+    kind: "line",
+    file: "tests/help/_metaRenderFaultMarking.test.ts",
+    text: "// its own base (6c20e86f... -> 242e037f..., three line moves in TravelSection and",
+    reason:
+      "A dated digest-regeneration record of a merge base: the file it names was current when the record was written.",
+  },
+  {
+    kind: "line",
+    file: "tests/help/_metaRenderFaultMarking.test.ts",
+    text: "//   components/crew/sections/TravelSection.tsx:485 -> components/crew/sections/HotelsSection.tsx:87",
+    reason:
+      "The PR B Task 9 digest-regeneration record: mapping this row back to the retired file's line is how the regenerated digest is proven to move exactly two inputs.",
+  },
+  {
+    kind: "line",
+    file: "tests/help/_metaRenderFaultMarking.test.ts",
+    text: "//   components/crew/sections/TravelSection.tsx:484 -> components/crew/sections/TransportSection.tsx:131",
+    reason:
+      "The PR B Task 9 digest-regeneration record, its second mapped row (see the row above).",
+  },
+  {
+    kind: "line",
+    file: "tests/help/_metaServerTimeGuard.test.ts",
+    text: "// the Travel row derivations TravelSection renders from. A content hash and a",
+    reason:
+      "A dated population-join record (crew search): it explains why a module joined then, naming the file that rendered it at the time.",
+  },
+  {
+    kind: "line",
+    file: "tests/help/_renderFaultScan.ts",
+    text: "// 747 -> 743 on the crew search Travel section task: TravelSection's",
+    reason:
+      "A dated re-probe record of the ternary count (crew search): it names the file whose ternaries moved then.",
+  },
+  {
+    kind: "line",
+    file: "scripts/audit-cn-operand-kinds.mjs",
+    text: "[\"components/crew/sections/TravelSection.tsx\", 1],",
+    reason:
+      "The classname-array-join-cn arc's audit measures its own base commit (the script's header: the property is of the BASE COMMIT); this row is that base's census, where the file existed.",
+  },
+  {
+    kind: "line",
+    file: "scripts/audit-cn-operand-kinds.mjs",
+    text: "\"components/crew/sections/TravelSection.tsx\": [0],",
+    reason:
+      "The same base-commit census, its declared filtered sites (see the row above).",
+  },
+  {
+    kind: "line",
+    file: "scripts/verify-cn-operand-parity.mjs",
+    text: "[\"components/crew/sections/TravelSection.tsx\", 1],",
+    reason:
+      "The classname-array-join-cn arc's parity check against its base commit's census, where the file existed (the audit script's twin).",
+  },
+  {
+    kind: "line",
+    file: "scripts/verify-cn-operand-parity.mjs",
+    text: "\"components/crew/sections/TravelSection.tsx\": [0],",
+    reason:
+      "The same base-commit census, its declared filtered sites (see the row above).",
   },
 ];
 

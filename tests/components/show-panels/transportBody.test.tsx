@@ -269,3 +269,88 @@ describe("the admin renders transport through the shared body (spec line 289)", 
     expect(screen.getByRole("heading", { level: 4 })).toHaveTextContent("Transport (5)");
   });
 });
+
+describe("TransportBody crew props (PR B Task 9: the crew keeps exactly the fields it shows today)", () => {
+  const routeItems = (root: HTMLElement) =>
+    [...root.querySelectorAll("ol > li")].map((li) => (li.textContent ?? "").trim());
+
+  test("stagelessLegs keep: a leg with no stage stays on the route with its time line and riders, a leg with nothing does not; the default drops both", () => {
+    const transport: TransportationRow = {
+      ...TRANSPORT,
+      schedule: [
+        ...TRANSPORT.schedule,
+        { stage: "", date: "2026-04-11", time: "9:00 AM", assigned_names: ["Ann Lee"] },
+        { stage: "", date: null, time: null, assigned_names: [] },
+      ],
+    };
+    // A formatter that writes nothing for a leg with neither date nor time, as both
+    // surfaces' formatters do (the probe formatter always writes its brackets).
+    const legTime = (d: string | null, t: string | null) => [d, t].filter(Boolean).join(" ");
+    const keep = body({ transport, stagelessLegs: "keep", sentinels: "hide", legTime });
+    const items = routeItems(keep);
+    expect(items).toHaveLength(3);
+    expect(items[2]).toBe("2026-04-11 9:00 AMAnn Lee");
+    expect(
+      transportRouteLegs(transport, { ...BASE, legTime, sentinels: "hide", stagelessLegs: "keep" }),
+    ).toHaveLength(3);
+    cleanup();
+    expect(routeItems(body({ transport, sentinels: "hide", legTime }))).toHaveLength(2);
+  });
+
+  test("targets: each cell, leg and the notes carry their own target; the avatars and the Route eyebrow are skipped; without targets no marker", () => {
+    const targets = {
+      driver: "t-driver",
+      loadout: "t-loadout",
+      vehicle: "t-vehicle",
+      parking: "t-parking",
+      legs: ["t-leg-0", "t-leg-1"],
+      notes: "t-notes",
+    };
+    const root = body({ targets });
+    const at = (id: string) => root.querySelector(`[data-search-target="${id}"]`);
+    expect(at("t-driver")).toHaveTextContent(TRANSPORT.driver_name!);
+    expect(at("t-loadout")).toHaveTextContent(TRANSPORT.loadout_name!);
+    expect(at("t-vehicle")).toHaveTextContent(TRANSPORT.vehicle!);
+    expect(at("t-parking")).toHaveTextContent(TRANSPORT.parking!);
+    expect(at("t-leg-0")).toHaveTextContent("Load in");
+    expect(at("t-leg-1")).toHaveTextContent("Load out");
+    expect(at("t-notes")).toHaveTextContent(TRANSPORT.notes!);
+    // Every avatar (its initials are not sheet text) and the Route eyebrow are skipped.
+    const avatars = [...root.querySelectorAll('[aria-hidden="true"]')].filter(
+      (el) => (el.textContent ?? "").trim().length > 0,
+    );
+    premise("avatars with initials", avatars.length, 0);
+    for (const a of avatars) expect(a.closest("[data-search-skip]")).not.toBeNull();
+    const route = [...root.querySelectorAll("p")].find((p) => p.textContent === "Route");
+    expect(route?.closest("[data-search-skip]")).not.toBeNull();
+    cleanup();
+    expect(
+      body().querySelector("[data-search-target], [data-search-skip], [data-search-group]"),
+    ).toBeNull();
+  });
+});
+
+describe("TransportBody route line spacing (PR B Task 9)", () => {
+  test("a leg's first line takes no top margin: a stage-less crew leg's time line and a riders-only leg's names start at the top", () => {
+    const transport: TransportationRow = {
+      ...TRANSPORT,
+      schedule: [
+        { stage: "Load in", date: "2026-04-10", time: "7:00 AM", assigned_names: ["Ann Lee"] },
+        { stage: "", date: "2026-04-11", time: "9:00 AM", assigned_names: ["Bo Diaz"] },
+        { stage: "", date: null, time: null, assigned_names: ["Cy Ng"] },
+      ],
+    };
+    const legTime = (d: string | null, t: string | null) => [d, t].filter(Boolean).join(" ");
+    const root = body({ transport, stagelessLegs: "keep", sentinels: "hide", legTime });
+    const stacks = [...root.querySelectorAll("ol > li")].map(
+      (li) => [...(li.lastElementChild?.children ?? [])] as HTMLElement[],
+    );
+    premise("route legs", stacks.length, 2);
+    for (const [i, lines] of stacks.entries()) {
+      premise(`leg ${i} lines`, lines.length, 0);
+      expect(lines[0]!.className, `leg ${i}: the first line`).not.toMatch(/\bmt-/);
+      for (const later of lines.slice(1))
+        expect(later.className, `leg ${i}: a later line`).toMatch(/\bmt-0\.5\b/);
+    }
+  });
+});

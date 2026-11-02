@@ -2,7 +2,8 @@
 import { expect, test } from "vitest";
 import { render } from "@testing-library/react";
 import { VenueSection } from "@/components/crew/sections/VenueSection";
-import { TravelSection } from "@/components/crew/sections/TravelSection";
+import { HotelsSection } from "@/components/crew/sections/HotelsSection";
+import { TransportSection } from "@/components/crew/sections/TransportSection";
 import { ContactsSection } from "@/components/crew/sections/ContactsSection";
 import { CrewSection } from "@/components/crew/sections/CrewSection";
 import { GearSection } from "@/components/crew/sections/GearSection";
@@ -14,7 +15,8 @@ const SHOW_ID = "show-abc";
 
 const SECTIONS = {
   VenueSection,
-  TravelSection,
+  HotelsSection,
+  TransportSection,
   CrewSection,
   ContactsSection,
   GearSection,

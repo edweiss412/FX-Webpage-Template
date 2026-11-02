@@ -82,9 +82,9 @@ on:
       # WHAT THE TREES ARE MADE OF, not just what renders them. Two ledger rows
       # pin exact occurrence COUNTS against the seeded show, so anything that
       # changes what that show contains changes the expected result: reshape the
-      # Waldorf fixture so a stage-only travel leg gains a stage, and the blank
-      # eyebrow disappears — a stale row this job would otherwise never run to
-      # catch. The dependency and PostCSS entries are here for the same reason at
+      # Waldorf fixture so a stage-only transport leg gains a time, and the
+      # route-leg displacement case's pinned count of two moves — a stale count
+      # this job would otherwise never run to catch. The dependency and PostCSS entries are here for the same reason at
       # a different layer: a React or Tailwind bump can move hydration timing or
       # gap resolution underneath every assertion in this suite.
       - "lib/**"

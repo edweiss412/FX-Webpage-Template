@@ -47,12 +47,13 @@ import { CrewSearchField } from "@/components/crew/search/CrewSearchField";
 import { CrewSearchProvider } from "@/components/crew/search/CrewSearchProvider";
 import { BillingSection } from "@/components/crew/sections/BillingSection";
 import { ContactsSection } from "@/components/crew/sections/ContactsSection";
+import { HotelsSection } from "@/components/crew/sections/HotelsSection";
 import { CrewSection } from "@/components/crew/sections/CrewSection";
 import { GearSection } from "@/components/crew/sections/GearSection";
 import { HomeSection } from "@/components/crew/sections/HomeSection";
 import { ScheduleSection } from "@/components/crew/sections/ScheduleSection";
-import { TravelSection } from "@/components/crew/sections/TravelSection";
 import { VenueSection } from "@/components/crew/sections/VenueSection";
+import { TransportSection } from "@/components/crew/sections/TransportSection";
 import { Footer } from "@/components/layout/Footer";
 import { Header } from "@/components/layout/Header";
 import { SavedCopySlot } from "@/components/offline/SavedCopySlot";
@@ -446,9 +447,20 @@ export async function CrewShell({
             cardReport={cardReport}
           />
         );
-      case "travel":
+      case "hotels":
         return (
-          <TravelSection
+          <HotelsSection
+            data={data}
+            viewer={viewer}
+            today={today}
+            showId={showId}
+            ledger={tileLedger}
+            cardReport={cardReport}
+          />
+        );
+      case "transport":
+        return (
+          <TransportSection
             data={data}
             viewer={viewer}
             today={today}

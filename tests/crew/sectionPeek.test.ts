@@ -253,7 +253,9 @@ describe("sectionPeek (peek, spec §4.6)", () => {
     }
   });
 
-  it("peek: a transport leg never feeds the travel peek for a viewer the transport gate excludes", () => {
+  it("peek: a transport leg never feeds the Transport peek for a viewer the transport gate excludes, and never the Hotels peek", () => {
+    // PR B Task 9: Travel's peek ("<hotel> · N rides") split into the Hotels peek
+    // (the hotel part) and the Transport peek (the rides part).
     const withTransport = fullShow();
     const withoutTransport = fullShow();
     withoutTransport.transportation = null;
@@ -271,38 +273,74 @@ describe("sectionPeek (peek, spec §4.6)", () => {
       });
     };
 
-    // Excluded: the leg count is gone, and the peek is exactly the transport-free one.
+    // Excluded: no ride count, exactly the transport-free peek; the hotel is the Hotels peek's.
     expect(gate(crew("c-plain"))).toBe(false);
-    expect(peek("travel", withTransport, crew("c-plain"))).toBe(
-      peek("travel", withoutTransport, crew("c-plain")),
+    expect(peek("transport", withTransport, crew("c-plain"))).toBeNull();
+    expect(peek("transport", withTransport, crew("c-plain"))).toBe(
+      peek("transport", withoutTransport, crew("c-plain")),
     );
-    expect(peek("travel", withTransport, crew("c-plain"))).toBe(hotel);
+    expect(peek("hotels", withTransport, crew("c-plain"))).toBe(hotel);
 
     // Positive control: the admin and a rider on a leg see the legs the section renders,
-    // which leaves out the all-sentinel leg.
+    // which leaves out the all-sentinel leg; the Hotels peek is the same either way.
     expect(withTransport.transportation!.schedule).toHaveLength(CONTENT_LEGS.length + 1);
     for (const viewer of [ADMIN, crew("c-rider")]) {
       expect(gate(viewer)).toBe(true);
-      expect(peek("travel", withTransport, viewer)).toBe(`${hotel} · ${CONTENT_LEGS.length} rides`);
-      expect(peek("travel", withTransport, viewer)).not.toBe(
-        peek("travel", withoutTransport, viewer),
+      expect(peek("transport", withTransport, viewer)).toBe(`${CONTENT_LEGS.length} rides`);
+      expect(peek("transport", withTransport, viewer)).not.toBe(
+        peek("transport", withoutTransport, viewer),
       );
+      expect(peek("hotels", withTransport, viewer)).toBe(hotel);
     }
   });
 
-  it("peek: travel names a single hotel, counts several, and skips a sentinel name", () => {
+  it("peek: hotels names a single hotel, counts several, and skips a sentinel name, with no transport row", () => {
     const two = fullShow();
     two.transportation = null;
     two.hotelReservations = [
       reservation({ ordinal: 2, hotel_name: "Second Lodge" }),
       reservation({ ordinal: 1 }),
     ];
-    expect(peek("travel", two, crew("c-plain"))).toBe(`${two.hotelReservations.length} hotels`);
+    expect(peek("hotels", two, crew("c-plain"))).toBe(`${two.hotelReservations.length} hotels`);
 
     const sentinel = fullShow();
     sentinel.transportation = null;
     sentinel.hotelReservations = [reservation({ hotel_name: "TBA" })];
-    expect(peek("travel", sentinel, crew("c-plain"))).toBeNull();
+    expect(peek("hotels", sentinel, crew("c-plain"))).toBeNull();
+  });
+
+  it("peek: hotels names a single hotel, counts several, skips a sentinel name, and is withheld under date suppression (PR B Task 9)", () => {
+    const show = fullShow();
+    const name = show.hotelReservations[0]!.hotel_name!;
+    // The transport row never feeds the Hotels peek, for any viewer.
+    for (const viewer of [ADMIN, crew("c-rider"), crew("c-plain")])
+      expect(peek("hotels", show, viewer), viewer.kind).toBe(name);
+    const two = fullShow();
+    two.hotelReservations = [
+      reservation({ ordinal: 2, hotel_name: "Second Lodge" }),
+      reservation({ ordinal: 1 }),
+    ];
+    expect(peek("hotels", two, crew("c-plain"))).toBe("2 hotels");
+    const sentinel = fullShow();
+    sentinel.hotelReservations = [reservation({ hotel_name: "TBA" })];
+    expect(peek("hotels", sentinel, crew("c-plain"))).toBeNull();
+    expect(peek("hotels", show, crew("c-asterisk"))).toBeNull();
+  });
+
+  it("peek: transport counts the rides its body shows a viewer the gate admits, a stageless leg included, and nothing for another (PR B Task 9)", () => {
+    const show = fullShow();
+    show.transportation = transport([
+      ...CONTENT_LEGS,
+      BLANK_LEG,
+      { stage: "", date: null, time: "6:30 PM", assigned_names: ["Riley Rider"] },
+    ]);
+    for (const viewer of [ADMIN, crew("c-rider")])
+      expect(peek("transport", show, viewer), viewer.kind).toBe(`${CONTENT_LEGS.length + 1} rides`);
+    expect(peek("transport", show, crew("c-plain"))).toBeNull();
+    // The hotel never feeds the Transport peek.
+    const noLegs = fullShow();
+    noLegs.transportation = transport([]);
+    expect(peek("transport", noLegs, ADMIN)).toBeNull();
   });
 
   it("peek: no date reaches a peek for a date-suppressed viewer", () => {

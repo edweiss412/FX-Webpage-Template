@@ -64,6 +64,26 @@ describe("<SignInOrSkipGate> — Mode A (first_contact)", () => {
   });
 });
 
+describe("<SignInOrSkipGate> — an old section value (PR B Task 9, plan decision 7)", () => {
+  test("s=travel: the skip link carries s=hotels with gate=skip, the sign-in next s=hotels alone", () => {
+    const { getByTestId } = render(
+      <SignInOrSkipGate
+        slug={SLUG}
+        shareToken={TOKEN}
+        showId={SHOW_ID}
+        reason="first_contact"
+        s="travel"
+      />,
+    );
+    const skip = getByTestId("sign-in-or-skip-gate-skip-cta") as HTMLAnchorElement;
+    expect(skip.getAttribute("href")).toBe(`${TOKENIZED_URL}?s=hotels&gate=skip`);
+    const signIn = getByTestId("sign-in-or-skip-gate-sign-in-cta") as HTMLAnchorElement;
+    expect(signIn.getAttribute("href")).toBe(
+      `/auth/sign-in?next=${encodeURIComponent(`${TOKENIZED_URL}?s=hotels`)}`,
+    );
+  });
+});
+
 describe("<SignInOrSkipGate> — Mode B (google_mismatch)", () => {
   // Duplicated on purpose: the literal is the red phase, since reading the
   // expectation from the catalog would have passed before the copy edit landed.

@@ -7,7 +7,8 @@
  *   - ScheduleTile.tsx (formatDayLabel, "Wkd, Mon D")
  *   - TransportTile.tsx (formatDate, "Wkd, Mon D")
  *
- * Two output shapes (`short`, `weekday-short`), one helper. The risk
+ * Three output shapes (`short`, `weekday-short`, and `weekday` for the crew
+ * transport legs' "leaves Tue 2:00 PM", PR B Task 9), one helper. The risk
  * of three independent copies was day-boundary off-by-one drift —
  * dropping `timeZone: 'UTC'` from any one copy would render "Apr 18"
  * for "2026-04-19" in US-Pacific runtime. One source of truth eliminates
@@ -19,7 +20,7 @@
  * Server-safe pure function.
  */
 
-export type DateFormatMode = "short" | "weekday-short";
+export type DateFormatMode = "short" | "weekday-short" | "weekday";
 
 export function formatIsoDate(iso: string, mode: DateFormatMode): string {
   if (iso === "") return "";
@@ -31,6 +32,9 @@ export function formatIsoDate(iso: string, mode: DateFormatMode): string {
       month: "short",
       day: "numeric",
     });
+  }
+  if (mode === "weekday") {
+    return d.toLocaleDateString("en-US", { timeZone: "UTC", weekday: "short" });
   }
   // mode === 'weekday-short'
   return d.toLocaleDateString("en-US", {

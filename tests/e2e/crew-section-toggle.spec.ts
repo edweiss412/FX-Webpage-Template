@@ -40,6 +40,7 @@ import { test, expect, type Locator, type Page } from "@playwright/test";
 import { DRAG_DISMISS_THRESHOLD_PX } from "@/components/shared/sheetConstants";
 import { CREW_SECTION_LABELS, type CrewSectionId } from "@/lib/crew/crewSections";
 import { CREW_SECTION_IDS } from "@/lib/crew/resolveActiveSection";
+import { showSection } from "@/lib/showSections/registry";
 import { refreshFromServer, renderFresh } from "./helpers/crewRefresh";
 import { ADMIN_FIXTURE } from "./helpers/fixtures";
 import { setRoleFlagsLocked } from "./helpers/lockedCrewRestriction";
@@ -315,8 +316,8 @@ test.describe("crew compact home and section sheet (spec §5.2)", () => {
     page,
   }) => {
     await load(page, ""); // the home entry carries no `s`, so Back/close must land without one
-    await row(page, "travel").click();
-    await expect(sheetDialog(page)).toHaveAttribute("data-section", "travel");
+    await row(page, "hotels").click();
+    await expect(sheetDialog(page)).toHaveAttribute("data-section", "hotels");
 
     await page.reload({ waitUntil: "domcontentloaded" });
     await expect(page.getByTestId("crew-shell-sections")).toHaveAttribute(
@@ -324,13 +325,13 @@ test.describe("crew compact home and section sheet (spec §5.2)", () => {
       "true",
       { timeout: 30_000 },
     );
-    await expect(sheetDialog(page)).toHaveAttribute("data-section", "travel");
+    await expect(sheetDialog(page)).toHaveAttribute("data-section", "hotels");
     expect(
       await page.evaluate(() => (history.state as { crewSheet?: boolean } | null)?.crewSheet),
       "a reload keeps the pushed entry's marker",
     ).toBe(true);
 
-    await page.getByRole("button", { name: closeName("travel") }).click();
+    await page.getByRole("button", { name: closeName("hotels") }).click();
     await expect(sheetDialog(page)).toHaveCount(0);
     await expect.poll(() => new URL(page.url()).searchParams.get("s")).toBeNull();
     await expect(page.getByTestId("crew-all-sections")).toBeVisible();
@@ -1365,5 +1366,343 @@ test.describe("billing: the budget alias, compact (PR B Task 4)", () => {
     await loadPath(page, `${preview("Alias Lead")}?s=billing`);
     const html = await page.content();
     for (const value of Object.values(FINANCIALS)) expect(html, value).toContain(value);
+  });
+});
+
+/**
+ * PR B plan Task 9: Travel became two sections, Hotels and Transport, with
+ * `travel` kept as a legacy alias of `hotels` (spec §5.1 "Legacy ids"), as Task 4
+ * kept `budget` for `billing`. An old link opens Hotels; Back and Forward over an
+ * entry that still carries `s=travel` reopen Hotels without stripping it.
+ * Transport is listed for an admin, for a viewer the transport gate admits and for
+ * a viewer with a flight of their own, and its sheet shows the crew-only "Your
+ * flight" card above the transport body only the gate admits. A seeded show of its
+ * own; a plain admin on the share route, every crew identity through the admin
+ * preview route (the harness rule "Viewer per case").
+ *
+ * The new ids are spelled as strings here and their labels read from the show
+ * section registry, which is where a moved section's label comes from
+ * (`isCrewMovedSection` in lib/crew/crewSections.ts): these cases are written
+ * before the crew id union carries `hotels` and `transport`, and typecheck on
+ * both trees.
+ */
+test.describe("hotels and transport: the travel alias and the transport gate, compact (PR B Task 9)", () => {
+  test.setTimeout(180_000);
+
+  const HOTELS_LABEL = showSection("hotels").label;
+  const TRANSPORT_LABEL = showSection("transport").label;
+
+  /** 2026-04-21 is a Tuesday: the leg's time line below names it. */
+  const LEG_DAY = "2026-04-21";
+  /** On the leg: the transport gate admits her by name. */
+  const RIDER = { name: "Rhea Rider", role: "A1" };
+  /** A flight of her own and no leg: Transport is listed for her flight alone. */
+  const FLYER = {
+    name: "Fiona Flyer",
+    role: "V1",
+    flightInfo: "QF77 4/19 AA2201 LGA - ORD 9:05am - 10:50am",
+  };
+  /** No flight and no leg: no Transport. */
+  const GROUNDED = { name: "Gus Grounded", role: "L1" };
+  /** Days unconfirmed, so every date of hers is suppressed; on the leg too. */
+  const UNCONFIRMED = {
+    name: "Uma Unconfirmed",
+    role: "A2",
+    dateRestriction: { kind: "unknown_asterisk", days: null } as const,
+  };
+  /** Stay dates outside the show's own days, so no show date can stand in for them. */
+  const HOTEL = {
+    ordinal: 1,
+    hotelName: "Larkspur Harbor Hotel",
+    hotelAddress: "88 Quay Street",
+    checkIn: "2026-04-18",
+    checkOut: "2026-04-24",
+    confirmationNo: "LHH-60417",
+    notes: "Late checkout approved for the crew",
+    names: [RIDER.name, FLYER.name, GROUNDED.name, UNCONFIRMED.name],
+  };
+  const HOTEL_DATES = [HOTEL.checkIn, HOTEL.checkOut];
+  const LEG = {
+    stage: "Shuttle to the venue",
+    date: LEG_DAY,
+    time: "2:00pm",
+    assigned_names: [RIDER.name, UNCONFIRMED.name],
+  };
+  const TRANSPORT = {
+    driverName: "Marta Kestrel",
+    driverPhone: "215-555-0177",
+    vehicle: "White Transit 350",
+    licensePlate: "KTR5521",
+    parking: "Lot C behind the loading dock",
+    notes: "Call the driver from baggage claim",
+    loadoutName: "Lou Dockhand",
+    loadoutPhone: "215-555-0190",
+    schedule: [LEG],
+  };
+  /** Every transport value a viewer the gate excludes must not receive. */
+  const TRANSPORT_FIELDS = [
+    TRANSPORT.driverName,
+    TRANSPORT.driverPhone,
+    TRANSPORT.vehicle,
+    TRANSPORT.licensePlate,
+    TRANSPORT.parking,
+    TRANSPORT.notes,
+    TRANSPORT.loadoutName,
+    TRANSPORT.loadoutPhone,
+    LEG.stage,
+  ];
+
+  let seeded: Awaited<ReturnType<typeof seedShowWithCrew>>;
+
+  test.beforeAll(async () => {
+    seeded = await seedShowWithCrew({
+      title: "Hotels Transport Split Show",
+      dates: {
+        travelIn: "2026-04-19",
+        set: "2026-04-20",
+        showDays: [LEG_DAY, "2026-04-22"],
+        travelOut: "2026-04-23",
+      },
+      crew: [RIDER, FLYER, GROUNDED, UNCONFIRMED],
+      hotelReservations: [HOTEL],
+      transportation: TRANSPORT,
+    });
+  });
+
+  test.afterAll(async () => {
+    if (seeded) await deleteSeededShow(seeded.driveFileId);
+  });
+
+  test.beforeEach(async ({ page }) => {
+    await page.clock.setFixedTime(new Date(SHOW_DAY_N_INSTANT));
+    await signOut(page);
+    await signInAs(page, ADMIN_FIXTURE);
+    await page.setExtraHTTPHeaders({
+      "X-Screenshot-Frozen-Now": SHOW_DAY_N_INSTANT,
+      Authorization: `Bearer ${TEST_AUTH_SECRET}`,
+    });
+  });
+
+  /** The share route, where the signed-in admin views the show as an admin. */
+  function share(): string {
+    return `/show/${seeded.slug}/${seeded.shareToken}`;
+  }
+
+  function preview(name: string): string {
+    const member = seeded.crew.find((c) => c.name === name);
+    if (!member) throw new Error(`no seeded crew member ${name}`);
+    return `/admin/show/${seeded.slug}/preview/${member.id}`;
+  }
+
+  async function loadPath(page: Page, path: string): Promise<void> {
+    const res = await page.goto(path, { waitUntil: "domcontentloaded" });
+    expect(res?.status(), `${path} must render`).toBe(200);
+    await expect(page.getByTestId("crew-shell-sections")).toHaveAttribute(
+      "data-crew-controller-ready",
+      "true",
+      { timeout: 30_000 },
+    );
+  }
+
+  /** An "All sections" row, by an id spelled as a string (see the block comment). */
+  function listRow(page: Page, id: string): Locator {
+    return page.getByTestId("crew-all-sections").locator(`[data-section="${id}"]`);
+  }
+
+  /** The page's server response: the HTML document (its inline RSC included) and the RSC payload. */
+  async function payloadOf(page: Page, path: string): Promise<string> {
+    const html = await page.request.get(path);
+    expect(html.status(), `${path} HTML`).toBe(200);
+    const rsc = await page.request.get(path, { headers: { RSC: "1" } });
+    expect(rsc.status(), `${path} RSC`).toBe(200);
+    const rscBody = await rsc.text();
+    // PREMISE: the RSC request returned the flight payload, not the document again.
+    expect(rscBody.startsWith("<!DOCTYPE"), `${path} RSC answered with HTML`).toBe(false);
+    return `${await html.text()}\n${rscBody}`;
+  }
+
+  test("hotels: ?s=travel opens the Hotels sheet on initial load, the stay whole", async ({
+    page,
+  }) => {
+    await loadPath(page, `${share()}?s=travel`);
+    await expect(sheetDialog(page)).toHaveAttribute("data-section", "hotels");
+    await expect(sheetDialog(page)).toHaveAccessibleName(HOTELS_LABEL);
+    const section = sheetDialog(page).getByTestId("section-hotels");
+    await expect(section).toBeVisible();
+    const card = section.locator('[data-card-id="travel-hotels"]');
+    await expect(card.getByRole("heading", { level: 3, name: HOTELS_LABEL })).toBeVisible();
+    const stay = card.getByTestId("crew-panel-hotel-card");
+    await expect(stay).toHaveCount(1);
+    for (const value of [HOTEL.hotelName, HOTEL.hotelAddress, HOTEL.confirmationNo, HOTEL.notes])
+      await expect(stay, value).toContainText(value);
+    await expect(
+      stay.getByTestId("hotel-stay-check-in").locator(`time[datetime="${HOTEL.checkIn}"]`),
+    ).toHaveCount(1);
+    await expect(
+      stay.getByTestId("hotel-stay-check-out").locator(`time[datetime="${HOTEL.checkOut}"]`),
+    ).toHaveCount(1);
+    // One section replaced by two: no Travel body is left on the page.
+    await expect(page.getByTestId("section-travel")).toHaveCount(0);
+  });
+
+  test("hotels: Back then Forward over an in-app entry carrying s=travel closes and reopens Hotels", async ({
+    page,
+  }) => {
+    await loadPath(page, share());
+    await listRow(page, "hotels").click();
+    await expect(sheetDialog(page)).toHaveAttribute("data-section", "hotels");
+    await settleOpen(page);
+    // The pushed entry now carries the old value, as an old in-app link left it.
+    await page.evaluate(() => {
+      const url = new URL(window.location.href);
+      url.searchParams.set("s", "travel");
+      window.history.replaceState(window.history.state, "", url);
+    });
+
+    await page.goBack();
+    await expect(sheetDialog(page)).toHaveCount(0);
+    await expect.poll(() => new URL(page.url()).searchParams.get("s")).toBeNull();
+
+    await page.goForward();
+    await expect(sheetDialog(page)).toHaveAttribute("data-section", "hotels");
+    await expect(sheetDialog(page).getByTestId("section-hotels")).toContainText(HOTEL.hotelName);
+    // An alias the viewer may open is not stripped (a canonicalized alias is kept).
+    await expect.poll(() => new URL(page.url()).searchParams.get("s")).toBe("travel");
+  });
+
+  test("transport: a flight-only viewer sees Transport listed with Your flight alone, and the HTML and RSC payload carry no transport field (preview route)", async ({
+    page,
+  }) => {
+    await loadPath(page, preview(FLYER.name));
+    await expect(listRow(page, "transport")).toBeVisible();
+    await listRow(page, "transport").click();
+    await expect(sheetDialog(page)).toHaveAttribute("data-section", "transport");
+    await expect(sheetDialog(page)).toHaveAccessibleName(TRANSPORT_LABEL);
+    const section = sheetDialog(page).getByTestId("section-transport");
+    const flight = section.locator('[data-card-id="travel-flight"]');
+    await expect(flight.getByText("Your flight", { exact: true }).first()).toBeVisible();
+    await expect(flight.getByTestId("travel-flight")).toContainText("AA2201");
+    // The flight card is the only card: the transport body is the gate's, and the gate
+    // does not admit her.
+    const cardIds = await section
+      .locator("[data-card-id]")
+      .evaluateAll((els) => [...new Set(els.map((el) => el.getAttribute("data-card-id")))]);
+    expect(cardIds).toEqual(["travel-flight"]);
+    await expect(section.locator('[data-card-id="travel-getting-there"]')).toHaveCount(0);
+
+    const flyer = await payloadOf(page, preview(FLYER.name));
+    // PREMISE: the payload is this viewer's page with the Transport body in it, so a
+    // missing field is withheld, not unrendered.
+    expect(flyer).toContain("AA2201");
+    expect(flyer).toContain(HOTEL.hotelName);
+    expect(flyer).toContain('data-testid="section-transport"');
+    expect(TRANSPORT_FIELDS.filter((f) => flyer.includes(f))).toEqual([]);
+    // POSITIVE CONTROL: a viewer the gate admits, on the leg, gets every field.
+    const rider = await payloadOf(page, preview(RIDER.name));
+    expect(rider).toContain('data-card-id="travel-getting-there"');
+    expect(TRANSPORT_FIELDS.filter((f) => !rider.includes(f))).toEqual([]);
+  });
+
+  test("transport: a viewer with no flight and no leg has no Transport row, and ?s=transport lands home (preview route)", async ({
+    page,
+  }) => {
+    for (const search of ["", "?s=transport"]) {
+      await loadPath(page, `${preview(GROUNDED.name)}${search}`);
+      // PREMISE: the list carries Task 9's ids, so a missing Transport row is the gate's doing.
+      await expect(listRow(page, "hotels"), search).toBeVisible();
+      await expect(listRow(page, "transport"), search).toHaveCount(0);
+      await expect(sheetDialog(page), search).toHaveCount(0);
+      await expect(page.getByTestId("crew-all-sections"), search).toBeVisible();
+      // Not entitled, so no Transport body is built for this viewer at all.
+      await expect(page.getByTestId("section-transport"), search).toHaveCount(0);
+      const html = await page.content();
+      for (const f of TRANSPORT_FIELDS) expect(html, `${search}: ${f}`).not.toContain(f);
+    }
+  });
+
+  test("hotels: a date-suppressed viewer's Hotels sheet shows the stay without its dates, and the HTML and RSC payload carry no hotel date (preview route)", async ({
+    page,
+  }) => {
+    await loadPath(page, `${preview(UNCONFIRMED.name)}?s=hotels`);
+    await expect(sheetDialog(page)).toHaveAttribute("data-section", "hotels");
+    const stay = sheetDialog(page)
+      .getByTestId("section-hotels")
+      .getByTestId("crew-panel-hotel-card");
+    await expect(stay).toHaveCount(1);
+    await expect(stay).toContainText(HOTEL.hotelName);
+    await expect(stay.getByTestId("hotel-stay-check-in")).toHaveCount(0);
+    await expect(stay.getByTestId("hotel-stay-check-out")).toHaveCount(0);
+    await expect(stay.locator("time")).toHaveCount(0);
+    const suppressed = await payloadOf(page, preview(UNCONFIRMED.name));
+    // PREMISE: the payload is this viewer's page with the stay in it.
+    expect(suppressed).toContain(HOTEL.hotelName);
+    expect(HOTEL_DATES.filter((d) => suppressed.includes(d))).toEqual([]);
+
+    // POSITIVE CONTROL: an unrestricted viewer on the same stay gets both dates.
+    await loadPath(page, `${preview(RIDER.name)}?s=hotels`);
+    const open = sheetDialog(page)
+      .getByTestId("section-hotels")
+      .getByTestId("crew-panel-hotel-card");
+    await expect(
+      open.getByTestId("hotel-stay-check-in").locator(`time[datetime="${HOTEL.checkIn}"]`),
+    ).toHaveCount(1);
+    await expect(
+      open.getByTestId("hotel-stay-check-out").locator(`time[datetime="${HOTEL.checkOut}"]`),
+    ).toHaveCount(1);
+    const rider = await payloadOf(page, preview(RIDER.name));
+    expect(HOTEL_DATES.filter((d) => !rider.includes(d))).toEqual([]);
+  });
+
+  test("transport: a leg's time line reads leaves, its weekday and its time, and drops the weekday for a date-suppressed viewer", async ({
+    page,
+  }) => {
+    await loadPath(page, `${share()}?s=transport`);
+    await expect(sheetDialog(page)).toHaveAttribute("data-section", "transport");
+    const card = sheetDialog(page)
+      .getByTestId("section-transport")
+      .locator('[data-card-id="travel-getting-there"]');
+    await expect(card.getByRole("heading", { level: 3, name: TRANSPORT_LABEL })).toBeVisible();
+    for (const cell of ["Driver", "Load out", "Vehicle", "Parking"])
+      await expect(card, cell).toContainText(cell);
+    await expect(card).toContainText(LEG.stage);
+    await expect(card).toContainText(TRANSPORT.notes);
+    // "2:00pm" through normalizeMeridiem, on a Tuesday.
+    await expect(card).toContainText("leaves Tue 2:00 PM");
+
+    // On the leg with her days unconfirmed: the gate admits her, the weekday is withheld.
+    await loadPath(page, `${preview(UNCONFIRMED.name)}?s=transport`);
+    await expect(sheetDialog(page)).toHaveAttribute("data-section", "transport");
+    const suppressed = sheetDialog(page)
+      .getByTestId("section-transport")
+      .locator('[data-card-id="travel-getting-there"]');
+    await expect(suppressed).toContainText(LEG.stage);
+    await expect(suppressed).toContainText("leaves 2:00 PM");
+    await expect(suppressed).not.toContainText("Tue");
+  });
+
+  test("hotels and transport: every PR A section id opens its section, or the home, for an admin", async ({
+    page,
+  }) => {
+    // The historical union at lib/crew/resolveActiveSection.ts:1 as of 7e927e927,
+    // each with the sheet it opens now (null: the home, no sheet).
+    const PR_A_IDS: ReadonlyArray<readonly [string, string | null]> = [
+      ["today", null],
+      ["schedule", "schedule"],
+      ["venue", "venue"],
+      ["travel", "hotels"],
+      ["crew", "crew"],
+      ["gear", "gear"],
+      ["budget", "billing"],
+    ];
+    for (const [s, opens] of PR_A_IDS) {
+      await loadPath(page, `${share()}?s=${s}`);
+      if (opens === null) {
+        await expect(sheetDialog(page), s).toHaveCount(0);
+        await expect(page.getByTestId("crew-all-sections"), s).toBeVisible();
+      } else {
+        await expect(sheetDialog(page), s).toHaveAttribute("data-section", opens);
+        await expect(sheetDialog(page).getByTestId(`section-${opens}`), s).toBeVisible();
+      }
+    }
   });
 });

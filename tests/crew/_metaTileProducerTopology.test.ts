@@ -23,7 +23,8 @@ const SECTION_COMPONENTS = [
   "HomeSection",
   "ScheduleSection",
   "VenueSection",
-  "TravelSection",
+  "HotelsSection",
+  "TransportSection",
   "CrewSection",
   "ContactsSection",
   "GearSection",
@@ -46,7 +47,10 @@ const EXPECTED_TILE_BY_FILE: Record<string, string> = {
   // PR B plan Task 5: the shared Venue body is called inside its own wrapper
   // (spec §6.1, error containment), ahead of the diagrams block in source order.
   "VenueSection.tsx": "crew:venue:where,crew:venue:diagrams",
-  "TravelSection.tsx": "crew:travel:transport",
+  // PR B plan Task 9: Travel split in two. Transport keeps Travel's tile id
+  // (decision 6: its open alerts stay resolvable); Hotels gets a new one.
+  "HotelsSection.tsx": "crew:hotels:list",
+  "TransportSection.tsx": "crew:travel:transport",
   "CrewSection.tsx": "crew:crew:roster",
   // PR B plan Task 7: the contacts left the Crew section's wrapper for their own
   // section and a new tile id (decision 6), so neither id is shared.

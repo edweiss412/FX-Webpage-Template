@@ -91,6 +91,17 @@ describe("validateNextParamDetailed — show-route section/gate preservation", (
     });
   });
 
+  test("travel comes back as hotels, with and without a gate (PR B Task 9, the OAuth return)", () => {
+    expect(validateNextParamDetailed(`${SHOW}?s=travel`)).toEqual({
+      ok: true,
+      path: `${SHOW}?s=hotels`,
+    });
+    expect(validateNextParamDetailed(`${SHOW}?s=travel&gate=skip`)).toEqual({
+      ok: true,
+      path: `${SHOW}?s=hotels&gate=skip`,
+    });
+  });
+
   test("an unknown s is dropped and a passed gate kept", () => {
     expect(validateNextParamDetailed(`${SHOW}?s=constructor&gate=skip`)).toEqual({
       ok: true,

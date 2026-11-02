@@ -84,8 +84,11 @@ vi.mock("@/components/crew/sections/ScheduleSection", () => ({
 vi.mock("@/components/crew/sections/VenueSection", () => ({
   VenueSection: mockSection("section-venue"),
 }));
-vi.mock("@/components/crew/sections/TravelSection", () => ({
-  TravelSection: mockSection("section-travel"),
+vi.mock("@/components/crew/sections/HotelsSection", () => ({
+  HotelsSection: mockSection("section-hotels"),
+}));
+vi.mock("@/components/crew/sections/TransportSection", () => ({
+  TransportSection: mockSection("section-transport"),
 }));
 vi.mock("@/components/crew/sections/CrewSection", () => ({
   CrewSection: mockSection("section-crew"),

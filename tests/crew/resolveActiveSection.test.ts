@@ -91,8 +91,16 @@ describe("legacy section aliases (spec line 242, line 489)", () => {
       ...CREW_SECTION_IDS.filter((id) => crewSectionEntitled(id, data, viewer)),
     ]);
   }
-  const LEAD: CrewSectionsViewer = { viewerFlags: ["LEAD"], isAdmin: false };
-  const NON_LEAD: CrewSectionsViewer = { viewerFlags: [], isAdmin: false };
+  const LEAD: CrewSectionsViewer = {
+    viewerFlags: ["LEAD"],
+    isAdmin: false,
+    dateRestriction: { kind: "none" },
+  };
+  const NON_LEAD: CrewSectionsViewer = {
+    viewerFlags: [],
+    isAdmin: false,
+    dateRestriction: { kind: "none" },
+  };
 
   test("every old id resolves to its replacement when entitled, and home when not", () => {
     const aliases = Object.entries(LEGACY_SECTION_ALIASES);
@@ -115,6 +123,22 @@ describe("legacy section aliases (spec line 242, line 489)", () => {
       expect(resolveActiveSection(raw, lead), raw).toBe("billing");
       expect(resolveActiveSection(raw, nonLead), raw).toBe("today");
     }
+  });
+
+  test("?s=travel and ?s=hotels open Hotels for every viewer, lead or not (PR B Task 9)", () => {
+    for (const viewer of [LEAD, NON_LEAD]) {
+      const entitled = entitledFor(viewer);
+      premiseHolds("hotels is entitled for every viewer", entitled.has("hotels" as SectionId));
+      for (const raw of ["travel", "hotels"]) {
+        expect(resolveActiveSection(raw, entitled), raw).toBe("hotels");
+      }
+    }
+  });
+
+  test("travel is no longer a section id, only an alias of hotels", () => {
+    expect(CREW_SECTION_IDS as readonly string[]).not.toContain("travel");
+    expect(LEGACY_SECTION_ALIASES["travel"]).toBe("hotels");
+    expect(canonicalSectionParam("travel")).toBe("hotels");
   });
 
   test("budget is no longer a section id, only an alias", () => {

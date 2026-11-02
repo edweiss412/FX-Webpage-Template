@@ -985,14 +985,24 @@ export function scanCandidates(): Candidate[] {
       // notes list and its two rows. None is a fault branch; 78 kept. Re-derived by
       // running the guard.
       //
-      // Probed: 807 such ternaries under the derived roots, 78 on a
-      // fault-vocabulary guard and unclassifiable. 69 of those 78 sit in
+      // 807 -> 798 on feat/crew-page-redesign-pr-b Task 9: the Travel section left, and
+      // its flight, getting-there and hotels ternaries with it; its "Your flight" card
+      // moved to the new TransportSection unchanged, its hotel and transport bodies are
+      // the shared ones (each gains one: the crew's stage-less leg and a stay end's own
+      // presence), and HotelsSection and TransportSection each hold the fetch-failure
+      // block, the empty state and the card. None is a fault branch. 78 -> 79: Travel's
+      // one emptiness check (`allHidden && !hotelFetchFailed && !transportFetchFailed`)
+      // became two, HotelsSection's and TransportSection's, each guarded on its own
+      // fetch failure. Re-derived by running the guard.
+      //
+      // Probed: 798 such ternaries under the derived roots, 79 on a
+      // fault-vocabulary guard and unclassifiable. 69 of those 79 sit in
       // `"use client"` files, where the guard is interaction state -- `errorCode`,
       // `state.kind === "error"`, `switchStatus === "error"` -- and not a server-render
       // fault. The screenshot harness captures server-rendered output, so a
       // client error toast is a different population from the one this
-      // instrument measures. Nine are in server components, of which four are
-      // emptiness checks (`allHidden && !roomsFetchFailed` and three siblings in
+      // instrument measures. Ten are in server components, of which five are
+      // emptiness checks (`allHidden && !roomsFetchFailed` and four siblings in
       // components/crew/sections/) and two are already registered.
       //
       // So the vocabulary probe is the WRONG FILTER on this arm, which answers
@@ -1004,8 +1014,11 @@ export function scanCandidates(): Candidate[] {
       //
       // RE-FILE TRIGGER, and it is computed rather than promised: if the count of
       // server-component ternaries that are unclassified, fault-vocabulary AND
-      // unregistered rises above 7 -- its resting value today -- the decline is
-      // re-opened. `tests/help/_metaRenderFaultMarking.test.ts` asserts that
+      // unregistered rises above 8 -- its resting value today -- the decline is
+      // re-opened. It rose from 7 to 8 on feat/crew-page-redesign-pr-b Task 9 and was
+      // re-opened then: the one new site is an emptiness check (Travel's, split into
+      // Hotels' and Transport's), not a server-render fault, so the population the
+      // trigger watches did not gain a fault and the decline stands at 8. `tests/help/_metaRenderFaultMarking.test.ts` asserts that
       // bound, re-derives both figures above and compares them to this comment,
       // and pins each registered site as still unreachable. Editing these numbers
       // without re-probing fails there.

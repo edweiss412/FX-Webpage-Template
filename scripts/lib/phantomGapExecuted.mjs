@@ -158,17 +158,32 @@ export const CREW_REQUIRED_PAIRS = [
   },
   {
     title:
-      "T-NOPHANTOM-CREW [travel] @ 390: no zero-extent flex/grid item inside any gapped container",
+      "T-NOPHANTOM-CREW [hotels] @ 390: no zero-extent flex/grid item inside any gapped container",
     project: "mobile-safari",
   },
   {
     title:
-      "T-NOPHANTOM-CREW [travel] @ 1000: no zero-extent flex/grid item inside any gapped container",
+      "T-NOPHANTOM-CREW [transport] @ 390: no zero-extent flex/grid item inside any gapped container",
     project: "mobile-safari",
   },
   {
     title:
-      "T-NOPHANTOM-CREW [travel] @ 1280: no zero-extent flex/grid item inside any gapped container",
+      "T-NOPHANTOM-CREW [hotels] @ 1000: no zero-extent flex/grid item inside any gapped container",
+    project: "mobile-safari",
+  },
+  {
+    title:
+      "T-NOPHANTOM-CREW [transport] @ 1000: no zero-extent flex/grid item inside any gapped container",
+    project: "mobile-safari",
+  },
+  {
+    title:
+      "T-NOPHANTOM-CREW [hotels] @ 1280: no zero-extent flex/grid item inside any gapped container",
+    project: "mobile-safari",
+  },
+  {
+    title:
+      "T-NOPHANTOM-CREW [transport] @ 1280: no zero-extent flex/grid item inside any gapped container",
     project: "mobile-safari",
   },
   {
@@ -186,8 +201,15 @@ export const CREW_REQUIRED_PAIRS = [
       "T-NOPHANTOM-CREW [gear] @ 1280: no zero-extent flex/grid item inside any gapped container",
     project: "mobile-safari",
   },
-  { title: "T-NOPHANTOM-CREW [eyebrow displacement] blank leg", project: "mobile-safari" },
-  { title: "T-NOPHANTOM-CREW [eyebrow displacement] labelled leg", project: "mobile-safari" },
+  // The Travel section's eyebrow cases, migrated to the Transport route legs (PR B Task 9).
+  {
+    title: "T-NOPHANTOM-CREW [route leg displacement] a leg's first line",
+    project: "mobile-safari",
+  },
+  {
+    title: "T-NOPHANTOM-CREW [route leg displacement] a leg's later lines",
+    project: "mobile-safari",
+  },
 ];
 
 /** Where the crew probe step writes its report. */

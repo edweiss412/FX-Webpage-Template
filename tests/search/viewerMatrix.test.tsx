@@ -23,7 +23,8 @@ import { ContactsSection } from "@/components/crew/sections/ContactsSection";
 import { CrewSection } from "@/components/crew/sections/CrewSection";
 import { GearSection } from "@/components/crew/sections/GearSection";
 import { ScheduleSection } from "@/components/crew/sections/ScheduleSection";
-import { TravelSection } from "@/components/crew/sections/TravelSection";
+import { HotelsSection } from "@/components/crew/sections/HotelsSection";
+import { TransportSection } from "@/components/crew/sections/TransportSection";
 import { VenueSection } from "@/components/crew/sections/VenueSection";
 import { buildCardReportContext } from "@/lib/crew/cardReportContext";
 import { parseDressCodeLines } from "@/lib/crew/dressCodeLines";
@@ -89,7 +90,8 @@ function renderSection(id: SectionId, c: ViewerCase): HTMLElement {
     today: () => <TodayBlock {...props} />,
     schedule: () => <ScheduleSection {...props} />,
     venue: () => <VenueSection {...props} />,
-    travel: () => <TravelSection {...props} />,
+    hotels: () => <HotelsSection {...props} />,
+    transport: () => <TransportSection {...props} />,
     crew: () => <CrewSection {...props} />,
     contacts: () => <ContactsSection {...props} />,
     gear: () => <GearSection {...props} />,

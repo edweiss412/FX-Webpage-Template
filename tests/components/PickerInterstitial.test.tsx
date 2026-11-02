@@ -107,6 +107,15 @@ describe("<PickerInterstitial>", () => {
     expect(next.value).not.toContain("s=budget");
   });
 
+  test("a claimed row carries the old travel section as hotels, with no gate (PR B Task 9)", () => {
+    const { getAllByTestId } = render(
+      <PickerInterstitial {...baseProps} roster={[CLAIMED_ROW]} s="travel" />,
+    );
+    const form = (getAllByTestId("picker-roster-row")[0] as HTMLButtonElement).closest("form")!;
+    const next = form.querySelector('input[name="next"]') as HTMLInputElement;
+    expect(next.value).toBe(`/show/${baseProps.slug}/${baseProps.shareToken}?s=hotels`);
+  });
+
   test("a bogus section is dropped rather than propagated", () => {
     const { getAllByTestId } = render(
       <PickerInterstitial {...baseProps} roster={[CLAIMED_ROW]} s="not-a-section" />,

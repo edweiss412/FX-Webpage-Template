@@ -743,8 +743,8 @@ test.describe("crew redesign layout invariants (§4.9 / test 12)", () => {
     }
   });
 
-  // ── Invariant 7 — Two-column `split-wide` sections (schedule / venue / travel) ──
-  // Per the design mock these three sections are two columns when there is room
+  // ── Invariant 7 — Two-column `split-wide` sections (schedule / venue) ──
+  // Per the design mock these two sections are two columns when there is room
   // and a single stacked column when there is not, and "room" is the body's
   // CONTAINER (DESIGN.md §6): split in the wide column (1024px), stacked in the
   // section sheet at 760px (the 480px panel) and at 390px. Mirrors the Crew inv2
@@ -753,12 +753,14 @@ test.describe("crew redesign layout invariants (§4.9 / test 12)", () => {
   // column is NOT stretched to the taller left; 2026-06-21 owner amendment);
   // stacked, col 2 top ≥ col 1 bottom on a shared left edge.
   //
-  // Venue + Travel render the split only when BOTH columns have content (Schedule
+  // Venue renders the split only when BOTH columns have content (Schedule
   // always renders two: day cards + times/heads-up). When the seed yields a single
   // column the pair assertion is skipped (colCount < 2), exactly as inv2
   // does — the invariant is "IF two columns, they behave as split-wide," never
-  // "two columns MUST exist."
-  for (const section of ["schedule", "venue", "travel"] as const) {
+  // "two columns MUST exist." Travel left this list in crew page redesign PR B
+  // Task 9: its two columns became the Hotels and Transport sections, whose cards
+  // stack in one column at every width (the case after this loop).
+  for (const section of ["schedule", "venue"] as const) {
     test(`inv7: ${section} is split-wide 2-col in the wide column / stacked in the sheet`, async ({
       page,
     }) => {
@@ -789,6 +791,63 @@ test.describe("crew redesign layout invariants (§4.9 / test 12)", () => {
       }
     });
   }
+
+  // Invariant 7's Travel row, migrated (PR B Task 9). Travel split getting there
+  // and hotels side by side when there was room; they are now two sections, each a
+  // stack of cards, so the invariant they keep is the stacked half at EVERY leg,
+  // the wide column included: every card spans its section's width on one left
+  // edge, each below the one before it, and none has zero height. The failure
+  // mode is the same, a card that does not fill its column or overlaps another.
+  test("inv7: hotels and transport stack their cards in one column, each the section's width, at every width", async ({
+    page,
+  }) => {
+    for (const leg of SPLIT_LEGS) {
+      await page.setViewportSize({ width: leg.width, height: 1000 });
+      for (const section of ["hotels", "transport"] as const) {
+        await gotoSection(page, section);
+        const cards = await page.evaluate((id) => {
+          const root = document.querySelector(`[data-testid="section-${id}"]`);
+          if (root === null) return null;
+          const box = root.getBoundingClientRect();
+          return {
+            box: { left: box.left, width: box.width },
+            cards: [...root.querySelectorAll("[data-card-id]")].map((el) => {
+              const r = el.getBoundingClientRect();
+              return {
+                id: el.getAttribute("data-card-id"),
+                left: r.left,
+                width: r.width,
+                top: r.top,
+                bottom: r.bottom,
+                height: r.height,
+              };
+            }),
+          };
+        }, section);
+        expect(cards, `@${leg.width}px ${section}: the section rendered`).not.toBeNull();
+        expect(
+          cards!.cards.length,
+          `@${leg.width}px ${section}: at least one card`,
+        ).toBeGreaterThan(0);
+        cards!.cards.forEach((c, i) => {
+          const label = `@${leg.width}px ${section} ${c.id}`;
+          expect(
+            Math.abs(c.left - cards!.box.left),
+            `${label}: on the section's left edge`,
+          ).toBeLessThanOrEqual(TOL);
+          expect(
+            Math.abs(c.width - cards!.box.width),
+            `${label}: the section's width`,
+          ).toBeLessThanOrEqual(TOL);
+          expect(c.height, `${label}: non-zero height`).toBeGreaterThan(1);
+          if (i > 0)
+            expect(c.top, `${label}: below the card before it`).toBeGreaterThanOrEqual(
+              cards!.cards[i - 1]!.bottom - TOL,
+            );
+        });
+      }
+    }
+  });
 
   // ── Invariant 8 — No horizontal overflow at 390px + the page end is reachable ──
   // (impeccable dual-gate P0s.) Two contracts the redesign MUST hold on a real
@@ -3531,7 +3590,8 @@ test.describe("quick facts and card titles on the seeded show (moved from crew-l
       const gearAt320: string[] = [];
       for (const width of [320, 390]) {
         await page.setViewportSize({ width, height: 844 });
-        for (const section of ["schedule", "venue", "travel", "crew", "gear"]) {
+        // Travel's cards live in Hotels and Transport from PR B Task 9.
+        for (const section of ["schedule", "venue", "hotels", "transport", "crew", "gear"]) {
           await gotoSection(page, section);
           const titles = await readTitles('[data-testid="crew-section-sheet-body"]');
           seen += titles.length;

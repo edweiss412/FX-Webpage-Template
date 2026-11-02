@@ -12,7 +12,7 @@
  * engine. This suite reads `getBoundingClientRect()` against the live render to
  * pin the documented "Dimensional invariants":
  *
- *   - Each split-wide section (Schedule, Venue, Travel, Crew, Today Mode A):
+ *   - Each split-wide section (Schedule, Venue, Crew, Today Mode A):
  *     split exactly when the body's container is at least `--container-crew-split`
  *     wide: in the wide column (1024px and up) and the compact home's Today
  *     block, never in the 480px section sheet. When split the LEFT column
@@ -460,9 +460,9 @@ test.describe("crew layout dimensions — split-wide ratio + natural height (Tas
     return { assertedSideBySide, assertedStacked };
   }
 
-  // ── Schedule / Venue / Travel — the three standing split-wide sections.
-  // Schedule ALWAYS renders two columns (day cards + times/heads-up); Venue /
-  // Travel render the split only when BOTH columns have content (one-sided
+  // ── Schedule / Venue — the two standing split-wide sections.
+  // Schedule ALWAYS renders two columns (day cards + times/heads-up); Venue
+  // renders the split only when BOTH columns have content (one-sided
   // collapse → flex-col full-width). The 1.6-ratio / side-by-side assertion runs
   // when two columns exist (colCount ≥ 2); the contract is "IF two columns, they
   // are split-wide," never "two columns MUST exist" — except Schedule, which always
@@ -471,10 +471,12 @@ test.describe("crew layout dimensions — split-wide ratio + natural height (Tas
   // in crew page redesign PR B Task 7: its second column, the key contacts, is
   // its own section, so Crew holds one card and no split; the single card's span
   // is crew-page.spec.ts's inv2, over Crew and Contacts at the same three legs.
+  // Travel left it in PR B Task 9: its two columns (getting there and hotels) became
+  // the Transport and Hotels sections, each a stack of cards with no split; their
+  // 390px overflow and gapped stacks are walked by T-NOPHANTOM-CREW below.
   for (const { section, columnsTestId, expectTwoColumns } of [
     { section: "schedule", columnsTestId: "schedule-column", expectTwoColumns: true },
     { section: "venue", columnsTestId: "venue-column", expectTwoColumns: false },
-    { section: "travel", columnsTestId: "travel-column", expectTwoColumns: false },
   ] as const) {
     test(`${section}: split-wide 1.6 ratio + natural height in the wide column (1024px) / stacked in the sheet (1000px, 390px)`, async ({
       page,
@@ -848,7 +850,8 @@ test.describe("crew layout dimensions — split-wide ratio + natural height (Tas
   // `today` renders the run-of-show timeline the seeded frozen clock activates,
   // `gear` renders whatever the seed's room scope holds (an EMPTY state on the
   // Waldorf rows, which is precisely the state this bug class lives in), and
-  // venue/travel carry the split-wide grids that collapse to one column at 390.
+  // venue carries the split-wide grid that collapses to one column at 390, and
+  // hotels/transport the shared bodies Travel split into (PR B Task 9).
   test.describe("phantom gap — crew page sections", () => {
     /**
      * Section → a gapped container observed in that section's live render.
@@ -885,7 +888,12 @@ test.describe("crew layout dimensions — split-wide ratio + natural height (Tas
       { section: "crew", anchor: "crew-panel-card" },
       { section: "today", anchor: "section-today" },
       { section: "venue", anchor: "section-venue" },
-      { section: "travel", anchor: "section-travel" },
+      // Travel's successors (PR B Task 9). Each root holds one card (Hotels' panel
+      // card; Transport's on the admin seed, which has no flight of its own), so
+      // neither root is a gapped container the walk visits; the anchors are the
+      // inner ones a live run captured, as Crew's is.
+      { section: "hotels", anchor: "crew-panel-hotel-card" },
+      { section: "transport", anchor: "crew-panel-card" },
       { section: "gear", anchor: "section-gear" },
     ] as const;
 
@@ -901,29 +909,13 @@ test.describe("crew layout dimensions — split-wide ratio + natural height (Tas
      * Known, deferred instances — see the helper's `PhantomLedgerRow` for why a
      * row is scoped and counted before adding one.
      *
-     * `TravelRow`'s eyebrow `<p>` renders `label` unconditionally inside a `flex
-     * flex-col gap-0.5` stack (TravelSection.tsx:120-123). A ground leg whose
-     * stage was promoted to the primary line passes `label=""`
-     * (TravelSection.tsx:403) — deliberately, and the comment there calls the
-     * blank eyebrow "acceptable per its presentational contract". It is not free:
-     * an empty `<p>` is still a flex item, so the stack charges its 2px row gap
-     * above a line that paints nothing. The seeded show has two such legs, at
-     * both widths.
-     *
-     * Deferred rather than fixed because the repair — `empty:hidden` on that `<p>`,
-     * the DESIGN.md §7a idiom — edits a crew UI component and so pulls in the
-     * invariant-8 impeccable dual gate. Carried as
-     * BL-PHANTOM-GAP-BLANK-EYEBROW-TRAVELROW.
-     *
-     * ACCEPTED LIMIT: every `TravelRow` collapses to this one triple, so the
-     * count is per-section rather than per-row. One blank eyebrow disappearing
-     * while a different empty paragraph appeared in another travel row would
-     * still reconcile at 2. No stronger identity is available from the label the
-     * walk emits; see `reconcilePhantomLedger`.
+     * EMPTY is the correct state. The ledger's two rows were the Travel section's
+     * blank `TravelRow` eyebrows (BL-PHANTOM-GAP-BLANK-EYEBROW-TRAVELROW), repaid by
+     * `empty:hidden` (spec 2026-07-25 §3.3); the row itself left with the Travel
+     * section in PR B Task 9, and its successor, the Transport body's route leg,
+     * is measured by T5 below. The stale-row assertion below fails if a repaid row
+     * is left behind.
      */
-    /** Known, deferred instances. EMPTY is the correct state: the two TravelRow
-     *  eyebrow rows were repaid by `empty:hidden` (spec 2026-07-25 §3.3), and the
-     *  stale-row assertion below fails if a repaid row is left behind. */
     const KNOWN_CREW_PHANTOM_ITEMS: PhantomLedgerRow[] = [];
 
     for (const { section, anchor } of NOPHANTOM_SECTIONS) {
@@ -991,134 +983,118 @@ test.describe("crew layout dimensions — split-wide ratio + natural height (Tas
     }
 
     /**
-     * T5 — the TravelRow eyebrow, measured as sibling DISPLACEMENT.
+     * T5 — a route leg's first line, measured as DISPLACEMENT (PR B Task 9).
      *
-     * A ground leg whose stage was promoted to the primary line passes `label=""`
-     * (components/crew/sections/TravelSection.tsx:408), so the eyebrow `<p>` renders
-     * with no child node. It is still a flex item, so the `.tcol` stack spends its
-     * `gap-0.5` above a line that paints nothing.
+     * The failure mode is the one this case pinned on the Travel section's
+     * `TravelRow`: a leg whose label is blank must charge no space above the line
+     * that leads it. There, a ground leg whose stage was promoted to the primary
+     * line rendered a childless eyebrow `<p>` that spent its stack's gap above
+     * nothing (repaid by `empty:hidden`). The Travel section left in PR B Task 9;
+     * its legs are now the Transport body's route (components/show-panels/
+     * TransportBody.tsx), where each leg's text stack is the stage, the time line
+     * and the riders, each line but the first separated by `mt-0.5`, and a line
+     * that would be blank is not rendered. So the same mode reads: the FIRST line
+     * of every leg starts at its stack's content-box top, whichever line that is
+     * (a stage, or for a crew leg kept without a stage, its time line or riders),
+     * and every later line sits one `mt-0.5` below the one above it.
      *
-     * WHY DISPLACEMENT AND NOT THE EYEBROW'S OWN HEIGHT: an empty `<p>` can already
-     * measure 0 tall while still displacing its siblings by the parent's gap, so
-     * "eyebrow height is 0" passes BEFORE the fix. What actually changes is where the
-     * primary line starts relative to the stack's content-box top.
+     * WHY DISPLACEMENT AND NOT A LINE'S OWN HEIGHT: a margin above nothing moves
+     * the line without changing its height, so a height check passes over it.
      *
-     * Both cases enumerate EVERY travelrow and partition by the eyebrow's rendered
-     * text, because every row shares `data-testid="travelrow"` and the eyebrow has no
-     * testid of its own — so a single-representative assertion could measure an
-     * arbitrary labelled row, select no blank rows, and still report green. The blank
-     * count is pinned to the 2 the deleted ledger row recorded.
+     * Every leg is enumerated and none may be dropped, so a leg the selectors
+     * cannot reach fails rather than shrinking the sample. The seed's two
+     * stage-only legs (the two blank eyebrows the old ledger row counted) are the
+     * one-line population; the seed's other legs, the multi-line one.
      */
-    const EYEBROW_GAP_PX = 2; // `gap-0.5` on the `.tcol` stack.
+    const LINE_GAP_PX = 2; // `mt-0.5` on every line after a leg's first.
 
-    type TravelRowMetric = { i: number; displacement: number; eyebrowHeight: number };
+    type LegMetric = { i: number; firstTop: number; gaps: number[]; lines: number };
 
-    async function partitionTravelRows(page: import("@playwright/test").Page): Promise<{
-      blank: TravelRowMetric[];
-      labelled: TravelRowMetric[];
+    async function measureRouteLegs(page: import("@playwright/test").Page): Promise<{
+      legs: LegMetric[];
       total: number;
       dropped: string[];
     }> {
       return page.evaluate(() => {
-        const blank: { i: number; displacement: number; eyebrowHeight: number }[] = [];
-        const labelled: { i: number; displacement: number; eyebrowHeight: number }[] = [];
-        // Rows the structural selectors could not classify. Review round 1: these
-        // were silently skipped, so a row that lost `travelrow-primary` or gained an
-        // intervening wrapper simply left the sample — its broken displacement
-        // unmeasured — while the remaining rows satisfied every population anchor.
+        const legs: { i: number; firstTop: number; gaps: number[]; lines: number }[] = [];
         const dropped: string[] = [];
-        const all = Array.from(document.querySelectorAll('[data-testid="travelrow"]'));
-        all.forEach((row, i) => {
-          const stack = row.querySelector("div.flex.min-w-0.flex-col");
-          const primary = row.querySelector('[data-testid="travelrow-primary"]');
-          if (!(stack instanceof HTMLElement) || !(primary instanceof HTMLElement)) {
-            dropped.push(
-              `row ${i}: ${stack === null ? "no .tcol stack" : ""}${primary === null ? " no travelrow-primary" : ""}`.trim(),
-            );
+        const all = Array.from(
+          document.querySelectorAll(
+            '[data-testid="section-transport"] [data-card-id="travel-getting-there"] ol > li',
+          ),
+        );
+        all.forEach((li, i) => {
+          const stack = li.lastElementChild;
+          const lines = stack === null ? [] : Array.from(stack.children);
+          if (!(stack instanceof HTMLElement) || lines.length === 0) {
+            dropped.push(`leg ${i}: ${stack === null ? "no text stack" : "no line"}`);
             return;
           }
-          const eyebrow = stack.firstElementChild;
-          // Displacement is measured against the stack's CONTENT-box top, so stack
-          // padding cannot masquerade as eyebrow cost.
           const contentTop =
             stack.getBoundingClientRect().top +
             parseFloat(getComputedStyle(stack).paddingTop || "0");
-          const metric = {
+          const rects = lines.map((l) => l.getBoundingClientRect());
+          legs.push({
             i,
-            displacement:
-              Math.round((primary.getBoundingClientRect().top - contentTop) * 100) / 100,
-            eyebrowHeight:
-              eyebrow instanceof HTMLElement
-                ? Math.round(eyebrow.getBoundingClientRect().height * 100) / 100
-                : 0,
-          };
-          if ((eyebrow?.textContent ?? "").trim() === "") blank.push(metric);
-          else labelled.push(metric);
+            firstTop: Math.round((rects[0]!.top - contentTop) * 100) / 100,
+            gaps: rects.slice(1).map((r, k) => Math.round((r.top - rects[k]!.bottom) * 100) / 100),
+            lines: lines.length,
+          });
         });
-        return { blank, labelled, total: all.length, dropped };
+        return { legs, total: all.length, dropped };
       });
     }
 
-    test(`T-NOPHANTOM-CREW [eyebrow displacement] blank leg`, async ({ page }, testInfo) => {
+    test(`T-NOPHANTOM-CREW [route leg displacement] a leg's first line`, async ({
+      page,
+    }, testInfo) => {
       test.skip(testInfo.project.name !== "mobile-safari", "single-writer: mobile-safari only");
       await page.setViewportSize({ width: 390, height: 1000 });
-      await gotoSection(page, "travel");
+      await gotoSection(page, "transport");
 
-      const { blank, labelled, total, dropped } = await partitionTravelRows(page);
-
-      // EVERY row is classified. A row the selectors cannot reach is a row whose
-      // displacement is never checked, so a drop must fail rather than shrink the
-      // sample (review round 1).
-      expect(dropped, `every travel row was classifiable — dropped: ${dropped.join("; ")}`).toEqual(
+      const { legs, total, dropped } = await measureRouteLegs(page);
+      expect(dropped, `every route leg was measurable — dropped: ${dropped.join("; ")}`).toEqual(
         [],
       );
-      expect(blank.length + labelled.length, "classified count equals the rendered row count").toBe(
-        total,
+      expect(legs.length, "measured count equals the rendered leg count").toBe(total);
+      // Non-vacuity: both populations exist, and the one-line legs are the seed's two.
+      const oneLine = legs.filter((l) => l.lines === 1);
+      expect(oneLine.length, "the seed's two stage-only legs render one line each").toBe(2);
+      expect(legs.length - oneLine.length, "the seed also renders multi-line legs").toBeGreaterThan(
+        0,
       );
 
-      // Non-vacuity: both populations must exist, or the measurement proves nothing.
-      expect(blank.length, "seeded show renders blank-eyebrow travel legs").toBeGreaterThan(0);
-      expect(labelled.length, "seeded show also renders labelled travel legs").toBeGreaterThan(0);
-      expect(blank.length, "blank-eyebrow leg count matches the deleted ledger row's count").toBe(
-        2,
-      );
-
-      // EVERY blank row, not one representative: the primary line starts at the
-      // stack's content-box top with no gap charged above it.
-      for (const row of blank) {
+      for (const leg of legs) {
         expect(
-          row.displacement,
-          `blank eyebrow charges no displacement (row ${row.i}, h=${row.eyebrowHeight})`,
+          leg.firstTop,
+          `leg ${leg.i}: its first line charges no space above it (${leg.lines} lines)`,
         ).toBeLessThan(0.5);
       }
     });
 
-    test(`T-NOPHANTOM-CREW [eyebrow displacement] labelled leg`, async ({ page }, testInfo) => {
+    test(`T-NOPHANTOM-CREW [route leg displacement] a leg's later lines`, async ({
+      page,
+    }, testInfo) => {
       test.skip(testInfo.project.name !== "mobile-safari", "single-writer: mobile-safari only");
       await page.setViewportSize({ width: 390, height: 1000 });
-      await gotoSection(page, "travel");
+      await gotoSection(page, "transport");
 
-      const { blank, labelled, total, dropped } = await partitionTravelRows(page);
-
-      // EVERY row is classified. A row the selectors cannot reach is a row whose
-      // displacement is never checked, so a drop must fail rather than shrink the
-      // sample (review round 1).
-      expect(dropped, `every travel row was classifiable — dropped: ${dropped.join("; ")}`).toEqual(
+      const { legs, total, dropped } = await measureRouteLegs(page);
+      expect(dropped, `every route leg was measurable — dropped: ${dropped.join("; ")}`).toEqual(
         [],
       );
-      expect(blank.length + labelled.length, "classified count equals the rendered row count").toBe(
-        total,
-      );
-      expect(labelled.length, "seeded show renders labelled travel legs").toBeGreaterThan(0);
-      expect(blank.length, "and blank ones, so the two cases measure different things").toBe(2);
+      expect(legs.length, "measured count equals the rendered leg count").toBe(total);
+      const multi = legs.filter((l) => l.lines > 1);
+      expect(multi.length, "the seed renders multi-line legs").toBeGreaterThan(0);
 
-      // A labelled eyebrow SHOULD displace: its own height plus the stack's gap.
-      // Expected value derives from the measured eyebrow, never a hardcoded number.
-      for (const row of labelled) {
-        expect(
-          row.displacement,
-          `labelled eyebrow displaces its height + ${EYEBROW_GAP_PX}px gap (row ${row.i})`,
-        ).toBeCloseTo(row.eyebrowHeight + EYEBROW_GAP_PX, 0);
+      // A later line SHOULD sit one `mt-0.5` below the line above it.
+      for (const leg of multi) {
+        for (const gap of leg.gaps) {
+          expect(
+            gap,
+            `leg ${leg.i}: a later line sits ${LINE_GAP_PX}px below the one above`,
+          ).toBeCloseTo(LINE_GAP_PX, 0);
+        }
       }
     });
   });

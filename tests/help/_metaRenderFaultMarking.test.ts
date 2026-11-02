@@ -110,7 +110,7 @@ const REPORTED_RESIDUE: Record<string, string> = {
  *
  * RE-FILE TRIGGER for the decline, computed rather than promised: the count of
  * server-component ternaries that are unclassifiable, fault-vocabulary AND
- * unregistered rises above 7, its resting value today. The suite asserts that
+ * unregistered rises above 8, its resting value today (7 until PR B Task 9). The suite asserts that
  * bound, and re-derives the two figures the SCANNER's own comment declares, so
  * neither of those can go stale silently -- which is how the pair before them
  * (714 and 91) did in eight days. The copies in this header are prose and are
@@ -255,13 +255,13 @@ describe("the ConditionalExpression arm's decline is pinned, not just written do
     expect(Number(declared![2])).toBe(TERNARY_SURVEY.unclassifiedVocab.length);
   });
 
-  it("the re-file trigger has not tripped: at most 7 unregistered server-side sites", () => {
+  it("the re-file trigger has not tripped: at most 8 unregistered server-side sites", () => {
     // The computable set with NO unstated exclusion. An earlier draft set this at
     // 3, which discounted four emptiness checks by a rule the assertion never
     // applied and was tripped the moment it was written.
     //
     // DOCUMENTED LIMIT: a bound on a COUNT does not pin site identity. Swapping a
-    // registered site for a new one leaves the count at 7 and passes. That is
+    // registered site for a new one leaves the count at 8 and passes. That is
     // deliberate -- this asks one question, has the unreached server-side
     // population GROWN, and a count is the right instrument. Site identity is
     // pinned in the residue registry, for the entries that carry a declared cause.
@@ -269,7 +269,7 @@ describe("the ConditionalExpression arm's decline is pinned, not just written do
     expect(
       unregistered.length,
       unregistered.map((r) => `${r.file}:${r.line}`).join("\n"),
-    ).toBeLessThanOrEqual(7);
+    ).toBeLessThanOrEqual(8);
   });
 
   it("the arm still does not reach the sites the decline is about", () => {
@@ -630,7 +630,15 @@ describe("the scanner's population is pinned against resolver drift", () => {
     // Same contacts `tile-errors` row (`contactsFetchFailed ? <SectionTileError`), still
     // marked. Nothing joined or left: membership is still 34, and mapping that ONE row
     // back reproduces ad0554f5... byte-for-byte (recomputed from scanCandidates()).
-    expect(digest).toBe("94cc5057a409c22ebc5adbd59366ae00fe15126bc0ad312836f3345cea84e1bb");
+    // Regenerated for feat/crew-page-redesign-pr-b Task 9, to the same bar. EXACTLY TWO
+    // inputs changed, the file and line of Travel's two fetch-failure rows, which left
+    // with the section's split:
+    //   components/crew/sections/TravelSection.tsx:485 -> components/crew/sections/HotelsSection.tsx:87
+    //   components/crew/sections/TravelSection.tsx:484 -> components/crew/sections/TransportSection.tsx:131
+    // Same hotel and transportation `tile-errors` rows, still marked. Nothing joined or
+    // left: membership is still 34, and mapping those TWO rows back reproduces 94cc5057...
+    // byte-for-byte (recomputed from scanCandidates()).
+    expect(digest).toBe("b264b36307391c8a5c8e244ceb4dfc849168819eaa6d02ed664a1c0f7aafd2d8");
   });
 });
 

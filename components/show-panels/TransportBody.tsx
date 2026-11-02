@@ -11,9 +11,11 @@
  *   contacts linked through `ContactCell`'s digits-and-plus `tel:` rule and a
  *   plain `mailto:`, each leg's time line its `[date, time]` joined, sentinels as
  *   parsed (the plate and colour muted).
- * - Crew (plan Task 9): rendered only when `transportTileVisible` holds, the
- *   crew's digits-only `telHref`, `hideDates` when the viewer's dates are
- *   suppressed, and its own "leaves" time line.
+ * - Crew (`transportPanel`, components/crew/sections/transportRows.ts, plan
+ *   Task 9): rendered only when `transportTileVisible` holds, the crew's
+ *   digits-only `telHref`, `hideDates` when the viewer's dates are suppressed,
+ *   its own "leaves" time line, legs without a stage kept (`stagelessLegs`), as
+ *   the crew page kept them, and a search target per cell, leg and the notes.
  *
  * The body never builds a `tel:` or `mailto:` href (spec line 292): each
  * surface passes its builders, and a value whose builder returns null, or any
@@ -45,10 +47,44 @@ export type TransportBodyProps = {
   legTime: (date: string | null, time: string | null) => string;
   /** "show": a sentinel renders as parsed (admin). "hide": its field is omitted (crew). */
   sentinels: "show" | "hide";
+  /**
+   * "drop" (the default, admin): a leg needs a stage to be on the route. "keep"
+   * (crew): a leg without one stays when it has a time line or riders.
+   */
+  stagelessLegs?: "drop" | "keep";
+  /** Search targets (crew). Given, the avatars and the Route eyebrow are skipped. */
+  targets?: TransportBodyTargets;
 };
 
-/** A route node: a schedule leg with a real stage, its time line and its riders. */
-export type TransportRouteLeg = { stage: string; when: string; names: string[] };
+/** Search targets by cell, by route leg (in `transportRouteLegs` order) and for the notes. */
+export type TransportBodyTargets = {
+  driver?: string | undefined;
+  loadout?: string | undefined;
+  vehicle?: string | undefined;
+  parking?: string | undefined;
+  legs?: readonly (string | undefined)[];
+  notes?: string | undefined;
+};
+
+/** A route node: a schedule leg, its stage (null only under `stagelessLegs: "keep"`), time line and riders. */
+export type TransportRouteLeg = { stage: string | null; when: string; names: string[] };
+
+/** A contact cell's lines, each null when the surface does not render it. */
+export type TransportContact = { name: string | null; phone: string | null; email: string | null };
+
+/**
+ * The cells and notes the body renders, field by field: the body renders from
+ * this and the crew search index reads it, so the two cannot disagree. A cell
+ * is null when it renders nothing.
+ */
+export type TransportBodyFields = {
+  driver: TransportContact | null;
+  loadout: TransportContact | null;
+  /** The vehicle and its plate and colour, in render order. */
+  vehicle: { vehicle: string | null; subs: string[] } | null;
+  parking: string | null;
+  notes: string | null;
+};
 
 /** A value to render, or null: blank, or a sentinel the surface hides. */
 function shown(value: string | null, sentinels: "show" | "hide"): string | null {
@@ -67,29 +103,67 @@ export function transportRouteLegs(
     hideDates,
     legTime,
     sentinels,
-  }: Pick<TransportBodyProps, "hideDates" | "legTime" | "sentinels">,
+    stagelessLegs = "drop",
+  }: Pick<TransportBodyProps, "hideDates" | "legTime" | "sentinels" | "stagelessLegs">,
 ): TransportRouteLeg[] {
   const legs = Array.isArray(transport.schedule) ? transport.schedule : [];
   const out: TransportRouteLeg[] = [];
   for (const leg of legs) {
     const stage = shown(leg.stage, sentinels);
-    if (stage === null) continue;
+    if (stage === null && stagelessLegs !== "keep") continue;
     const date = hideDates ? null : shown(leg.date, sentinels);
-    out.push({
-      stage,
-      when: legTime(date, shown(leg.time, sentinels)),
-      names: (Array.isArray(leg.assigned_names) ? leg.assigned_names : []).filter(
-        (n) => shown(n, sentinels) !== null,
-      ),
-    });
+    const when = legTime(date, shown(leg.time, sentinels));
+    const names = (Array.isArray(leg.assigned_names) ? leg.assigned_names : []).filter(
+      (n) => shown(n, sentinels) !== null,
+    );
+    // A kept stage-less leg still needs something to show.
+    if (stage === null && when === "" && names.length === 0) continue;
+    out.push({ stage, when, names });
   }
   return out;
 }
 
+/** The cells and notes this transport row renders under these sentinels. */
+export function transportBodyFields(
+  t: TransportationRow,
+  sentinels: "show" | "hide",
+): TransportBodyFields {
+  const field = (value: string | null) => shown(value, sentinels);
+  const contact = (
+    name: string | null,
+    phone: string | null,
+    email: string | null,
+  ): TransportContact | null => {
+    const c = { name: field(name), phone: field(phone), email: field(email) };
+    return c.name !== null || c.phone !== null || c.email !== null ? c : null;
+  };
+  const vehicle = field(t.vehicle);
+  const subs = [field(t.license_plate), field(t.color)].filter((x): x is string => x !== null);
+  return {
+    driver: contact(t.driver_name, t.driver_phone, t.driver_email),
+    loadout: contact(t.loadout_name, t.loadout_phone, t.loadout_email),
+    vehicle: vehicle !== null || subs.length > 0 ? { vehicle, subs } : null,
+    parking: field(t.parking),
+    notes: field(t.notes),
+  };
+}
+
 /** One sunken spec cell in the compact transport strip: eyebrow + stacked lines. */
-function TransportCell({ label, children }: { label: string; children: ReactNode }) {
+function TransportCell({
+  label,
+  searchTarget,
+  children,
+}: {
+  label: string;
+  /** The cell's search target (crew): the cell is one line. */
+  searchTarget?: string | undefined;
+  children: ReactNode;
+}) {
   return (
-    <div className="flex min-w-0 flex-col items-center gap-1 rounded-md bg-surface-sunken px-3 py-2 text-center">
+    <div
+      data-search-target={searchTarget}
+      className="flex min-w-0 flex-col items-center gap-1 rounded-md bg-surface-sunken px-3 py-2 text-center"
+    >
       <span className={CELL_EYEBROW_CLASS}>{label}</span>
       {/* No `flex-1`/`justify-center`: with `items-start` on the grid the cell no longer
           stretches, so there is never surplus height to grow into or centre within. */}
@@ -106,6 +180,8 @@ function ContactCell({
   email,
   telHref,
   mailtoHref,
+  searchTarget,
+  searchSkip,
 }: {
   label: string;
   name: string | null;
@@ -115,12 +191,15 @@ function ContactCell({
   telHref: string | null;
   /** The email's link, or null for plain text. */
   mailtoHref: string | null;
+  searchTarget: string | undefined;
+  /** Skip the avatar's initials in search (crew, with targets): they are not sheet text. */
+  searchSkip: boolean;
 }) {
   return (
-    <TransportCell label={label}>
+    <TransportCell label={label} searchTarget={searchTarget}>
       {name !== null ? (
         <span className="flex min-w-0 items-center gap-1.5">
-          <MiniAvatar name={name} sizeClass="size-5 text-[8px]" />
+          <MiniAvatar name={name} sizeClass="size-5 text-[8px]" searchSkip={searchSkip} />
           <span className="min-w-0 wrap-break-word text-xs font-medium text-text">{name}</span>
         </span>
       ) : null}
@@ -188,29 +267,20 @@ function ContactCell({
 }
 
 export function TransportBody(props: TransportBodyProps) {
-  const { transport: t, telHref, mailtoHref, linkifyContacts, sentinels } = props;
-  const field = (value: string | null) => shown(value, sentinels);
-  const driverName = field(t.driver_name);
-  const driverPhone = field(t.driver_phone);
-  const driverEmail = field(t.driver_email);
-  const loadoutName = field(t.loadout_name);
-  const loadoutPhone = field(t.loadout_phone);
-  const loadoutEmail = field(t.loadout_email);
-  const vehicle = field(t.vehicle);
-  const parking = field(t.parking);
-  const notes = field(t.notes);
+  const { transport: t, telHref, mailtoHref, linkifyContacts, sentinels, targets } = props;
+  const {
+    driver,
+    loadout,
+    vehicle: vehicleCell,
+    parking,
+    notes,
+  } = transportBodyFields(t, sentinels);
   const tel = (phone: string | null) => (phone !== null && linkifyContacts ? telHref(phone) : null);
   const mailto = (email: string | null) =>
     email !== null && linkifyContacts ? mailtoHref(email) : null;
+  const skip = targets !== undefined;
 
-  const hasDriver = driverName !== null || driverPhone !== null || driverEmail !== null;
-  const hasLoadout = loadoutName !== null || loadoutPhone !== null || loadoutEmail !== null;
-  const vehicleSubs = [field(t.license_plate), field(t.color)].filter(
-    (x): x is string => x !== null,
-  );
-  const hasVehicle = vehicle !== null || vehicleSubs.length > 0;
-  const hasParking = parking !== null;
-  const cellCount = [hasDriver, hasLoadout, hasVehicle, hasParking].filter(Boolean).length;
+  const cellCount = [driver, loadout, vehicleCell, parking].filter((c) => c !== null).length;
   const routeLegs = transportRouteLegs(t, props);
 
   return (
@@ -221,32 +291,34 @@ export function TransportBody(props: TransportBodyProps) {
         // contact cell whose two 44px tap targets make it ~160px — a large sunken panel
         // around ~34px of content, which reads as broken rather than spacious.
         <div className="grid grid-cols-2 items-start gap-2 min-[560px]:grid-cols-3">
-          {hasDriver ? (
+          {driver !== null ? (
             <ContactCell
               label="Driver"
-              name={driverName}
-              phone={driverPhone}
-              email={driverEmail}
-              telHref={tel(driverPhone)}
-              mailtoHref={mailto(driverEmail)}
+              {...driver}
+              telHref={tel(driver.phone)}
+              mailtoHref={mailto(driver.email)}
+              searchTarget={targets?.driver}
+              searchSkip={skip}
             />
           ) : null}
-          {hasLoadout ? (
+          {loadout !== null ? (
             <ContactCell
               label="Load out"
-              name={loadoutName}
-              phone={loadoutPhone}
-              email={loadoutEmail}
-              telHref={tel(loadoutPhone)}
-              mailtoHref={mailto(loadoutEmail)}
+              {...loadout}
+              telHref={tel(loadout.phone)}
+              mailtoHref={mailto(loadout.email)}
+              searchTarget={targets?.loadout}
+              searchSkip={skip}
             />
           ) : null}
-          {hasVehicle ? (
-            <TransportCell label="Vehicle">
-              {vehicle !== null ? (
-                <span className="wrap-break-word text-xs font-medium text-text">{vehicle}</span>
+          {vehicleCell !== null ? (
+            <TransportCell label="Vehicle" searchTarget={targets?.vehicle}>
+              {vehicleCell.vehicle !== null ? (
+                <span className="wrap-break-word text-xs font-medium text-text">
+                  {vehicleCell.vehicle}
+                </span>
               ) : null}
-              {vehicleSubs.map((s, i) => (
+              {vehicleCell.subs.map((s, i) => (
                 <span
                   key={i}
                   className={`wrap-break-word text-[11px] ${
@@ -258,8 +330,8 @@ export function TransportBody(props: TransportBodyProps) {
               ))}
             </TransportCell>
           ) : null}
-          {hasParking ? (
-            <TransportCell label="Parking">
+          {parking !== null ? (
+            <TransportCell label="Parking" searchTarget={targets?.parking}>
               <span className="wrap-break-word text-xs font-medium text-text">{parking}</span>
             </TransportCell>
           ) : null}
@@ -268,12 +340,15 @@ export function TransportBody(props: TransportBodyProps) {
 
       {routeLegs.length > 0 ? (
         <div>
-          <p className={`${CELL_EYEBROW_CLASS} mb-3`}>Route</p>
+          <p {...(skip ? { "data-search-skip": "" } : {})} className={`${CELL_EYEBROW_CLASS} mb-3`}>
+            Route
+          </p>
           <ol className="relative flex justify-between gap-2">
             <span aria-hidden="true" className="absolute inset-x-[8%] top-[6px] h-0.5 bg-border" />
             {routeLegs.map((leg, i) => (
               <li
                 key={`${leg.stage}-${i}`}
+                data-search-target={targets?.legs?.[i]}
                 className="relative flex min-w-0 flex-1 flex-col items-center gap-2 text-center"
               >
                 <span
@@ -283,16 +358,25 @@ export function TransportBody(props: TransportBodyProps) {
                   }`}
                 />
                 <span className="min-w-0">
-                  <span className="block wrap-break-word text-xs font-semibold text-text-strong">
-                    {leg.stage}
-                  </span>
+                  {leg.stage !== null ? (
+                    <span className="block wrap-break-word text-xs font-semibold text-text-strong">
+                      {leg.stage}
+                    </span>
+                  ) : null}
+                  {/* Each line's top margin separates it from the line above, so the
+                      first line of a crew leg kept without a stage takes none: a
+                      margin above nothing is a seam no element accounts for. */}
                   {leg.when ? (
-                    <span className="mt-0.5 block text-[11px] tabular-nums text-text-subtle">
+                    <span
+                      className={`${leg.stage !== null ? "mt-0.5 " : ""}block text-[11px] tabular-nums text-text-subtle`}
+                    >
                       {leg.when}
                     </span>
                   ) : null}
                   {leg.names.length > 0 ? (
-                    <span className="mt-0.5 block wrap-break-word text-[11px] text-text-faint">
+                    <span
+                      className={`${leg.stage !== null || leg.when ? "mt-0.5 " : ""}block wrap-break-word text-[11px] text-text-faint`}
+                    >
                       {leg.names.join(", ")}
                     </span>
                   ) : null}
@@ -303,7 +387,11 @@ export function TransportBody(props: TransportBodyProps) {
         </div>
       ) : null}
 
-      {notes !== null ? <p className="wrap-break-word text-sm text-text-subtle">{notes}</p> : null}
+      {notes !== null ? (
+        <p data-search-target={targets?.notes} className="wrap-break-word text-sm text-text-subtle">
+          {notes}
+        </p>
+      ) : null}
     </div>
   );
 }

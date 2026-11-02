@@ -88,8 +88,13 @@ function healthyShow(): ShowForViewer {
   });
 }
 
-/** The crew ids every viewer is listed: all of them but the billing the gate decides. */
-const BASE_LISTED = CREW_SECTION_IDS.filter((id) => id !== "billing");
+/**
+ * The crew ids every viewer is listed on `healthyShow`: all of them but the two
+ * gated ones, billing and transport (PR B Task 9; `healthyShow` has no transport
+ * row and no flight, so only an admin is listed Transport there).
+ */
+const GATED: readonly string[] = ["billing", "transport"];
+const BASE_LISTED = CREW_SECTION_IDS.filter((id) => !GATED.includes(id));
 
 function ctxFor(viewer: Viewer, data: ShowForViewer) {
   return resolveViewerContext(viewer, data);
@@ -148,7 +153,10 @@ describe("crewSectionsFor (sections, PR A membership)", () => {
       const ctx = ctxFor(viewer, data);
       const entitled = financialsVisible(ctx.viewerFlags, ctx.isAdmin);
       outcomes.add(entitled);
-      const expected: CrewSectionId[] = entitled ? [...BASE_LISTED, "billing"] : [...BASE_LISTED];
+      // Transport, on a show with no transport row and no flight, is the admin's alone.
+      const expected = CREW_SECTION_IDS.filter((id) =>
+        id === "billing" ? entitled : id === "transport" ? ctx.isAdmin : true,
+      );
       expect(
         crewSectionsFor(data, ctx).map((s) => s.id),
         name,
@@ -247,5 +255,154 @@ describe("crewSectionsFor (sections, PR A membership)", () => {
         ).toEqual(healthy);
       }
     }
+  });
+});
+
+describe("hotels and transport replace travel (PR B Task 9, spec line 240, plan decision 1)", () => {
+  /** A ground-transport row whose one leg names `rider`. */
+  function transportFor(rider: string): NonNullable<ShowForViewer["transportation"]> {
+    return {
+      driver_name: "Marta Kestrel",
+      driver_phone: "215-555-0177",
+      driver_email: null,
+      loadout_name: null,
+      loadout_phone: null,
+      loadout_email: null,
+      vehicle: "White Transit 350",
+      license_plate: "KTR5521",
+      color: null,
+      parking: "Lot C",
+      schedule: [{ stage: "Shuttle", date: "2026-11-03", time: "2:00pm", assigned_names: [rider] }],
+      notes: null,
+    };
+  }
+
+  /** The show as the projection returns it to one viewer: their name and their own flight. */
+  function showFor(opts: {
+    viewerName: string;
+    flight: string | null;
+    rider: string;
+    restriction?: Member["dateRestriction"];
+  }): ShowForViewer {
+    const roster = ROSTER.map((m) =>
+      m.name === opts.viewerName && opts.restriction !== undefined
+        ? { ...m, dateRestriction: opts.restriction }
+        : m,
+    );
+    return makeShowForViewer({
+      crewMembers: roster,
+      transportation: transportFor(opts.rider),
+      viewerName: opts.viewerName,
+      viewerNameAliases: [opts.viewerName],
+      viewerFlightInfo: opts.flight,
+    });
+  }
+
+  const FLIGHT = "4/19 AA2201 LGA - ORD 9:05am - 10:50am";
+  /** A rider on no roster: the name-aware gate matches surnames, so no "... Crew". */
+  const RIDER = "Riley Rider";
+
+  it("sections: hotels then transport take travel's slot in nav order, both moved ids; travel is no id", () => {
+    const ids: readonly string[] = CREW_SECTION_IDS;
+    expect(ids).not.toContain("travel");
+    expect(ids.indexOf("hotels")).toBe(ids.indexOf("schedule") + 1);
+    expect(ids.indexOf("transport")).toBe(ids.indexOf("hotels") + 1);
+    expect(ids.indexOf("gear")).toBe(ids.indexOf("transport") + 1);
+    for (const id of ["hotels", "transport"] as const) {
+      expect(CREW_MOVED_IDS as readonly string[], id).toContain(id);
+      expect(CREW_SECTION_LABELS[id as CrewSectionId], id).toBe(showSection(id).label);
+    }
+  });
+
+  it("transport: entitled and listed for an admin, a viewer the transport gate admits and a flight-only viewer; neither for a viewer with no flight and no ride, whose ?s=transport resolves home", () => {
+    const transport = "transport" as CrewSectionId;
+    const cases: Array<{ name: string; viewer: Viewer; data: ShowForViewer; listed: boolean }> = [
+      {
+        name: "admin, no transport row and no flight",
+        viewer: { kind: "admin" },
+        data: makeShowForViewer({ crewMembers: ROSTER }),
+        listed: true,
+      },
+      {
+        name: "crew on the leg, no flight",
+        viewer: { kind: "crew", crewMemberId: "c-lead" },
+        data: showFor({ viewerName: "Lead Crew", flight: null, rider: "Lead Crew" }),
+        // (the only case whose viewer rides; every other leg names a stranger)
+        listed: true,
+      },
+      {
+        name: "admin_preview with a flight, not on the leg",
+        viewer: { kind: "admin_preview", crewMemberId: "c-plain" },
+        data: showFor({ viewerName: "Plain Crew", flight: FLIGHT, rider: RIDER }),
+        listed: true,
+      },
+      {
+        name: "crew with no flight and no ride",
+        viewer: { kind: "crew", crewMemberId: "c-plain" },
+        data: showFor({ viewerName: "Plain Crew", flight: null, rider: RIDER }),
+        listed: false,
+      },
+      {
+        name: "admin_preview with no flight and no ride",
+        viewer: { kind: "admin_preview", crewMemberId: "c-fin" },
+        data: showFor({ viewerName: "Money Crew", flight: null, rider: RIDER }),
+        listed: false,
+      },
+    ];
+    for (const { name, viewer, data, listed } of cases) {
+      const ctx = ctxFor(viewer, data);
+      expect(crewSectionEntitled(transport, data, ctx), name).toBe(listed);
+      expect(
+        crewSectionsFor(data, ctx).map((s) => s.id),
+        name,
+      ).toEqual(
+        listed ? expect.arrayContaining([transport]) : expect.not.arrayContaining([transport]),
+      );
+      expect(resolveActiveSection("transport", entitledSet(data, ctx)), name).toBe(
+        listed ? "transport" : "today",
+      );
+    }
+  });
+
+  it("transport: a flight withheld whole by date suppression does not entitle a viewer with no ride", () => {
+    // An unparseable (dateless) itinerary line renders raw, and date suppression
+    // withholds every raw row (flightCard), so this viewer's "Your flight" card is
+    // empty: the section has nothing it may show them.
+    const raw = "Charter pending";
+    const suppressed = showFor({
+      viewerName: "Plain Crew",
+      flight: raw,
+      rider: RIDER,
+      restriction: { kind: "unknown_asterisk", days: null },
+    });
+    const open = showFor({ viewerName: "Plain Crew", flight: raw, rider: RIDER });
+    const viewer: Viewer = { kind: "crew", crewMemberId: "c-plain" };
+    // Positive control: the same flight entitles the viewer whose dates are confirmed.
+    expect(crewSectionEntitled("transport" as CrewSectionId, open, ctxFor(viewer, open))).toBe(
+      true,
+    );
+    expect(
+      crewSectionEntitled("transport" as CrewSectionId, suppressed, ctxFor(viewer, suppressed)),
+    ).toBe(false);
+  });
+
+  it("hotels: entitled and listed for every viewer kind, with or without reservations", () => {
+    const hotels = "hotels" as CrewSectionId;
+    const kinds = new Set<string>();
+    for (const data of [
+      healthyShow(),
+      makeShowForViewer({ crewMembers: ROSTER, hotelReservations: [] }),
+    ]) {
+      for (const { name, viewer } of VIEWERS) {
+        kinds.add(viewer.kind);
+        const ctx = ctxFor(viewer, data);
+        expect(crewSectionEntitled(hotels, data, ctx), name).toBe(true);
+        expect(
+          crewSectionsFor(data, ctx).map((s) => s.id),
+          name,
+        ).toContain(hotels);
+      }
+    }
+    premiseHolds("every viewer kind is exercised", kinds.size === 3);
   });
 });
