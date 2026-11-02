@@ -975,7 +975,17 @@ export function scanCandidates(): Candidate[] {
       // placement and the empty state). None is a fault branch; 78 kept. Re-derived by
       // running the guard.
       //
-      // Probed: 802 such ternaries under the derived roots, 78 on a
+      // 802 -> 807 on feat/crew-page-redesign-pr-b Task 8: TransportBody and its contact
+      // cells moved into the shared Transport body
+      // (components/show-panels/TransportBody.tsx) and HotelCard's markup into the shared
+      // hotel card body (components/show-panels/HotelCardBody.tsx), every arm still counted
+      // once (HotelCard's judgment-marker ternary stays in the admin as the slot value). Five
+      // are new: a contact's plain-text line when its link builder returns null or the
+      // surface does not linkify (phone and email), and the hotel card's confirmation and
+      // notes list and its two rows. None is a fault branch; 78 kept. Re-derived by
+      // running the guard.
+      //
+      // Probed: 807 such ternaries under the derived roots, 78 on a
       // fault-vocabulary guard and unclassifiable. 69 of those 78 sit in
       // `"use client"` files, where the guard is interaction state -- `errorCode`,
       // `state.kind === "error"`, `switchStatus === "error"` -- and not a server-render

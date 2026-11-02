@@ -168,6 +168,11 @@ const CREW_BODY = "components/show-panels/CrewBody.tsx";
 // PR B plan Task 7: the shared Contacts body and the crew Contacts section.
 const CONTACTS_BODY = "components/show-panels/ContactsBody.tsx";
 const CONTACTS = "components/crew/sections/ContactsSection.tsx";
+// PR B plan Task 8: the shared hotel card and Transport bodies (admin side first;
+// the crew page renders them from Task 9) and the identity chip both use.
+const HOTEL_CARD_BODY = "components/show-panels/HotelCardBody.tsx";
+const TRANSPORT_BODY = "components/show-panels/TransportBody.tsx";
+const MINI_AVATAR = "components/show-panels/MiniAvatar.tsx";
 
 const COMPACT_E2E = "tests/e2e/crew-section-toggle.spec.ts";
 const WIDE_E2E = "tests/e2e/crew-wide-nav.spec.ts";
@@ -909,6 +914,44 @@ const CONDITIONAL_RENDERS: Record<string, { presences: number; renders: Conditio
       },
     ],
   },
+  [HOTEL_CARD_BODY]: {
+    presences: 0,
+    renders: [
+      // A stay end: "Not listed", a non-ISO value echoed, or the date stub.
+      { match: "{parts === null ? (", treatment: T.serverPresence },
+      { match: ') : parts.kind === "raw" ? (', treatment: T.serverPresence },
+      { match: "{address ? (", treatment: T.serverPresence },
+      { match: "{showDates ? (", treatment: T.serverPresence },
+      { match: "{nights !== null ? (", treatment: T.serverPresence },
+      { match: '{nights} {nights === 1 ? "night" : "nights"}', treatment: T.serverPresence },
+      { match: "{confirmation !== null || notes !== null ? (", treatment: T.serverPresence },
+      { match: "{confirmation !== null ? (", treatment: T.serverPresence },
+      { match: "{notes !== null ? (", treatment: T.serverPresence },
+      { match: "{names.length > 0 ? (", treatment: T.serverPresence },
+    ],
+  },
+  [TRANSPORT_BODY]: {
+    presences: 0,
+    renders: [
+      // A contact cell: the name, then each of phone and email as a link or plain text.
+      { match: "{name !== null ? (", treatment: T.serverPresence },
+      { match: "{phone !== null ? (", treatment: T.serverPresence },
+      { match: "telHref !== null ? (", treatment: T.serverPresence },
+      { match: "{email !== null ? (", treatment: T.serverPresence },
+      { match: "mailtoHref !== null ? (", treatment: T.serverPresence },
+      { match: "{cellCount > 0 ? (", treatment: T.serverPresence },
+      { match: "{hasDriver ? (", treatment: T.serverPresence },
+      { match: "{hasLoadout ? (", treatment: T.serverPresence },
+      { match: "{hasVehicle ? (", treatment: T.serverPresence },
+      { match: "{vehicle !== null ? (", treatment: T.serverPresence },
+      { match: "{hasParking ? (", treatment: T.serverPresence },
+      { match: "{routeLegs.length > 0 ? (", treatment: T.serverPresence },
+      { match: "{leg.when ? (", treatment: T.serverPresence },
+      { match: "{leg.names.length > 0 ? (", treatment: T.serverPresence },
+      { match: "{notes !== null ? <p", treatment: T.serverPresence },
+    ],
+  },
+  [MINI_AVATAR]: { presences: 0, renders: [] },
   [CONTACTS]: {
     presences: 0,
     renders: [

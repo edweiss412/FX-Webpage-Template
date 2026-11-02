@@ -45,12 +45,9 @@ import {
   Images,
   Info,
   Lightbulb,
-  Mail,
-  MapPin,
   MessageSquareWarning,
   Minus,
   Package,
-  Phone,
   Theater,
   TriangleAlert,
   Video,
@@ -139,9 +136,6 @@ import {
 } from "@/lib/admin/stagedDiagramGuards";
 import type { MessageCode } from "@/lib/messages/catalog";
 import { humanizeDate, humanizeDayRange } from "@/lib/dates/humanize";
-import { dateStubParts } from "@/lib/format/date";
-import { avatarColor } from "@/lib/crew/avatarColor";
-import { deriveInitials } from "@/components/atoms/Avatar";
 import { renderEmphasis } from "@/components/messages/renderEmphasis";
 import { buildSheetDeepLink, type SourceAnchor } from "@/lib/sheet-links/buildSheetDeepLink";
 import { sheetCellReference } from "@/lib/sheet-links/sheetCellReference";
@@ -190,13 +184,14 @@ import { SHOW_SECTION_GROUPS, showSection, type ShowSectionId } from "@/lib/show
 import { BillingBody } from "@/components/show-panels/BillingBody";
 import { CrewBody } from "@/components/show-panels/CrewBody";
 import { ContactsBody, contactBlocks } from "@/components/show-panels/ContactsBody";
-import {
-  CELL_EYEBROW_CLASS,
-  EYEBROW_CLASS,
-  EYEBROW_STYLE,
-  contentRows,
-} from "@/components/show-panels/FieldRowList";
+import { EYEBROW_CLASS, EYEBROW_STYLE, contentRows } from "@/components/show-panels/FieldRowList";
 import { VenueBody } from "@/components/show-panels/VenueBody";
+import { HotelCardBody, hotelCardLabel } from "@/components/show-panels/HotelCardBody";
+import {
+  TransportBody,
+  transportRouteLegs,
+  type TransportBodyProps,
+} from "@/components/show-panels/TransportBody";
 import {
   clearStoredDraftIfUnchanged,
   readStoredDraft,
@@ -349,56 +344,12 @@ export function overflowNote(total: number, cap: number, noun: string): string |
 export { FieldRowList } from "@/components/show-panels/FieldRowList";
 
 /**
- * Small identity chip shared by the redesigned Hotels (guest chips) and
- * Transport (driver / load-out) cards. Reuses the crew identity palette
- * (`avatarColor`) + `deriveInitials` so a person's swatch is stable across
- * every surface (DESIGN.md §1.4 identity-avatar exception). `aria-hidden`
- * because the decorated name is always rendered as live text beside it.
- * `sizeClass` carries the diameter + text size. `ringed` keeps the 2px
- * surface ring; the Hotels chip drops it because its avatar sits inside a
- * bordered pill rather than beside bare text.
+ * Nights between an ISO check-in and check-out. It lives with the shared hotel
+ * card body in components/show-panels/ (crew page redesign PR B plan Task 8)
+ * and is re-exported here under the same name, so the freshness projection and
+ * every admin import of it are unchanged.
  */
-function MiniAvatar({
-  name,
-  sizeClass,
-  testId,
-  ringed = true,
-}: {
-  name: string;
-  sizeClass: string;
-  testId?: string;
-  ringed?: boolean;
-}) {
-  return (
-    <span
-      aria-hidden="true"
-      data-testid={testId}
-      style={{ backgroundColor: avatarColor(name) }}
-      className={cn(
-        "grid shrink-0 place-items-center rounded-pill font-semibold text-white",
-        ringed && "border-2 border-surface",
-        sizeClass,
-      )}
-    >
-      {deriveInitials(name)}
-    </span>
-  );
-}
-
-/**
- * Nights between an ISO check-in and check-out (both `YYYY-MM-DD`). Returns
- * null when either is missing, unparseable (a sentinel like `TBD`), or the
- * span is non-positive — so the "N nights" pill only appears for a real stay.
- * UTC-pinned (same day-boundary discipline as `formatIsoDate`).
- */
-export function nightsBetween(checkIn: string | null, checkOut: string | null): number | null {
-  if (!checkIn || !checkOut) return null;
-  const a = new Date(`${checkIn}T00:00:00Z`);
-  const b = new Date(`${checkOut}T00:00:00Z`);
-  if (Number.isNaN(a.getTime()) || Number.isNaN(b.getTime())) return null;
-  const nights = Math.round((b.getTime() - a.getTime()) / 86_400_000);
-  return nights > 0 ? nights : null;
-}
+export { nightsBetween } from "@/components/show-panels/HotelCardBody";
 
 /**
  * Event-details grouping (spec "3a Grouped"). The flat 20-field wall clusters
@@ -1305,6 +1256,27 @@ export function VenueBreakdown({ dfid, venue }: { dfid: string | null; venue: Sh
   );
 }
 
+/** The admin's transport call link: `ContactCell`'s digits-and-plus rule, as before PR B. */
+const adminTransportTelHref = (phone: string): string => `tel:${phone.replace(/[^\d+]/g, "")}`;
+
+/** The admin's route-leg time line: the leg's date and time as parsed, blanks dropped. */
+const adminLegTime = (date: string | null, time: string | null): string =>
+  [date, time].filter((x) => hasContent(x)).join(" ");
+
+/**
+ * What the admin's transport body renders (spec §6.2 `transport` row): every
+ * contact linked, every leg's date, sentinels as parsed. Read by the body and by
+ * the section count, so the two cannot disagree about which route legs exist.
+ */
+const ADMIN_TRANSPORT_PROPS = {
+  telHref: adminTransportTelHref,
+  mailtoHref: adminMailtoHref,
+  linkifyContacts: true,
+  hideDates: false,
+  legTime: adminLegTime,
+  sentinels: "show",
+} as const satisfies Omit<TransportBodyProps, "transport">;
+
 export function TransportBreakdown({
   dfid,
   transportation,
@@ -1330,13 +1302,8 @@ export function TransportBreakdown({
     : [];
   // Route nodes: each schedule leg with a real stage becomes a route dot with
   // its humanized when-line and any assigned passengers (review completeness).
-  const routeLegs = (t ? arr(t.schedule) : [])
-    .filter((leg) => hasContent(leg.stage))
-    .map((leg) => ({
-      stage: leg.stage as string,
-      when: [leg.date, leg.time].filter((x) => hasContent(x)).join(" "),
-      names: arr(leg.assigned_names).filter((n) => hasContent(n)),
-    }));
+  // The shared body derives the same list (`transportRouteLegs`).
+  const routeLegs = t ? transportRouteLegs(t, ADMIN_TRANSPORT_PROPS) : [];
   const count = fieldRows.length + routeLegs.length;
   return (
     <BreakdownSection
@@ -1347,203 +1314,9 @@ export function TransportBreakdown({
       {count === 0 || !t ? (
         <p className="text-sm text-text-subtle">No transportation parsed.</p>
       ) : (
-        <TransportBody t={t} routeLegs={routeLegs} />
+        <TransportBody transport={t} {...ADMIN_TRANSPORT_PROPS} />
       )}
     </BreakdownSection>
-  );
-}
-
-/** One sunken spec cell in the compact transport strip: eyebrow + stacked lines. */
-function TransportCell({ label, children }: { label: string; children: React.ReactNode }) {
-  return (
-    <div className="flex min-w-0 flex-col items-center gap-1 rounded-md bg-surface-sunken px-3 py-2 text-center">
-      <span className={CELL_EYEBROW_CLASS}>{label}</span>
-      {/* No `flex-1`/`justify-center`: with `items-start` on the grid the cell no longer
-          stretches, so there is never surplus height to grow into or centre within. */}
-      <div className="flex w-full flex-col items-center gap-1">{children}</div>
-    </div>
-  );
-}
-
-/** Driver / Load-out contact cell — avatar + name, tel + mailto, as-parsed. */
-function ContactCell({
-  label,
-  name,
-  phone,
-  email,
-}: {
-  label: string;
-  name: string | null;
-  phone: string | null;
-  email: string | null;
-}) {
-  return (
-    <TransportCell label={label}>
-      {hasContent(name) ? (
-        <span className="flex min-w-0 items-center gap-1.5">
-          <MiniAvatar name={name} sizeClass="size-5 text-[8px]" />
-          <span className="min-w-0 wrap-break-word text-xs font-medium text-text">{name}</span>
-        </span>
-      ) : null}
-      {hasContent(phone) ? (
-        <a
-          href={`tel:${phone.replace(/[^\d+]/g, "")}`}
-          // Tap floor (spec 2026-08-10 §2, site 6) as a full-width CHIP ROW
-          // (spec 2026-08-15-step3-tap-cluster §2.3). `min-h-tap-min` still carries the floor;
-          // what is new is that the 44px reads as a row instead of a void. `w-full` is
-          // deliberate and is the OPPOSITE of the shrink-wrap contract sites 4/8 keep: a
-          // `border-text-faint` chip on the cell's `bg-surface-sunken` ground gives the
-          // target a visible edge AT REST, which is the affordance the venue floor requires
-          // (PRODUCT.md:59 — phones cannot hover, so `hover:` alone is an invisible target).
-          // The house focus ring is new here too; these links carried no focus treatment.
-          // The outline is `border-text-faint`, NOT a border token: a control edge that has to
-          // stand on its own needs text-grade contrast (DESIGN.md §1.2a). `border-border` here
-          // measures 1.15:1 against the sunken cell — an edge that exists in the DOM and is
-          // invisible on the floor. `text-faint` is the pinned 3.02:1 light / 4.11:1 dark row
-          // (DESIGN.md §1.2), the same recipe the shared secondary-action button uses for
-          // its own boundary.
-          className="flex w-full min-h-tap-min min-w-0 items-center justify-center gap-1 rounded-sm border border-text-faint bg-surface px-2 text-[11px] tabular-nums text-text hover:text-text-strong focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring focus-visible:ring-offset-2 focus-visible:ring-offset-surface-sunken"
-        >
-          <Phone className="size-3 shrink-0" aria-hidden="true" />
-          {/* Same containment as the email chip below: the number is as-parsed, so an
-              unbroken string (no spaces) would otherwise set the flex item's automatic
-              min-width to its full width and push past a ~165px cell at 390px. */}
-          <span className="min-w-0 wrap-break-word">{phone}</span>
-        </a>
-      ) : null}
-      {hasContent(email) ? (
-        <a
-          href={`mailto:${email}`}
-          // Site 7 — the same chip recipe as the tel: link above, plus `mt-1.5`. That margin
-          // rides on top of the body's `gap-1` to put 10px between the two targets: they are
-          // both 44px now, and 6px of separation made "email the driver" and "dial the driver
-          // mid-show" a thumb-width apart. It is UNCONDITIONAL, so a phone-less cell carries
-          // 6px of leading dead space — accepted (spec §7 limit 4) over a conditional
-          // className, which is the non-literal shape BL-TAP-TARGET-STRUCTURAL-GUARD records
-          // as the corpus guard's blocker.
-          className="mt-1.5 flex w-full min-h-tap-min min-w-0 items-center justify-center gap-1 rounded-sm border border-text-faint bg-surface px-2 text-[11px] text-text hover:text-text-strong focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring focus-visible:ring-offset-2 focus-visible:ring-offset-surface-sunken"
-        >
-          <Mail className="size-3 shrink-0" aria-hidden="true" />
-          <span className="min-w-0 wrap-break-word">{email}</span>
-        </a>
-      ) : null}
-    </TransportCell>
-  );
-}
-
-/**
- * Compact transport body (spec "1b Compact"): a responsive spec strip of
- * Driver / Load-out / Vehicle / Parking cells (each present only when it has
- * real content) above a horizontal Route timeline of the schedule legs, with
- * the free-text transport notes last. `t` is non-null (the caller renders the
- * empty state when count is 0).
- */
-function TransportBody({
-  t,
-  routeLegs,
-}: {
-  t: TransportationRow;
-  routeLegs: { stage: string; when: string; names: string[] }[];
-}) {
-  const hasDriver =
-    hasContent(t.driver_name) || hasContent(t.driver_phone) || hasContent(t.driver_email);
-  const hasLoadout =
-    hasContent(t.loadout_name) || hasContent(t.loadout_phone) || hasContent(t.loadout_email);
-  const vehicleSubs = [t.license_plate, t.color].filter((x) => hasContent(x)) as string[];
-  const hasVehicle = hasContent(t.vehicle) || vehicleSubs.length > 0;
-  const hasParking = hasContent(t.parking);
-  const cellCount = [hasDriver, hasLoadout, hasVehicle, hasParking].filter(Boolean).length;
-
-  return (
-    <div className="flex flex-col gap-4">
-      {cellCount > 0 ? (
-        // `items-start` (spec 2026-08-15-step3-tap-cluster §2.2): grid items stretch by
-        // default, so a one-line Vehicle or Parking cell was dragged to the height of a
-        // contact cell whose two 44px tap targets make it ~160px — a large sunken panel
-        // around ~34px of content, which reads as broken rather than spacious.
-        <div className="grid grid-cols-2 items-start gap-2 min-[560px]:grid-cols-3">
-          {hasDriver ? (
-            <ContactCell
-              label="Driver"
-              name={t.driver_name}
-              phone={t.driver_phone}
-              email={t.driver_email}
-            />
-          ) : null}
-          {hasLoadout ? (
-            <ContactCell
-              label="Load out"
-              name={t.loadout_name}
-              phone={t.loadout_phone}
-              email={t.loadout_email}
-            />
-          ) : null}
-          {hasVehicle ? (
-            <TransportCell label="Vehicle">
-              {hasContent(t.vehicle) ? (
-                <span className="wrap-break-word text-xs font-medium text-text">{t.vehicle}</span>
-              ) : null}
-              {vehicleSubs.map((s, i) => (
-                <span
-                  key={i}
-                  className={`wrap-break-word text-[11px] ${
-                    shouldHideGenericOptional(s) ? "text-text-faint" : "text-text-subtle"
-                  }`}
-                >
-                  {s}
-                </span>
-              ))}
-            </TransportCell>
-          ) : null}
-          {hasParking ? (
-            <TransportCell label="Parking">
-              <span className="wrap-break-word text-xs font-medium text-text">{t.parking}</span>
-            </TransportCell>
-          ) : null}
-        </div>
-      ) : null}
-
-      {routeLegs.length > 0 ? (
-        <div>
-          <p className={`${CELL_EYEBROW_CLASS} mb-3`}>Route</p>
-          <ol className="relative flex justify-between gap-2">
-            <span aria-hidden="true" className="absolute inset-x-[8%] top-[6px] h-0.5 bg-border" />
-            {routeLegs.map((leg, i) => (
-              <li
-                key={`${leg.stage}-${i}`}
-                className="relative flex min-w-0 flex-1 flex-col items-center gap-2 text-center"
-              >
-                <span
-                  aria-hidden="true"
-                  className={`box-border size-3.5 rounded-pill ring-2 ring-surface ${
-                    i % 2 === 0 ? "bg-accent-on-bg" : "border-2 border-border-strong bg-surface"
-                  }`}
-                />
-                <span className="min-w-0">
-                  <span className="block wrap-break-word text-xs font-semibold text-text-strong">
-                    {leg.stage}
-                  </span>
-                  {leg.when ? (
-                    <span className="mt-0.5 block text-[11px] tabular-nums text-text-subtle">
-                      {leg.when}
-                    </span>
-                  ) : null}
-                  {leg.names.length > 0 ? (
-                    <span className="mt-0.5 block wrap-break-word text-[11px] text-text-faint">
-                      {leg.names.join(", ")}
-                    </span>
-                  ) : null}
-                </span>
-              </li>
-            ))}
-          </ol>
-        </div>
-      ) : null}
-
-      {hasContent(t.notes) ? (
-        <p className="wrap-break-word text-sm text-text-subtle">{t.notes}</p>
-      ) : null}
-    </div>
   );
 }
 
@@ -2728,60 +2501,19 @@ export function HotelsBreakdown({
   );
 }
 
-/**
- * One end of the hotel card's date stub: a field label over the day set large
- * with its month beside it and the weekday underneath. A missing date says so
- * in plain words. The parser normalizes a non-date cell (e.g. "TBD") to null,
- * so the verbatim-echo branch is defensive only; neither claims a `<time>`.
- */
-function StayEnd({
-  label,
-  value,
-  testId,
-  alignEnd = false,
-}: {
-  label: string;
-  value: string | null;
-  testId: string;
-  alignEnd?: boolean;
-}) {
-  const parts = value ? dateStubParts(value) : null;
-  return (
-    <div data-testid={testId} className={cn("min-w-0", alignEnd && "text-right")}>
-      <p className={CELL_EYEBROW_CLASS}>{label}</p>
-      {parts === null ? (
-        <p className="mt-1 text-sm font-medium text-text-subtle">Not listed</p>
-      ) : parts.kind === "raw" ? (
-        <p className="mt-1 wrap-break-word text-xl font-bold text-text-strong">{parts.text}</p>
-      ) : (
-        <time dateTime={value ?? undefined} className="mt-1 block">
-          <span
-            className={cn("flex items-baseline gap-1.5 tabular-nums", alignEnd && "justify-end")}
-          >
-            <span className="text-3xl font-bold leading-none tracking-daynum text-text-strong">
-              {parts.day}
-            </span>
-            <span className="text-sm font-semibold text-text-strong">{parts.month}</span>
-          </span>
-          <span className="mt-1 block text-xs text-text-subtle">{parts.weekday}</span>
-        </time>
-      )}
-    </div>
-  );
-}
-
-/**
- * One reservation as a structured sub-card (2026-10-25 date-stub pass):
- * hotel name + map-pin address on one left edge, a sunken date stub whose
- * connector carries the night count, and one named chip per guest.
- * `confirmation_no` is NEVER rendered (it stays private, matching the
- * existing review contract); dates are shown as-parsed (a non-ISO sentinel
- * echoes verbatim).
- */
 /** The judged reservation's marker data (warning-card-fixes §5.4): the jump to its
  *  first card in Sheet warnings and that card's raw cell, already cut for display. */
 type HotelJudgmentMarker = { onJump: () => void; sheetSays: string | null };
 
+/**
+ * One reservation as a structured sub-card, rendered through the shared hotel
+ * card body (components/show-panels/HotelCardBody.tsx, crew page redesign PR B
+ * plan Task 8). `confirmation_no` is NEVER rendered here (it stays private,
+ * matching the existing review contract), nor are the reservation's notes; the
+ * guest chips and both stay dates are. This component keeps the card's two
+ * `useId` calls and passes the ids in, and builds the judgment marker (an admin
+ * tag, jump and Sheet says line) for the body's marker slot.
+ */
 function HotelCard({
   h,
   index,
@@ -2794,124 +2526,50 @@ function HotelCard({
   flat?: boolean;
   marker?: HotelJudgmentMarker | null;
 }) {
-  const address = hasContent(h.hotel_address) ? h.hotel_address : null;
-  const names = arr(h.names).filter((n) => hasContent(n));
-  const nights = nightsBetween(h.check_in, h.check_out);
   const guestsLabelId = useId();
   // warning-card-fixes §15 (UI gate P3): the card is a jump's focus target, so it is a
   // group named by its own hotel name.
   const nameId = useId();
-  const hotelLabel = h.hotel_name || "Hotel";
+  const hotelLabel = hotelCardLabel(h);
   return (
-    <div
-      data-testid="wizard-step3-hotel-card"
-      // warning-card-fixes §5.5: the card jump's target (same idiom as data-room-nav).
-      data-hotel-index={index}
-      role="group"
-      aria-labelledby={nameId}
-      className={
-        flat
-          ? "@container flex flex-col gap-3"
-          : "@container flex flex-col gap-3 rounded-md border border-border p-4"
-      }
-    >
-      {/* §5.4: the judgment marker sits above the hotel name. The card paints no fill
-          of its own, so the tag's plate is the panel's surface in both layouts. */}
-      {marker ? (
-        <div data-testid="wizard-step3-hotel-judgment-marker" className="flex flex-col gap-1">
-          <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
-            <JudgmentCallTag plate="surface" testId="wizard-step3-hotel-judgment-tag" />
-            <button
-              type="button"
-              data-testid="wizard-step3-hotel-judgment-jump"
-              onClick={marker.onJump}
-              className="inline-flex min-h-tap-min items-center text-xs font-medium text-text-strong underline underline-offset-2 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring focus-visible:ring-offset-2 focus-visible:ring-offset-surface"
-            >
-              See how we read it <span className="sr-only">for {hotelLabel}</span>
-            </button>
-          </div>
-          {marker.sheetSays ? (
-            <p
-              data-testid="wizard-step3-hotel-judgment-sheet-says"
-              className="wrap-break-word text-xs text-text-subtle"
-            >
-              Sheet says <span className="text-text">{marker.sheetSays}</span>
-            </p>
-          ) : null}
-        </div>
-      ) : null}
-      <div className="min-w-0">
-        <p id={nameId} className="wrap-break-word text-base font-semibold text-text-strong">
-          {hotelLabel}
-        </p>
-        {address ? (
-          <p className="mt-0.5 flex items-start gap-1.5 text-sm text-text-subtle">
-            <MapPin className="mt-0.5 size-3.5 shrink-0" aria-hidden="true" />
-            <span className="min-w-0 wrap-break-word">{address}</span>
-          </p>
-        ) : null}
-      </div>
-
-      {h.check_in || h.check_out ? (
-        <div className="flex flex-wrap items-start justify-between gap-x-3 gap-y-2 rounded-md bg-surface-sunken px-4 py-3 @2xs:flex-nowrap">
-          <StayEnd label="Check in" value={h.check_in} testId="hotel-stay-check-in" />
-          {/* One row from an 18rem card up: the connector sits between the dates. Below
-              that (a 320px phone, or enlarged text, since the query is in rem) it drops
-              to its own full-width row under them instead of painting over them. The
-              ends top-align so their labels line up when one end is "Not listed".
-              The line is a standalone 1px rule, so it takes the text-faint hairline
-              ramp (DESIGN.md §1.2a). It is a ::before BORDER, not a fill: a background
-              vanishes in forced-colors mode, and the pseudo-element means no childless
-              flex-1 span exists. Without a night count it has nothing to say on its
-              own row, so it only shows in the one-row layout. */}
-          <div
-            className={cn(
-              "relative order-last basis-full items-center justify-center self-center before:absolute before:inset-x-0 before:top-1/2 before:-translate-y-1/2 before:border-t before:border-text-faint @2xs:order-0 @2xs:min-w-fit @2xs:flex-1 @2xs:basis-0",
-              nights === null ? "hidden @2xs:flex" : "flex",
-            )}
-          >
-            {nights !== null ? (
-              <span
-                data-testid="hotel-stay-nights"
-                className="relative whitespace-nowrap bg-surface-sunken px-2 text-xs font-semibold tabular-nums text-text-subtle"
+    <HotelCardBody
+      hotel={h}
+      nameId={nameId}
+      guestsLabelId={guestsLabelId}
+      jumpIndex={index}
+      flat={flat}
+      marker={
+        marker ? (
+          <div data-testid="wizard-step3-hotel-judgment-marker" className="flex flex-col gap-1">
+            <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
+              <JudgmentCallTag plate="surface" testId="wizard-step3-hotel-judgment-tag" />
+              <button
+                type="button"
+                data-testid="wizard-step3-hotel-judgment-jump"
+                onClick={marker.onJump}
+                className="inline-flex min-h-tap-min items-center text-xs font-medium text-text-strong underline underline-offset-2 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring focus-visible:ring-offset-2 focus-visible:ring-offset-surface"
               >
-                {nights} {nights === 1 ? "night" : "nights"}
-              </span>
+                See how we read it <span className="sr-only">for {hotelLabel}</span>
+              </button>
+            </div>
+            {marker.sheetSays ? (
+              <p
+                data-testid="wizard-step3-hotel-judgment-sheet-says"
+                className="wrap-break-word text-xs text-text-subtle"
+              >
+                Sheet says <span className="text-text">{marker.sheetSays}</span>
+              </p>
             ) : null}
           </div>
-          <StayEnd label="Check out" value={h.check_out} testId="hotel-stay-check-out" alignEnd />
-        </div>
-      ) : null}
-
-      {names.length > 0 ? (
-        <div>
-          <p id={guestsLabelId} className={CELL_EYEBROW_CLASS}>
-            Guests
-          </p>
-          {/* Explicit role: preflight's list-style:none makes Safari drop list
-              semantics, and with them the guest count. */}
-          <ul role="list" aria-labelledby={guestsLabelId} className="mt-2 flex flex-wrap gap-2">
-            {names.map((n, idx) => (
-              <li
-                key={`${n}-${idx}`}
-                data-testid="hotel-guest-chip"
-                className="inline-flex min-w-0 max-w-full items-center gap-2 rounded-pill border border-border py-0.5 pl-0.5 pr-3 text-sm text-text"
-              >
-                <MiniAvatar
-                  name={n}
-                  testId="hotel-guest-avatar"
-                  sizeClass="size-6 text-[10px]"
-                  ringed={false}
-                />
-                <span data-testid="hotel-guest-name" className="min-w-0 wrap-break-word">
-                  {n}
-                </span>
-              </li>
-            ))}
-          </ul>
-        </div>
-      ) : null}
-    </div>
+        ) : null
+      }
+      showConfirmation={false}
+      showNotes={false}
+      showGuests
+      hideDates={false}
+      sentinels="show"
+      testIdPrefix="wizard-step3"
+    />
   );
 }
 

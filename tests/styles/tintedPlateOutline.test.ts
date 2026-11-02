@@ -266,7 +266,15 @@ const REGISTRY: readonly RegistryRow[] = [
     // components/show-panels/ContactsBody.tsx (crew page redesign PR B Task 7), the
     // square its anchors share. That file stands on no tinted plate either; the
     // derived arm reads it. Raw count is now 12, four of them still in comments.
-    neutralFaintCount: 8,
+    // 8 -> 5 on 2026-11-01: the transport cells' call and email chips (both on the
+    // neutral sunken cell) moved into the shared Transport body,
+    // components/show-panels/TransportBody.tsx, and the hotel date stub's connector
+    // rule (on the stub's sunken ground) into the shared hotel card body,
+    // components/show-panels/HotelCardBody.tsx (crew page redesign PR B Task 8). Neither
+    // file stands on a tinted plate, so neither has an anchor this registry could pin;
+    // the derived arm reads them. Raw count is now 7, two of them in comments (the
+    // chips' two explanatory comments moved with them).
+    neutralFaintCount: 5,
   },
 ];
 

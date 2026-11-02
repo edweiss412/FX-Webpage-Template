@@ -82,9 +82,10 @@ const UI_ROOTS = ["app", "components"] as const;
  */
 const EXEMPT_SITES: Readonly<Record<string, readonly string[]>> = {
   // Each row is `<enclosing function> :: <operand signature>`. See EXEMPTION KEY below.
-  "components/admin/wizard/step3ReviewSections.tsx": [
-    "TransportBreakdown :: filter(…) :: leg.date, leg.time",
-  ],
+  // The admin's route-leg time line. It moved out of `TransportBreakdown` into the
+  // formatter the shared Transport body takes (crew page redesign PR B Task 8), with
+  // the same data join: a leg's date and time, never a class list.
+  "components/admin/wizard/step3ReviewSections.tsx": ["adminLegTime :: filter(…) :: date, time"],
   "components/admin/review/sectionFreshness.ts": [
     "renderedTransportation :: filter(…) :: row.date, row.time",
   ],
