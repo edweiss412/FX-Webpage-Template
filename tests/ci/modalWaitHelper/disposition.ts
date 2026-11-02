@@ -704,7 +704,10 @@ export const DISPOSITION_RULES: DispositionRule[] = [
     // 26 since Task 5: the Venue panel's body-under-its-header case in crew-page.spec.ts
     // loads a crew member's preview route. Re-derived from the failure's own count (26
     // candidates).
-    expectedCount: 26,
+    // 27 since Task 6: the roster role-line case in crew-page.spec.ts ("crew: at
+    // <width>px ...") loads the seeded lead's preview route. Re-derived from the
+    // failure's own count (27 candidates).
+    expectedCount: 27,
     match: (c) =>
       !isTestTitle(c.matchLineText) &&
       !/^\["\/admin\/show\//.test(c.matchLineText) &&

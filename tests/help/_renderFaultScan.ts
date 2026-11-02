@@ -953,7 +953,18 @@ export function scanCandidates(): Candidate[] {
       // VenueSection with the rows it drew. None is a fault branch; 78 kept.
       // Re-derived by running the guard.
       //
-      // Probed: 798 such ternaries under the derived roots, 78 on a
+      // 798 -> 801 on feat/crew-page-redesign-pr-b Task 6: CrewBreakdown's member list
+      // moved into the shared Crew body (components/show-panels/CrewBody.tsx). Seven
+      // ternaries left the admin list (the empty state, the subline, the phone and
+      // email anchors, the row-actions trigger, the hosting row and the overflow note)
+      // and two stayed as the slot values CrewBreakdown passes (the row-actions
+      // trigger, the attention stack); the crew roster's overflow stub left
+      // CrewSection for the body's overflow slot. The body holds nine: the name line
+      // with and without chips, the You, Lead and partial chips, the role line, the
+      // actions' placement, the hosting row and the empty state. None is a fault
+      // branch; 78 kept. Re-derived by running the guard.
+      //
+      // Probed: 801 such ternaries under the derived roots, 78 on a
       // fault-vocabulary guard and unclassifiable. 69 of those 78 sit in
       // `"use client"` files, where the guard is interaction state -- `errorCode`,
       // `state.kind === "error"`, `switchStatus === "error"` -- and not a server-render

@@ -74,6 +74,7 @@ import {
   expectColumnsFollowSplit,
   splitContainerOf,
 } from "./helpers/crewSplitContainer";
+import { premise, premiseHolds } from "../_shared/premise";
 
 const SEED_DRIVE_FILE_ID = "seed-fixture:2026-04-asset-mgmt-cfo-coo-waldorf";
 
@@ -527,7 +528,7 @@ test.describe("crew redesign layout invariants (§4.9 / test 12)", () => {
     }
   });
 
-  // ── Invariant 2 — Crew two columns (Show crew | Key contacts) ──
+  // ── Invariant 2 — Crew two columns (the roster | Key contacts) ──
   // The split reads the body's CONTAINER, not the window (DESIGN.md §6): in the
   // wide column (1024px) the two columns sit side by side at the 1.6fr/1fr
   // ratio with `items-start` (natural height — the short "Key contacts" card is
@@ -3999,4 +4000,162 @@ test.describe("billing: the crew panel card's header geometry (PR B Task 4)", ()
       );
     });
   }
+});
+
+/**
+ * PR B plan Task 6 (BL-CREW-ROLE-LINE-RAW-TRUNCATED, BL-CREW-SECTION-GLYPH-ICONS):
+ * on the seeded Waldorf roster the longest role keeps its trailing position code
+ * at the two compact widths, and the row's actions are drawn icons.
+ *
+ * A clipping claim, so it carries the harness rule's overflow premise: the role
+ * cannot fit one line at a tested width (its Range spans at least two line
+ * boxes), and then the Range over its last word lies inside the role's own box
+ * and inside every ancestor whose overflow is not visible. Under that premise
+ * `truncate`, `max-h-[1lh] overflow-hidden` and `line-clamp-1` on the role line
+ * each hide the last word. The roster's actions sit under the identity, so at
+ * 390px the role has the card's width less the avatar and may fit one line; the
+ * premise is therefore the pass case's: the role wraps at SOME tested width, and
+ * the containment holds at every one. The code is the last token of the longest
+ * seeded role, read from the database, never typed here.
+ */
+test.describe("crew: the roster's role line keeps its position code (PR B Task 6)", () => {
+  test.setTimeout(180_000);
+
+  const TOL = 0.5;
+
+  test("crew: at 390px and 320px the longest role's trailing position code is not cut, and the row's actions are drawn icons", async ({
+    page,
+  }) => {
+    const seeded = await lookupSeededShow();
+    // not-subject-to-meta: test-local fixture lookup (see lookupSeededShow).
+    const { data: crew, error } = await admin
+      .from("crew_members")
+      .select("id, role")
+      .eq("show_id", seeded.showId);
+    if (error) throw new Error(`crew role line: crew lookup FAILED: ${error.message}`);
+    const role = [...(crew ?? [])]
+      .map((c) => (typeof c.role === "string" ? c.role.trim() : ""))
+      .sort((a, b) => b.length - a.length)[0];
+    if (!role) throw new Error("crew role line: the seed needs a crew member with a role");
+    const code = role.split(/\s+/).at(-1)!;
+    premiseHolds(
+      `the longest seeded role "${role}" ends in a position code`,
+      /^[A-Z]+\d+$/.test(code),
+    );
+
+    await page.clock.setFixedTime(new Date(SHOW_DAY_N_INSTANT));
+    await signOut(page);
+    await signInAs(page, ADMIN_FIXTURE);
+    await page.setExtraHTTPHeaders({
+      "X-Screenshot-Frozen-Now": SHOW_DAY_N_INSTANT,
+      Authorization: `Bearer ${TEST_AUTH_SECRET}`,
+    });
+    const lead = seeded.leadCrewId;
+
+    const readings = [];
+    for (const width of [390, 320]) {
+      await page.setViewportSize({ width, height: 844 });
+      const res = await page.goto(`/admin/show/${seeded.slug}/preview/${lead}?s=crew`, {
+        waitUntil: "domcontentloaded",
+      });
+      expect(res?.status()).toBe(200);
+      await expect(page.getByTestId("crew-shell-sections")).toHaveAttribute(
+        "data-crew-controller-ready",
+        "true",
+        { timeout: 30_000 },
+      );
+      const card = page
+        .getByTestId("crew-section-sheet-dialog")
+        .getByTestId("section-crew")
+        .locator('[data-card-id="crew-roster"]')
+        .first();
+      await expect(card).toBeVisible();
+      await expect(card).toContainText(role);
+      // The sheet's open transition has settled once the card's box stops moving.
+      await rectOf(card);
+
+      const read = await card.evaluate(
+        (root, { role, code }) => {
+          // The role line: the deepest element whose text is exactly the role.
+          const line = [...root.querySelectorAll<HTMLElement>("*")].find(
+            (el) =>
+              el.textContent?.trim() === role &&
+              ![...el.children].some((c) => c.textContent?.trim() === role),
+          );
+          if (!line) return null;
+          line.scrollIntoView({ block: "center" });
+          const whole = document.createRange();
+          whole.selectNodeContents(line);
+          const tops = new Set(
+            [...whole.getClientRects()].filter((r) => r.width > 0.5).map((r) => Math.round(r.top)),
+          );
+          const walker = document.createTreeWalker(line, NodeFilter.SHOW_TEXT);
+          let last: { node: Text; at: number } | null = null;
+          for (let n = walker.nextNode(); n !== null; n = walker.nextNode()) {
+            const at = (n as Text).data.lastIndexOf(code);
+            if (at >= 0) last = { node: n as Text, at };
+          }
+          if (!last) return null;
+          const word = document.createRange();
+          word.setStart(last.node, last.at);
+          word.setEnd(last.node, last.at + code.length);
+          const rect = (r: DOMRect) => ({
+            top: r.top,
+            left: r.left,
+            right: r.right,
+            bottom: r.bottom,
+          });
+          const clips: { what: string; box: ReturnType<typeof rect> }[] = [
+            { what: "the role line", box: rect(line.getBoundingClientRect()) },
+          ];
+          for (let el = line.parentElement; el !== null; el = el.parentElement) {
+            const s = getComputedStyle(el);
+            if (s.overflowX !== "visible" || s.overflowY !== "visible") {
+              const id = el.getAttribute("data-testid") ?? el.tagName.toLowerCase();
+              clips.push({
+                what: `the clipping ancestor ${id}`,
+                box: rect(el.getBoundingClientRect()),
+              });
+            }
+          }
+          const row = line.closest("li");
+          const links = row ? [...row.querySelectorAll("a")] : [];
+          return {
+            lines: tops.size,
+            word: rect(word.getBoundingClientRect()),
+            clips,
+            links: links.length,
+            linksWithSvg: links.filter((a) => a.querySelector("svg") !== null).length,
+            rowText: row?.textContent ?? "",
+          };
+        },
+        { role, code },
+      );
+      expect(read, `the role line and its last word were found at ${width}px`).not.toBeNull();
+      readings.push({ width, ...read! });
+    }
+
+    // PREMISE: the role cannot fit one line at some tested width, so a one-line cut
+    // there would hide its code.
+    premise(
+      `"${role}" spans line boxes at 390px or 320px (${readings.map((r) => `${r.width}px: ${r.lines}`).join(", ")})`,
+      Math.max(...readings.map((r) => r.lines)),
+      1,
+    );
+    for (const r of readings) {
+      for (const { what, box } of r.clips) {
+        const where = `${r.width}px: "${code}" ${JSON.stringify(r.word)} vs ${what} ${JSON.stringify(box)}`;
+        expect(r.word.left, where).toBeGreaterThanOrEqual(box.left - TOL);
+        expect(r.word.right, where).toBeLessThanOrEqual(box.right + TOL);
+        expect(r.word.top, where).toBeGreaterThanOrEqual(box.top - TOL);
+        expect(r.word.bottom, where).toBeLessThanOrEqual(box.bottom + TOL);
+      }
+    }
+
+    for (const r of readings) {
+      premise(`the role's row carries contact actions at ${r.width}px`, r.links, 0);
+      expect(r.linksWithSvg, `every action draws an svg icon at ${r.width}px`).toBe(r.links);
+      expect(r.rowText, `no glyph stands in for an icon at ${r.width}px`).not.toMatch(/[☎✉]/);
+    }
+  });
 });

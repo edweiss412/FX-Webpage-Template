@@ -8,13 +8,7 @@
  * glyphs until PR C. Each glyph inherits `currentColor` from its row.
  */
 import type { ComponentType } from "react";
-import {
-  BoxIcon,
-  CalendarIcon,
-  HomeIcon,
-  PlaneIcon,
-  UsersIcon,
-} from "@/components/crew/icons/sectionIcons";
+import { BoxIcon, CalendarIcon, HomeIcon, PlaneIcon } from "@/components/crew/icons/sectionIcons";
 import { CREW_MOVED_IDS } from "@/lib/crew/crewSections";
 import type { SectionId } from "@/lib/crew/resolveActiveSection";
 import { showSection } from "@/lib/showSections/registry";
@@ -28,7 +22,6 @@ const CREW_GLYPHS: Readonly<Record<Exclude<SectionId, CrewMovedId>, SectionGlyph
   today: HomeIcon,
   schedule: CalendarIcon,
   travel: PlaneIcon,
-  crew: UsersIcon,
   gear: BoxIcon,
 };
 

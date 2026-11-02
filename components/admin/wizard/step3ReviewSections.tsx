@@ -189,6 +189,7 @@ import {
 import { cn } from "@/lib/ui/cn";
 import { SHOW_SECTION_GROUPS, showSection, type ShowSectionId } from "@/lib/showSections/registry";
 import { BillingBody } from "@/components/show-panels/BillingBody";
+import { CrewBody } from "@/components/show-panels/CrewBody";
 import {
   CELL_EYEBROW_CLASS,
   EYEBROW_CLASS,
@@ -1704,7 +1705,6 @@ export function CrewBreakdown({
    *  byte-identical to the pre-change render. */
   actions?: { showId: string; slug: string; enabled: boolean; crewIds: readonly string[] };
 }) {
-  const shown = members.slice(0, CREW_CAP);
   const note = overflowNote(members.length, CREW_CAP, "people");
   // Single-open menu + panel-top outcome banner (spec §4.2/§4.5). State exists
   // in every mode but banners/menus only MOUNT when actions?.enabled.
@@ -1769,112 +1769,65 @@ export function CrewBreakdown({
       {crewAttention && crewAttention.sectionTop.length > 0 ? (
         <div className="flex flex-col gap-2">{crewAttention.sectionTop}</div>
       ) : null}
-      {members.length === 0 ? (
-        <p className="text-sm text-text-subtle">No crew parsed.</p>
-      ) : (
-        <ul className="flex flex-col">
-          {shown.map((m, i) => {
-            const partial = partialAttendanceLabel(m.date_restriction, { humanize: false });
-            const name = m.name || "Unnamed";
-            const subline = [m.role, partial].filter((x): x is string => hasContent(x)).join(" · ");
-            // Spec §4.1: the row-actions trigger mounts only when published &&
-            // !archived AND this row has a persisted crew id (index-aligned).
-            const crewId = actions?.enabled ? (actions.crewIds[i] ?? "") : "";
-            const attentionKey = canonicalCrewKey(m.name || "");
-            // §6.3 id-matched fan-out banners for THIS rendered row, ahead of any
-            // name-keyed byCrewKey stack (banners first, then warning cards).
-            const indexBanners = crewAttention?.byIndex?.get(i) ?? [];
-            const nameBanners =
-              crewAttention && !consumedAttentionKeys.has(attentionKey)
-                ? crewAttention.byCrewKey.get(attentionKey)
-                : undefined;
-            if (nameBanners) consumedAttentionKeys.add(attentionKey);
-            const rowBanners =
-              indexBanners.length > 0 || (nameBanners && nameBanners.length > 0)
-                ? [...indexBanners, ...(nameBanners ?? [])]
-                : undefined;
-            // Row content is built ONCE (crew-row-controls #499 reconcile):
-            // both branches below render these exact children, so the
-            // non-hosting <li> stays byte-identical to the pre-attention render
-            // and the hosting branch can never drift from the live row markup.
-            const rowInner = (
-              <>
-                <Avatar name={m.name || null} />
-                <span className="min-w-0 flex-1">
-                  <span className="block wrap-break-word text-sm font-medium text-text-strong">
-                    {name}
-                  </span>
-                  {subline ? (
-                    <span className="block wrap-break-word text-xs text-text-subtle">
-                      {subline}
-                    </span>
-                  ) : null}
-                </span>
-                {/* §8 exact anchor DOM: the INTERACTIVE <a> is the 44×44
-                    border box (`size-tap-min`); the bordered 32px square is a
-                    nested NON-interactive visual. Adjacent anchors sit flush
-                    (no gap, no negative margins) so hit areas never overlap;
-                    the centered visuals leave a natural 12px gutter. */}
-                <span className="flex shrink-0 items-center">
-                  {hasContent(m.phone) ? (
-                    <a
-                      href={`tel:${m.phone}`}
-                      aria-label={`Call ${name}`}
-                      className="inline-flex size-tap-min items-center justify-center focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring"
-                    >
-                      <span className="grid size-8 place-items-center rounded-sm border border-text-faint text-text-subtle">
-                        <Phone aria-hidden="true" className="size-4" />
-                      </span>
-                    </a>
-                  ) : null}
-                  {hasContent(m.email) ? (
-                    <a
-                      href={`mailto:${m.email}`}
-                      aria-label={`Email ${name}`}
-                      className="inline-flex size-tap-min items-center justify-center focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring"
-                    >
-                      <span className="grid size-8 place-items-center rounded-sm border border-text-faint text-text-subtle">
-                        <Mail aria-hidden="true" className="size-4" />
-                      </span>
-                    </a>
-                  ) : null}
-                </span>
-                {crewId ? (
-                  <CrewRowActions
-                    crewId={crewId}
-                    name={name}
-                    showId={actions!.showId}
-                    slug={actions!.slug}
-                    open={openCrewId === crewId}
-                    onOpenChange={(next) => setOpenCrewId(next ? crewId : null)}
-                    onOutcome={setOutcome}
-                  />
-                ) : null}
-              </>
-            );
-            return (
-              <Fragment key={`${m.name}-${i}`}>
-                {rowBanners && rowBanners.length > 0 ? (
-                  /* Attention-hosting row (published-show-alerts §5.4): the
-                     original flex row nests inside a column <li> so the banner
-                     block sits under it (mock's card-with-attached-banner
-                     shape). */
-                  /* pb-2 (impeccable P1a, 2026-07-23): the stack's above-gap
-                     (mt-2) must be visibly smaller than the gap to the NEXT
-                     row, or proximity stops binding the card to ITS member. */
-                  <li className="pt-1 pb-2">
-                    <div className="flex items-center gap-3">{rowInner}</div>
-                    <CrewUnderRowStack nodes={rowBanners} ckey={attentionKey} />
-                  </li>
-                ) : (
-                  <li className="flex items-center gap-3 py-1">{rowInner}</li>
-                )}
-              </Fragment>
-            );
-          })}
-        </ul>
-      )}
-      {note ? <p className="text-xs text-text-subtle">{note}</p> : null}
+      {/* The shared Crew body (crew page redesign spec §6.2, `crew` row) with the
+          admin props: CREW_CAP and its note, the name as parsed, role and partial
+          label on one line, sentinels as parsed, the actions at the row's end
+          through the raw builders, and per row the two admin slots this
+          component fills (the row-actions trigger, the attention stack). */}
+      <CrewBody
+        members={members.map((m, i) => {
+          const name = m.name || "Unnamed";
+          // Spec §4.1: the row-actions trigger mounts only when published &&
+          // !archived AND this row has a persisted crew id (index-aligned).
+          const crewId = actions?.enabled ? (actions.crewIds[i] ?? "") : "";
+          const attentionKey = canonicalCrewKey(m.name || "");
+          // §6.3 id-matched fan-out banners for THIS row, ahead of any name-keyed
+          // byCrewKey stack (banners first, then warning cards). Only the first
+          // row matching a canonical name hosts its banners (duplicate names);
+          // rows run in order, so the rows the cap keeps claim theirs first.
+          const indexBanners = crewAttention?.byIndex?.get(i) ?? [];
+          const nameBanners =
+            crewAttention && !consumedAttentionKeys.has(attentionKey)
+              ? crewAttention.byCrewKey.get(attentionKey)
+              : undefined;
+          if (nameBanners) consumedAttentionKeys.add(attentionKey);
+          const rowBanners =
+            indexBanners.length > 0 || (nameBanners && nameBanners.length > 0)
+              ? [...indexBanners, ...(nameBanners ?? [])]
+              : undefined;
+          return {
+            key: `${m.name}-${i}`,
+            name,
+            avatarName: m.name || null,
+            role: m.role,
+            partial: partialAttendanceLabel(m.date_restriction, { humanize: false }),
+            phone: m.phone,
+            email: m.email,
+            rowActions: crewId ? (
+              <CrewRowActions
+                crewId={crewId}
+                name={name}
+                showId={actions!.showId}
+                slug={actions!.slug}
+                open={openCrewId === crewId}
+                onOpenChange={(next) => setOpenCrewId(next ? crewId : null)}
+                onOutcome={setOutcome}
+              />
+            ) : undefined,
+            underRow:
+              rowBanners && rowBanners.length > 0 ? (
+                <CrewUnderRowStack nodes={rowBanners} ckey={attentionKey} />
+              ) : undefined,
+          };
+        })}
+        cap={CREW_CAP}
+        overflow={() => <p className="text-xs text-text-subtle">{note}</p>}
+        telHref={(phone) => (hasContent(phone) ? `tel:${phone}` : null)}
+        mailtoHref={(email) => (hasContent(email) ? `mailto:${email}` : null)}
+        sentinels="show"
+        partialAs="line"
+        actionsPlacement="end"
+      />
     </BreakdownSection>
   );
 }

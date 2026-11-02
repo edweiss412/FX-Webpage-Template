@@ -7,7 +7,7 @@
  * onto the curated section surfaces that now own each cap:
  *
  *   - Crew roster      — CREW_INLINE_CAP = 8  (CrewSection, exported)
- *                        rows: [data-testid="crew-person-row"]
+ *                        rows: [data-testid="crew-panel-crew-row"]
  *                        overflow stub: [data-testid="crew-overflow-stub"]
  *   - Key contacts     — CONTACTS_INLINE_CAP = 6 (CrewSection, exported)
  *                        rows: [data-testid="contact-person-row"]
@@ -125,7 +125,7 @@ describe("§8.4 cardinality-cap — Crew roster (CREW_INLINE_CAP, CrewSection)",
     const n = CREW_INLINE_CAP + 1;
     const expectedOverflow = n - CREW_INLINE_CAP; // derived
     const c = renderCrew(n);
-    expect(c.querySelectorAll('[data-testid="crew-person-row"]').length).toBe(CREW_INLINE_CAP);
+    expect(c.querySelectorAll('[data-testid="crew-panel-crew-row"]').length).toBe(CREW_INLINE_CAP);
     const stub = c.querySelector('[data-testid="crew-overflow-stub"]');
     expect(stub).not.toBeNull();
     expect(stub!.getAttribute("data-tile-show-more")).toBe("true");
@@ -144,7 +144,7 @@ describe("§8.4 cardinality-cap — Crew roster (CREW_INLINE_CAP, CrewSection)",
   test(`larger overflow (${CREW_INLINE_CAP + 5}) — stub count tracks length − cap`, () => {
     const n = CREW_INLINE_CAP + 5;
     const c = renderCrew(n);
-    expect(c.querySelectorAll('[data-testid="crew-person-row"]').length).toBe(CREW_INLINE_CAP);
+    expect(c.querySelectorAll('[data-testid="crew-panel-crew-row"]').length).toBe(CREW_INLINE_CAP);
     expect(c.querySelector('[data-testid="crew-overflow-stub"]')!.textContent).toContain(
       `+${n - CREW_INLINE_CAP}`,
     );

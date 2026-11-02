@@ -1589,7 +1589,8 @@ describe("a defect planted in the theme, not in the module (AC-16)", () => {
       // 2546 -> 2540 on feat/crew-page-redesign-pr-b Task 2 (seven lucide imports moved to lib/showSections/registry.ts and its one import landed above it); located by its own element (5-line context match).
       // 2540 -> 2519 on feat/crew-page-redesign-pr-b Task 4 (FieldRowList and its eyebrow constants moved to components/show-panels/FieldRowList.tsx, two imports landed, and OpsBreakdown's empty-state ternary became one BillingBody line, all above it); located by its own element (5-line context match).
       // 2519 -> 2488 on feat/crew-page-redesign-pr-b Task 5 (the cell eyebrow class moved to components/show-panels/FieldRowList.tsx, the Truck import left, two imports landed, and VenueBreakdown's Where core became one VenueBody call, all above it); located by its own element (5-line context match).
-      "components/admin/wizard/step3ReviewSections.tsx:2488",
+      // 2488 -> 2441 on feat/crew-page-redesign-pr-b Task 6 (CrewBreakdown's member list became one CrewBody call, its rows and their call and email anchors moved to components/show-panels/CrewBody.tsx, and one import landed, all above it); located by its own element (5-line context match).
+      "components/admin/wizard/step3ReviewSections.tsx:2441",
       // 191 -> 196 on feat/crew-show-search (Schedule search entries); the same overflow `<summary>` divider.
       "components/crew/primitives/KeyTimesStrip.tsx:196",
     ]);
@@ -2119,13 +2120,15 @@ describe("no corpus component escapes the follow branch unnamed", () => {
   });
 
   /**
-   * The in-corpus tags the resolver correctly declines to name. FOUR, and each
+   * The in-corpus tags the resolver correctly declines to name. FIVE, and each
    * is a non-follow for a reason no resolver can fix rather than one this arc
    * chose not to fix:
    *
-   * - the three `<Icon />` sites render a component read out of a TABLE at
+   * - the four `<Icon />` sites render a component read out of a TABLE at
    *   runtime (`const Icon = SECTION_ICON[id]` in the crew "All sections" rows
-   *   and the crew wide nav, and an `Icon: LucideIcon` field on a section record). Which component that is depends on a value, so no
+   *   and the crew wide nav, an `Icon: LucideIcon` field on a section record,
+   *   and the `Icon` of each call, text and email action the shared Crew body
+   *   maps through, PR B Task 6). Which component that is depends on a value, so no
    *   static resolver can name it — limit L1, stated as a registry row rather
    *   than left to the prose.
    * - `ZoomController` is a local function that renders NO JSX; it drives a zoom
@@ -2142,6 +2145,7 @@ describe("no corpus component escapes the follow branch unnamed", () => {
     "components/crew/CrewAllSections.tsx <Icon>",
     "components/crew/CrewWideNav.tsx <Icon>",
     "components/diagrams/GalleryLightbox.tsx <ZoomController>",
+    "components/show-panels/CrewBody.tsx <Icon>",
   ];
 
   /** Every module specifier that binds `local` in `src`, alias forms included. */

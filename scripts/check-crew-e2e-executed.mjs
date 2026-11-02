@@ -108,7 +108,9 @@ export const REQUIRED = {
   // mobile-safari run.
   // 55 since Task 5 added the Venue panel's body-under-its-header case at 390px and
   // 800px ("venue"). Counted from the observed mobile-safari run.
-  "crew-page.spec.ts": 55,
+  // 56 since Task 6 added the roster role-line case, one case over 390px and 320px
+  // ("crew"). Re-derived from the wiring guard's live Playwright resolution (56).
+  "crew-page.spec.ts": 56,
   // The crew page's wide layout (crew page redesign plan PR A, Task 6): eight cases,
   // desktop-chromium ALONE (its testMatch; the wide layout begins at 1024px). Nine
   // since Task 7 added the wide header case (search between title and chip).

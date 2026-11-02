@@ -695,7 +695,13 @@ describe("forced-colors state collapse (Arm 1)", () => {
       // feat/crew-page-redesign, re-derived by running findUndecidable on the merged tree:
       // this branch's rows above and that arc's two Accepted (N) chevrons are all present,
       // and nothing else moved.
-    ).toBe(136);
+      // 136 -> 135 on feat/crew-page-redesign-pr-b Task 6, re-derived by running
+      // findUndecidable on the tree: the crew roster's call and email anchors left
+      // step3ReviewSections.tsx (its `<Phone>` and `<Mail>` rows) for the shared Crew
+      // body, components/show-panels/CrewBody.tsx, where the call, text and email
+      // actions map through one anchor whose glyph is a table-read `<Icon>` (one row),
+      // aria-hidden decoration inside a control the census disposes. Nothing else moved.
+    ).toBe(135);
     expect(
       undecidable.every((row) => /:\d+ </.test(row) || row.includes("single-path-state-variant")),
       "every cannot-decide row names a site",

@@ -55,6 +55,7 @@ import { parseWifiValue } from "@/lib/crew/wifiDisplay";
 import type { ShowForViewer } from "@/lib/data/getShowForViewer";
 import { resolveViewerContext } from "@/lib/data/viewerContext";
 import { SECTION_BUILDERS } from "@/lib/search/sections";
+import { showSection } from "@/lib/showSections/registry";
 import type { SearchEntry } from "@/lib/search/types";
 import { premise, premiseHolds } from "@/tests/_shared/premise";
 import { assertParity } from "@/tests/search/_parity";
@@ -827,7 +828,8 @@ describe("billing", () => {
 // ── crew ─────────────────────────────────────────────────────────────────────
 
 describe("crew", () => {
-  const ROSTER = "Show crew";
+  // The roster card is the crew panel card, titled with the registry label (PR B Task 6).
+  const ROSTER = showSection("crew").label;
   const CONTACTS = "Key contacts";
   const inGroup = (es: readonly SearchEntry[], group: string) =>
     es.filter((e) => e.group === group);
@@ -1006,7 +1008,7 @@ describe("crew", () => {
     // The whole Crew body is one WrappedSection block, so "the other blocks'
     // entries" is the empty set; the guard is what keeps the builder from
     // throwing past it.
-    const spy = vi.spyOn(crewRowsModule, "rosterPersons").mockImplementation(() => {
+    const spy = vi.spyOn(crewRowsModule, "rosterPanel").mockImplementation(() => {
       throw new Error("planted crew roster fault");
     });
     const root = renderSection("crew", fullContent);

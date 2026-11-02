@@ -56,7 +56,7 @@ describe("CrewSection", () => {
           showId={SHOW_ID}
         />,
       );
-      const shown = container.querySelectorAll('[data-testid="crew-person-row"]').length;
+      const shown = container.querySelectorAll('[data-testid="crew-panel-crew-row"]').length;
       const stub = container.querySelector("[data-tile-show-more]");
       if (n <= CREW_INLINE_CAP) {
         expect(shown).toBe(n);
@@ -130,9 +130,11 @@ describe("CrewSection", () => {
     );
     // Both columns rendered.
     expect(container.querySelectorAll('[data-testid="crew-column"]').length).toBe(2);
-    // Mock `.card-head .ico` parity: both the Show-crew and Key-contacts cards
-    // carry a leading glyph (UsersIcon / PhoneIcon).
-    expect(container.querySelectorAll('[data-slot="section-card-icon"] svg').length).toBe(2);
+    // Mock `.card-head .ico` parity: both cards carry a leading glyph, the roster's
+    // in the crew panel card's chip (PR B Task 6) and Key contacts' in its
+    // SectionCard (PhoneIcon) until Task 7 moves it.
+    expect(container.querySelectorAll('[data-slot="panel-card-chip"] svg').length).toBe(1);
+    expect(container.querySelectorAll('[data-slot="section-card-icon"] svg').length).toBe(1);
     const wrapper = wrapperOf(container);
     // Wide-left / narrow-right grid is the two-sided layout.
     expect(wrapper).toHaveClass("grid");
@@ -230,7 +232,7 @@ describe("CrewSection", () => {
         showId={SHOW_ID}
       />,
     );
-    const rows = [...container.querySelectorAll('[data-testid="crew-person-row"]')];
+    const rows = [...container.querySelectorAll('[data-testid="crew-panel-crew-row"]')];
     const calvin = rows.find((r) => r.textContent?.includes("Calvin"))!;
     const doug = rows.find((r) => r.textContent?.includes("Doug"))!;
     expect(calvin.querySelector("[data-partial]")).not.toBeNull();

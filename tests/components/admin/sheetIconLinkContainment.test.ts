@@ -1204,7 +1204,9 @@ describe("sheet-link phrase containment (spec §7.10)", () => {
       const found: Record<string, number> = {};
       for (const file of walkedFiles(root)) {
         const rel = file.slice(root.length + 1);
-        if (!/^(components\/admin|app\/admin)\//.test(rel)) continue;
+        // components/show-panels holds the shared section bodies the admin popup
+        // renders (crew page redesign PR B), so its anchors are the admin tree's.
+        if (!/^(components\/admin|app\/admin|components\/show-panels)\//.test(rel)) continue;
         if (!/\.(tsx|jsx)$/.test(rel)) continue;
         const src = readFileSync(file, "utf8");
         if (!src.includes("<a")) continue;
@@ -1267,11 +1269,15 @@ describe("sheet-link phrase containment (spec §7.10)", () => {
         "components/admin/BellPanel.tsx": 1,
         // The component this whole guard contains.
         "components/admin/SheetIconLink.tsx": 1,
-        // Three icon-only CONTACT affordances (the crew-row call action and
-        // the tel:/mailto: pair) plus the staged-diagram image anchor
-        // (img-only, aria-labeled — the r37 attribute-expression fix
-        // surfaced it) — none is a sheet link.
-        "components/admin/wizard/step3ReviewSections.tsx": 4,
+        // The contacts' icon-only tel:/mailto: anchor (one site, both rows) plus
+        // the staged-diagram image anchor (img-only, aria-labeled — the r37
+        // attribute-expression fix surfaced it) — neither is a sheet link. Four
+        // until the crew roster's call and email anchors moved into the shared
+        // Crew body (PR B Task 6), the row below.
+        "components/admin/wizard/step3ReviewSections.tsx": 2,
+        // The crew roster's icon-only call, text and email action: one anchor
+        // site the actions map through, not a sheet link.
+        "components/show-panels/CrewBody.tsx": 1,
       });
     },
   );

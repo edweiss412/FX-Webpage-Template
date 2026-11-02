@@ -220,7 +220,8 @@ export const CENSUS: readonly CensusRow[] = [
   // 5395 -> 5381 on feat/crew-page-redesign-pr-b Task 2 (seven lucide imports moved to lib/showSections/registry.ts, its one import landed, and STEP3_SECTION_GROUPS became one line, all above it); located by its own element (5-line context match).
   // 5381 -> 5360 on feat/crew-page-redesign-pr-b Task 4 (FieldRowList and its eyebrow constants moved to components/show-panels/FieldRowList.tsx, two imports landed, and OpsBreakdown's empty-state ternary became one BillingBody line, all above it); located by its own element (5-line context match).
   // 5360 -> 5329 on feat/crew-page-redesign-pr-b Task 5 (the cell eyebrow class moved to components/show-panels/FieldRowList.tsx, the Truck import left, two imports landed, and VenueBreakdown's Where core became one VenueBody call, all above it); located by its own element (5-line context match).
-  { file: "components/admin/wizard/step3ReviewSections.tsx", line: 5329 },
+  // 5329 -> 5282 on feat/crew-page-redesign-pr-b Task 6 (CrewBreakdown's member list became one CrewBody call, its rows and their call and email anchors moved to components/show-panels/CrewBody.tsx, and one import landed, all above it); located by its own element (5-line context match).
+  { file: "components/admin/wizard/step3ReviewSections.tsx", line: 5282 },
   // spec §4.2 row 19 — spec cites 4178; live 4213, same reason as row 18 plus
   // the 2026-08-25 tinted-plate comment above `ArchivedTabRescanNeeded`
   // Line moved 4424 -> 4443 on 2026-08-27 by this arc's own Task 4, which added 27 lines
@@ -287,7 +288,8 @@ export const CENSUS: readonly CensusRow[] = [
   // 5477 -> 5463 on feat/crew-page-redesign-pr-b Task 2 (seven lucide imports moved to lib/showSections/registry.ts, its one import landed, and STEP3_SECTION_GROUPS became one line, all above it); located by its own element (5-line context match).
   // 5463 -> 5442 on feat/crew-page-redesign-pr-b Task 4 (FieldRowList and its eyebrow constants moved to components/show-panels/FieldRowList.tsx, two imports landed, and OpsBreakdown's empty-state ternary became one BillingBody line, all above it); located by its own element (5-line context match).
   // 5442 -> 5411 on feat/crew-page-redesign-pr-b Task 5 (the cell eyebrow class moved to components/show-panels/FieldRowList.tsx, the Truck import left, two imports landed, and VenueBreakdown's Where core became one VenueBody call, all above it); located by its own element (5-line context match).
-  { file: "components/admin/wizard/step3ReviewSections.tsx", line: 5411 },
+  // 5411 -> 5364 on feat/crew-page-redesign-pr-b Task 6 (CrewBreakdown's member list became one CrewBody call, its rows and their call and email anchors moved to components/show-panels/CrewBody.tsx, and one import landed, all above it); located by its own element (5-line context match).
+  { file: "components/admin/wizard/step3ReviewSections.tsx", line: 5364 },
   // spec §4.2 row 20 — reset chip on `bg-surface-raised` (§4.3)
   // 728 -> 821 on the diagram-failure-retry arc, which inserted the retry state,
   // the in-flight overlay and the availability sweep above this chip; then

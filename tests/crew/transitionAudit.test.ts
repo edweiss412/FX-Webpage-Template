@@ -163,6 +163,8 @@ const FIELD_ROWS = "components/show-panels/FieldRowList.tsx";
 const BILLING_BODY = "components/show-panels/BillingBody.tsx";
 // PR B plan Task 5: the shared Venue body.
 const VENUE_BODY = "components/show-panels/VenueBody.tsx";
+// PR B plan Task 6: the shared Crew roster body.
+const CREW_BODY = "components/show-panels/CrewBody.tsx";
 
 const COMPACT_E2E = "tests/e2e/crew-section-toggle.spec.ts";
 const WIDE_E2E = "tests/e2e/crew-wide-nav.spec.ts";
@@ -860,6 +862,30 @@ const CONDITIONAL_RENDERS: Record<string, { presences: number; renders: Conditio
       { match: "{addressLine ? (", treatment: T.serverPresence },
       { match: "{cityLine ? (", treatment: T.serverPresence },
       { match: "{dockLine ? (", treatment: T.serverPresence },
+    ],
+  },
+  [CREW_BODY]: {
+    presences: 0,
+    renders: [
+      // A row with no identity and no action: no row.
+      {
+        match: "if (identity === null && actions.length === 0) return null;",
+        treatment: T.serverPresence,
+      },
+      { match: "{member.name !== null && rowChips.length === 0 ? (", treatment: T.serverPresence },
+      { match: "{rowChips.length > 0 ? (", treatment: T.serverPresence },
+      { match: "{member.you ? (", treatment: T.serverPresence },
+      { match: "{member.lead ? (", treatment: T.serverPresence },
+      {
+        match: '{partialAs === "chip" && hasText(member.partial) ? (',
+        treatment: T.serverPresence,
+      },
+      { match: "{line ? (", treatment: T.serverPresence },
+      { match: '{actionsPlacement === "end" ? (', treatment: T.serverPresence },
+      // The admin's attention-hosting row or the plain row.
+      { match: "return member.underRow != null ? (", treatment: T.serverPresence },
+      { match: "{members.length === 0 ? (", treatment: T.serverPresence },
+      { match: "{hidden > 0 ? overflow(hidden) : null}", treatment: T.serverPresence },
     ],
   },
 };

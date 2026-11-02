@@ -148,7 +148,8 @@ export const SUBTLE_INTERACTIVE_EXEMPTIONS: readonly SubtleExemption[] = [
     // 1738 -> 1732 on feat/crew-page-redesign-pr-b Task 2 (seven lucide imports moved to lib/showSections/registry.ts and its one import landed above it); located by its own element (5-line context match).
     // 1732 -> 1711 on feat/crew-page-redesign-pr-b Task 4 (FieldRowList and its eyebrow constants moved to components/show-panels/FieldRowList.tsx, two imports landed, and OpsBreakdown's empty-state ternary became one BillingBody line, all above it); located by its own element (5-line context match).
     // 1711 -> 1680 on feat/crew-page-redesign-pr-b Task 5 (the cell eyebrow class moved to components/show-panels/FieldRowList.tsx, the Truck import left, two imports landed, and VenueBreakdown's Where core became one VenueBody call, all above it); located by its own element (5-line context match).
-    line: 1680,
+    // 1680 -> 1681 on feat/crew-page-redesign-pr-b Task 6 (one import landed above it; CrewBreakdown's list moved below it); located by its own element (5-line context match).
+    line: 1681,
     tag: "summary",
     token: "text-text-subtle",
     family: "summary-disclosure",
@@ -196,7 +197,8 @@ export const SUBTLE_INTERACTIVE_EXEMPTIONS: readonly SubtleExemption[] = [
     // 3875 -> 3869 on feat/crew-page-redesign-pr-b Task 2 (seven lucide imports moved to lib/showSections/registry.ts and its one import landed above it); located by its own element (5-line context match).
     // 3869 -> 3848 on feat/crew-page-redesign-pr-b Task 4 (FieldRowList and its eyebrow constants moved to components/show-panels/FieldRowList.tsx, two imports landed, and OpsBreakdown's empty-state ternary became one BillingBody line, all above it); located by its own element (5-line context match).
     // 3848 -> 3817 on feat/crew-page-redesign-pr-b Task 5 (the cell eyebrow class moved to components/show-panels/FieldRowList.tsx, the Truck import left, two imports landed, and VenueBreakdown's Where core became one VenueBody call, all above it); located by its own element (5-line context match).
-    line: 3817,
+    // 3817 -> 3770 on feat/crew-page-redesign-pr-b Task 6 (CrewBreakdown's member list became one CrewBody call, its rows and their call and email anchors moved to components/show-panels/CrewBody.tsx, and one import landed, all above it); located by its own element (5-line context match).
+    line: 3770,
     tag: "summary",
     token: "text-text-subtle",
     family: "summary-disclosure",
@@ -220,7 +222,8 @@ export const SUBTLE_INTERACTIVE_EXEMPTIONS: readonly SubtleExemption[] = [
     // 3907 -> 3901 on feat/crew-page-redesign-pr-b Task 2 (seven lucide imports moved to lib/showSections/registry.ts and its one import landed above it); located by its own element (5-line context match).
     // 3901 -> 3880 on feat/crew-page-redesign-pr-b Task 4 (FieldRowList and its eyebrow constants moved to components/show-panels/FieldRowList.tsx, two imports landed, and OpsBreakdown's empty-state ternary became one BillingBody line, all above it); located by its own element (5-line context match).
     // 3880 -> 3849 on feat/crew-page-redesign-pr-b Task 5 (the cell eyebrow class moved to components/show-panels/FieldRowList.tsx, the Truck import left, two imports landed, and VenueBreakdown's Where core became one VenueBody call, all above it); located by its own element (5-line context match).
-    line: 3849,
+    // 3849 -> 3802 on feat/crew-page-redesign-pr-b Task 6 (CrewBreakdown's member list became one CrewBody call, its rows and their call and email anchors moved to components/show-panels/CrewBody.tsx, and one import landed, all above it); located by its own element (5-line context match).
+    line: 3802,
     tag: "summary",
     token: "text-text-subtle",
     family: "summary-disclosure",
