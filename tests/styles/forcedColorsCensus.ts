@@ -664,7 +664,9 @@ export const COLLAPSE_CENSUS: readonly CollapseCensusRow[] = [
   },
   {
     // Added with the roster's twin (row 17): the contacts' drawn call/email square.
-    site: "components/show-panels/ContactsBody.tsx:275",
+    // :275 -> :142 when the contacts display rule moved to contactsBlocks.ts (row 13's
+    // peer); located by its own element, the square inside the action <a>.
+    site: "components/show-panels/ContactsBody.tsx:142",
     disposition: "not-a-state",
     reason: "same: the admin's square and the crew's, fixed per mount by `actionTone`",
   },

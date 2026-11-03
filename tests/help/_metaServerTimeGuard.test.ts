@@ -189,7 +189,10 @@ describe("Server-side time-call grep guard (test #16 — AC-11.38)", () => {
   // guard, never by adding up the members named below.
   // 249 -> 248 (crew page redesign PR B Task 9): lib/crew/transportLegs.ts was
   // deleted; the Transport body's own leg rule (`transportRouteLegs`) replaced it.
-  const DERIVED_LIB_POPULATION = 248;
+  // 248 -> 249 (PR B invariant-8 gate repairs, row 13's peer): lib/crew/contactHrefs.ts,
+  // the crew contact links moved out of crewRows.ts so the client-reachable peek can
+  // read them. Re-derived by running this guard.
+  const DERIVED_LIB_POPULATION = 249;
 
   it(`the derived lib population has exactly ${DERIVED_LIB_POPULATION} members, including both directory-index modules`, () => {
     // The shipped resolver tried only <base>.ts and <base>.tsx, so five live
