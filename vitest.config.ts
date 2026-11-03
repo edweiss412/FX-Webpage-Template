@@ -128,6 +128,13 @@ export default defineConfig({
           // mock/DOM state across files (spec §1.1). Do not re-propose either
           // without new measurements.
           fileParallelism: true,
+          // Heap ceiling for each forks worker. tests/styles/_metaControlOutlineResidue.test.ts
+          // compiles Tailwind oracles over scratch corpora and peaks at ~4.1 GB, the V8 default
+          // ceiling: 4,107,517,952 bytes max RSS on main at 7e927e927 (96/96), 4,132,438,016 on
+          // feat/crew-page-redesign-pr-b (88/96, heap OOM), where the show-panels class strings
+          // tipped it over and also failed _metaScratchRootCleanup, whose child run spawns it.
+          // A ceiling, not a reservation: workers that need less use less.
+          execArgv: ["--max-old-space-size=6144"],
         },
       },
       // Nightly-only third project (sharding spec §3.4): exists ONLY when the
