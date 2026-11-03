@@ -317,7 +317,32 @@ Step 2, green per spec line 306: `components/crew/AgendaScheduleBlock.tsx` moves
 
 ## 12. Invariant-8 UI quality gate
 
-Pending. Filled in the gate-run commit: the setup gates run (context load of `PRODUCT.md` and `DESIGN.md`, then the register read), the scores of each half, the widths and themes measured (320, 390, 768, 1024 and 1280; light and dark; the crew route, the admin preview route and the admin popup), and one row per finding below, each fixed with its commit or deferred with its `DEFERRED.md` entry. The marker line is added in that same commit and not before.
+Run on 2026-11-02 against HEAD `3e1e65e8a`, on the PR B diff (`git diff origin/main..HEAD -- app components`). Both halves ran with their setup gates: the context load of `PRODUCT.md` and `DESIGN.md`, then the register read. The critique ran as two isolated assessments (design review; detector and browser evidence) and scored 28/40. The audit ran in its own context and scored 14/20. Measured on a production build at 320, 390, 768, 1024 and 1280, light and dark, on the crew route, the admin preview route and the admin popup, with the seeded shows plus a temporary agenda file and nameless contact on one show (removed afterwards by `pnpm db:seed`). After merging the passes: 0 P0, 2 P1, 7 P2, 12 P3. The admin popup was unchanged throughout: `adminSectionDom` 90/90, the goldens and the section-header PNGs untouched.
+
+Both P1s and 15 rows in all were fixed in-branch through crew-side props, holding the admin goldens byte-identical. Three P2s are deferred in `DEFERRED.md` with their triggers, and three P3s are accepted as designed.
 
 | #   | Pass | Tier | Where | Finding | Disposition |
 | --- | ---- | ---- | ----- | ------- | ----------- |
+| 1 | both | P1 | `components/show-panels/TransportBody.tsx` route timeline, crew Transport at 320 to 768 | The route overprints itself on phones: 20 overlapping text-box pairs at 320, 13 at 390, 5 at 768. | Fixed, 8be7b8931 and ca2c0ffbc: a narrow-safe crew route layout; the new e2e case counted 23/13/5 overlaps on 3e1e65e8a and counts 0 now. |
+| 2 | audit | P1 | `TransportBody.tsx` riders line, crew Transport | Riders at 11px `text-text-faint`, 3.35:1 light and 3.76:1 dark; main showed them in `text-text`. | Fixed, 8be7b8931: crew riders at `text-xs` in body text with the "With" label. |
+| 3 | both | P2 | `TransportBody.tsx` and `VenueBody.tsx`, crew sheets 640 to 1023 | Two viewport variants inside crew bodies (DESIGN.md §6); the driver phone and email break mid-token at 768. | Fixed, 8be7b8931, 79d1538bc and ca2c0ffbc: crew uses the container variant; contact cells span the row below the split. |
+| 4 | both | P2 | `components/show-panels/FieldRowList.tsx` and the bodies, crew 390 and 1280 | Crew type at the admin's compact scale: 10px keys, 11px chips, leg times and riders. | Deferred, DEFERRED.md CREWPANEL-TYPE-SCALE-1 (exception (a): the crew type scale for shared bodies is a product decision). |
+| 5 | both | P2 | `components/show-panels/PanelCard.tsx` under the sheet and wide h2 | Every moved section is titled twice (Venue three times). | Deferred, DEFERRED.md CREWPANEL-DOUBLE-TITLE-1 (exception (a): needs a spec §6.1 amendment). |
+| 6 | both | P2 | Venue and Transport crew cards | Panel card and crew SectionCard header styles mixed inside one section. | Deferred, DEFERRED.md CREWPANEL-MIXED-CARD-HEADERS-1 (exception (b): spec §6.2 keeps the crew-only cards until PR C). |
+| 7 | audit | P2 | `components/show-panels/VenueBody.tsx` address, crew Venue | The address was demoted to subtle, 6.76:1 light, under the 7:1 light body floor. | Fixed, 79d1538bc: crew address lines in body text. |
+| 8 | audit | P2 | `components/crew/sections/transportRows.ts` leg time | "leaves Tue 2:00 PM" carries only the weekday, so two Wednesdays look alike; no `<time>`. | Fixed, 8be7b8931: "leaves Wed Mar 18, 2:00 PM" in `<time dateTime>`; dated note appended to spec line 419. |
+| 9 | audit | P2 | `lib/crew/sectionPeek.ts` | Server-only body modules (11.3 KB) shipped in the crew client chunk. | Fixed, 8be7b8931 and 4f37e1fea: the peek reads JSX-free helper modules. |
+| 10 | both | P3 | `components/crew/sections/BillingSection.tsx` | "No budget details on file yet." under "Billing & docs". | Fixed, 235b74356: "No billing details on file yet." |
+| 11 | critique | P3 | `components/show-panels/ContactsBody.tsx`, `components/atoms/Avatar.tsx` | A nameless contact's "?" avatar disc. | Accepted: the audit ruled it technically fine (aria-hidden, 7.26:1, actions named by kind). |
+| 12 | both | P3 | `VenueBody.tsx` city line | The bare city line repeats the city already in the address. | Fixed, 79d1538bc. |
+| 13 | both | P3 | `ContactsBody.tsx`, `ContactsSection.tsx` | An admin-voice fallback ("No contacts parsed.") was reachable on crew. | Fixed, 527e53d8e and 4f37e1fea: the section's own empty state, and the peek counts only rendered contacts. |
+| 14 | critique | P3 | `HotelCardBody.tsx`, crew Hotels at 320 | Several reservations nest cards three levels deep. | Fixed, 235b74356: crew stays render flat with a divider. |
+| 15 | critique | P3 | `FieldRowList.tsx` | Colon keys ("PROPOSAL:") on crew. | Fixed, 235b74356. |
+| 16 | both | P3 | `TransportBody.tsx` route dots | Orange dots with no meaning; filled dots vanish under forced colors. | Fixed, 8be7b8931: neutral dots with a border carrier on crew. |
+| 17 | both | P3 | `CrewBody.tsx`, `ContactsBody.tsx` action squares | Subtle glyphs with no hover on the drawn call, text and email actions. | Fixed, 527e53d8e: glyphs in body text with an instant hover state. |
+| 18 | both | P3 | `components/crew/sections/VenueSection.tsx` | "Open in Maps" had no underline at rest. | Fixed, 79d1538bc. |
+| 19 | critique | P3 | `CrewBody.tsx` role line | The position code is the last characters of the role line. | Accepted: spec §9.2 keeps the role as the sheet writes it, and the line now wraps so the code is always visible (BL-CREW-ROLE-LINE-RAW-TRUNCATED). |
+| 20 | critique | P3 | `CrewBody.tsx` wide roster | Wide roster actions stayed below each row. | Fixed, 527e53d8e: row-end actions from `@min-crew-split`. |
+| 21 | critique | P3 | `PanelCard.tsx` inside `CrewSectionSheet.tsx` | An elevated card inside the elevated sheet. | Accepted: spec §6.1 ratifies the admin card's shadow and `panelCardParity` pins it. |
+
+impeccable-gate: critique=RAN audit=RAN p0=0 p1=2 dispositions=recorded
