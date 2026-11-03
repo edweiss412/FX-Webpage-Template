@@ -1298,10 +1298,52 @@ describe("venue", () => {
     diagrams: null,
     transportation: null,
   }));
-  const local = [cityAndMaps, diagramForms, transportFailed, sentinels, synthRoom, allHidden];
+  /**
+   * The city as a word of the street and as a comma-segment locality: the street
+   * line drops the locality and the city keeps its own line (review round 1, B1).
+   */
+  const cityInStreet = variant(fullContent, "venueCityInStreet", (d) => ({
+    ...d,
+    show: {
+      ...d.show,
+      venue: {
+        ...d.show.venue!,
+        name: "Four Seasons Hotel Chicago",
+        address: "120 E Chicago Ave, Chicago, IL 60611",
+        city: null,
+      },
+    },
+  }));
+  /** The city as the address's own locality, with no comma before it: no city line. */
+  const cityInlineLocality = variant(fullContent, "venueCityInlineLocality", (d) => ({
+    ...d,
+    show: {
+      ...d.show,
+      venue: {
+        ...d.show.venue!,
+        name: "Four Seasons Hotel",
+        address: "120 E Delaware Pl Chicago, IL 60611",
+        city: "Chicago",
+      },
+    },
+  }));
+  const local = [
+    cityAndMaps,
+    cityInStreet,
+    cityInlineLocality,
+    diagramForms,
+    transportFailed,
+    sentinels,
+    synthRoom,
+    allHidden,
+  ];
   const cases = [...ALL_CASES, ...local];
 
   const facilities = (root: HTMLElement) => textOf(root, '[data-card-id="venue-facilities"]');
+  const whereLines = (root: HTMLElement) =>
+    [...root.querySelectorAll('[data-card-id="venue-where"] [data-search-target]')].map(
+      (el) => el.textContent,
+    );
   const thumbnails = (root: HTMLElement) =>
     root.querySelectorAll('[data-card-id="venue-diagrams"] [data-testid^="diagram-slot-"]');
   const PREMISES: Record<string, (root: HTMLElement) => void> = {
@@ -1362,6 +1404,16 @@ describe("venue", () => {
           has(root, '[data-card-id="venue-where"] a[href^="https://"]'),
       );
     },
+    venueCityInStreet: (root) =>
+      premiseHolds(
+        "venueCityInStreet renders the street without its locality and a Chicago city line",
+        whereLines(root).join("|") === "Four Seasons Hotel|120 E Chicago Ave|Chicago",
+      ),
+    venueCityInlineLocality: (root) =>
+      premiseHolds(
+        "venueCityInlineLocality renders the whole address and no city line",
+        whereLines(root).join("|") === "Four Seasons Hotel|120 E Delaware Pl Chicago, IL 60611",
+      ),
     venueDiagramForms: (root) =>
       premiseHolds(
         "venueDiagramForms renders an unavailable slot",

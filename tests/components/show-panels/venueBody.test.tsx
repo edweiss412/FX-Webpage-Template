@@ -308,36 +308,78 @@ describe("Venue crew presentation (gate rows 3, 7, 12, 18)", () => {
     expect(text).not.toContain("text-text-subtle");
   });
 
-  test("the crew city line is dropped when the address already holds the city as a word, and kept when it does not", () => {
-    // The corpus shape (9 of 10 shows): the city sits inside the address without its
-    // own comma segment, so streetFromAddress cannot strip it.
-    const inline = venueWhereProps({
-      name: "Four Seasons Hotel",
-      address: "120 E Delaware Pl Chicago, IL 60611",
-      city: "Chicago",
-    });
-    expect(inline.address).toBe("120 E Delaware Pl Chicago, IL 60611");
-    expect(inline.city).toBeNull();
-    expect(inline.targets.city).toBeUndefined();
-    // A comma segment is stripped from the street, so the city line stays.
-    const segment = venueWhereProps({
-      name: "Four Seasons Hotel",
-      address: "120 E Delaware Pl, Chicago, IL 60611",
-      city: "Chicago",
-    });
-    expect(segment.address).toBe("120 E Delaware Pl");
-    expect(segment.city).toBe("Chicago");
-    // A word that only contains the city is not the city: "Chicagoland" keeps it.
-    const partial = venueWhereProps({
-      name: "Expo Hall",
-      address: "5555 N River Rd Chicagoland Plaza",
-      city: "Chicago",
-    });
-    expect(partial.city).toBe("Chicago");
-    // Case does not matter, and a two-word city matches as a phrase.
-    expect(
-      venueWhereProps({ name: "Hall", address: "4 Pier Rd new york NY", city: "New York" }).city,
-    ).toBeNull();
+  // The crew city line is dropped only when the address as displayed still ends in
+  // the city as its locality (before any state and ZIP), never because the city is
+  // a word in a street name (whole-diff review round 1, B1).
+  test.each([
+    {
+      why: "the corpus shape (9 of 10 shows): the locality has no comma segment of its own, so streetFromAddress cannot strip it",
+      venue: {
+        name: "Four Seasons Hotel",
+        address: "120 E Delaware Pl Chicago, IL 60611",
+        city: "Chicago",
+      },
+      lines: {
+        name: "Four Seasons Hotel",
+        address: "120 E Delaware Pl Chicago, IL 60611",
+        city: null,
+      },
+    },
+    {
+      why: "a street named for the city, its locality a comma segment (the city mined from the address)",
+      venue: {
+        name: "Four Seasons Hotel Chicago",
+        address: "120 E Chicago Ave, Chicago, IL 60611",
+      },
+      lines: { name: "Four Seasons Hotel", address: "120 E Chicago Ave", city: "Chicago" },
+    },
+    {
+      why: "the same venue with a geocoded city",
+      venue: {
+        name: "Four Seasons Hotel Chicago",
+        address: "120 E Chicago Ave, Chicago, IL 60611",
+        city: "Chicago",
+      },
+      lines: { name: "Four Seasons Hotel", address: "120 E Chicago Ave", city: "Chicago" },
+    },
+    {
+      why: "a street named for the city and no locality in the address at all",
+      venue: { name: "Grand Hall", address: "120 E Chicago Ave", city: "Chicago" },
+      lines: { name: "Grand Hall", address: "120 E Chicago Ave", city: "Chicago" },
+    },
+    {
+      why: 'a title-case two-letter street suffix after the city ("Pl") is not a state',
+      venue: { name: "Grand Hall", address: "120 E Chicago Pl", city: "Chicago" },
+      lines: { name: "Grand Hall", address: "120 E Chicago Pl", city: "Chicago" },
+    },
+    {
+      why: "a comma segment is stripped from the street, so the city line stays",
+      venue: {
+        name: "Four Seasons Hotel",
+        address: "120 E Delaware Pl, Chicago, IL 60611",
+        city: "Chicago",
+      },
+      lines: { name: "Four Seasons Hotel", address: "120 E Delaware Pl", city: "Chicago" },
+    },
+    {
+      why: 'a word that only contains the city is not the city: "Chicagoland" keeps it',
+      venue: { name: "Expo Hall", address: "5555 N River Rd Chicagoland Plaza", city: "Chicago" },
+      lines: { name: "Expo Hall", address: "5555 N River Rd Chicagoland Plaza", city: "Chicago" },
+    },
+    {
+      why: "case does not matter, a two-word city matches as a phrase, and a state needs no comma",
+      venue: { name: "Hall", address: "4 Pier Rd new york NY", city: "New York" },
+      lines: { name: "Hall", address: "4 Pier Rd new york NY", city: null },
+    },
+    {
+      why: "a locality followed by a ZIP alone",
+      venue: { name: "Hall", address: "120 E Delaware Pl Chicago 60611", city: "Chicago" },
+      lines: { name: "Hall", address: "120 E Delaware Pl Chicago 60611", city: null },
+    },
+  ])("crew Venue lines: $why", ({ venue, lines }) => {
+    const props = venueWhereProps(venue);
+    expect({ name: props.name, address: props.address, city: props.city }).toEqual(lines);
+    expect(props.targets.city === undefined).toBe(lines.city === null);
   });
 
   test("the crew Where card renders its address as body text, reads its container, and underlines Open in Maps at rest", () => {

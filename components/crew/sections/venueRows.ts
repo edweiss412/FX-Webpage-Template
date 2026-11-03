@@ -23,7 +23,7 @@ import { entryId } from "@/lib/search/entryId";
 import { showSection } from "@/lib/showSections/registry";
 import { shouldHideGenericOptional } from "@/lib/visibility/emptyState";
 import { transportTileVisible } from "@/lib/visibility/scopeTiles";
-import { streetFromAddress, venueDisplay } from "@/lib/venue/venueLocation";
+import { addressEndsWithCity, streetFromAddress, venueDisplay } from "@/lib/venue/venueLocation";
 
 /**
  * Card titles (the search `group`) and `data-card-id`s (the search region). The
@@ -57,14 +57,6 @@ function withTargets<R extends { k: string; v: string; searchTarget?: string }>(
   );
 }
 
-/** True when `phrase` appears in `text` as whole words, case-insensitively. */
-function containsWord(text: string, phrase: string): boolean {
-  const words = phrase.trim();
-  if (words === "") return false;
-  const escaped = words.replace(/[.*+?^${}()|[\]\\]/g, "\\$&").replace(/\s+/g, "\\s+");
-  return new RegExp(`(?<![\\p{L}\\p{N}])${escaped}(?![\\p{L}\\p{N}])`, "iu").test(text);
-}
-
 /** The Venue panel's lines: the shared Venue body's crew props, less the map slot. */
 export type VenueWhereProps = {
   name: string | null;
@@ -81,9 +73,10 @@ export type VenueWhereProps = {
  * blank-address FXAV venue ("Four Seasons Hotel Chicago") still shows a clean
  * "Chicago" city line WITHOUT printing the city twice. streetFromAddress drops
  * the city tail from the address; an address that was only the city yields no
- * street line. An address that still names the city as a word (the sheet wrote
- * it without a comma before the city) yields no city line, so the city is never
- * printed twice.
+ * street line. An address that still ends in the city as its locality (the sheet
+ * wrote it without a comma before the city) yields no city line, so the city is
+ * never printed twice; a street merely named for the city ("120 E Chicago Ave")
+ * keeps it.
  *
  * Values are passed as resolved: the body hides a sentinel line (`sentinels:
  * "hide"`), and that line gets no target here, by the same predicate. Targets are
@@ -94,12 +87,13 @@ export function venueWhereProps(venue: Venue): VenueWhereProps {
   if (!venue) return { name: null, address: null, city: null, targets: {} };
   const { name, city: resolvedCity } = venueDisplay(venue);
   const address = streetFromAddress(venue.address, resolvedCity);
-  // The address line already names the city when the sheet wrote it without its
-  // own comma segment ("120 E Delaware Pl Chicago, IL 60611"), which
-  // streetFromAddress cannot strip: a city line under it would repeat it (PR B
-  // invariant-8 gate, row 12).
+  // The address line already shows the city as its locality when the sheet wrote
+  // it without its own comma segment ("120 E Delaware Pl Chicago, IL 60611"),
+  // which streetFromAddress cannot strip: a city line under it would repeat it (PR
+  // B invariant-8 gate, row 12). A street named for the city is not its locality
+  // (whole-diff review round 1, B1).
   const city =
-    resolvedCity !== null && address !== null && containsWord(address, resolvedCity)
+    resolvedCity !== null && address !== null && addressEndsWithCity(address, resolvedCity)
       ? null
       : resolvedCity;
   const group = showSection("venue").label;
