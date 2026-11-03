@@ -16,6 +16,12 @@
  *   Facilities card (spec §6.2). The body sits inside the crew panel card under
  *   its header (`bleed` false), since that card's header shares its box.
  *
+ * Crew presentation (PR B invariant-8 UI gate rows 3 and 7), each a prop whose
+ * default is the admin's markup: `layout: "container"` puts the map slot beside
+ * the text at the crew section container's `@min-crew-split` (DESIGN.md §6),
+ * never at a viewport width, and `addressTone: "text"` sets the address lines
+ * in body text, the 7:1 the crew's sunlight floor asks of actionable copy.
+ *
  * Plain props, hook-free, no context: the crew page calls it as a function
  * inside `WrappedSection`'s render callback (spec §6.1, error containment). Its
  * unprefixed test ids (`venue-body`, `venue-text-col`, `venue-dock`) are the
@@ -49,6 +55,14 @@ export type VenueBodyProps = {
    * inside the card's padding, under the card's header (the crew panel card).
    */
   bleed: boolean;
+  /**
+   * "viewport" (the default, admin): the map region joins the text's row from the
+   * `sm` window width. "container" (crew): from the crew section container's
+   * `@min-crew-split` (DESIGN.md §6).
+   */
+  layout?: "viewport" | "container";
+  /** "subtle" (the default, admin): the address lines muted. "text" (crew): body text. */
+  addressTone?: "subtle" | "text";
   /** Search targets (crew). Given, the eyebrow, which repeats the card's title, is skipped. */
   targets?: VenueBodyTargets;
 };
@@ -67,6 +81,8 @@ export function VenueBody({
   map,
   sentinels,
   bleed,
+  layout = "viewport",
+  addressTone = "subtle",
   targets,
 }: VenueBodyProps) {
   const nameLine = shown(name, sentinels);
@@ -81,8 +97,14 @@ export function VenueBody({
       data-testid="venue-body"
       className={bleed ? "-m-tile-pad overflow-hidden rounded-md" : undefined}
     >
-      {/* Region A: two-column (stacks below sm) */}
-      <div className="flex flex-col sm:flex-row sm:items-stretch">
+      {/* Region A: two-column (stacks below sm, or below the crew threshold) */}
+      <div
+        className={
+          layout === "container"
+            ? "flex flex-col @min-crew-split:flex-row @min-crew-split:items-stretch"
+            : "flex flex-col sm:flex-row sm:items-stretch"
+        }
+      >
         <div
           data-testid="venue-text-col"
           className={
@@ -106,7 +128,13 @@ export function VenueBody({
             </span>
           ) : null}
           {addressLine || cityLine ? (
-            <span className="mt-1 text-sm/snug text-text-subtle">
+            <span
+              className={
+                addressTone === "text"
+                  ? "mt-1 text-sm/snug text-text"
+                  : "mt-1 text-sm/snug text-text-subtle"
+              }
+            >
               {addressLine ? (
                 <span data-search-target={targets?.address} className="block wrap-break-word">
                   {addressLine}

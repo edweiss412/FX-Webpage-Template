@@ -250,3 +250,108 @@ describe("error containment (spec line 291, line 507)", () => {
     );
   });
 });
+
+/**
+ * PR B invariant-8 UI gate rows 3, 7, 12 and 18: the crew's Venue presentation.
+ * The body's props default to the admin's markup (pinned by the golden); each
+ * case shows the crew prop changes the output.
+ */
+describe("Venue crew presentation (gate rows 3, 7, 12, 18)", () => {
+  const LINES = { name: "Grand Hall", address: "350 Fifth Ave", city: "New York" };
+  const classTokens = (root: Element) =>
+    [root, ...root.querySelectorAll("*")].flatMap((el) =>
+      (el.getAttribute("class") ?? "").split(/\s+/).filter(Boolean),
+    );
+  const VIEWPORT_VARIANT = /^(?:sm|md|lg|xl|2xl|min-\[[^\]]+\]|max-\[[^\]]+\]):/;
+
+  test('layout "container": the text and map regions go side by side at @min-crew-split, never at a viewport width', () => {
+    const viewport = render(
+      VenueBody({ ...LINES, dock: null, map: null, sentinels: "hide", bleed: false }),
+    ).container;
+    // POSITIVE CONTROL: the admin's default switches on the viewport.
+    expect(classTokens(viewport)).toContain("sm:flex-row");
+    cleanup();
+    const root = render(
+      VenueBody({
+        ...LINES,
+        dock: null,
+        map: null,
+        sentinels: "hide",
+        bleed: false,
+        layout: "container",
+      }),
+    ).container;
+    const classes = classTokens(root);
+    expect(classes.filter((c) => VIEWPORT_VARIANT.test(c))).toEqual([]);
+    expect(classes).toContain("@min-crew-split:flex-row");
+  });
+
+  test('addressTone "text": the address and city lines are body text, not subtle; the default stays subtle', () => {
+    const block = (tone?: "subtle" | "text") => {
+      const { container } = render(
+        VenueBody({
+          ...LINES,
+          dock: null,
+          map: null,
+          sentinels: "hide",
+          bleed: false,
+          ...(tone === undefined ? {} : { addressTone: tone }),
+        }),
+      );
+      const address = within(container).getByText(LINES.address);
+      return address.parentElement!.className.split(/\s+/);
+    };
+    expect(block()).toContain("text-text-subtle");
+    cleanup();
+    const text = block("text");
+    expect(text).toContain("text-text");
+    expect(text).not.toContain("text-text-subtle");
+  });
+
+  test("the crew city line is dropped when the address already holds the city as a word, and kept when it does not", () => {
+    // The corpus shape (9 of 10 shows): the city sits inside the address without its
+    // own comma segment, so streetFromAddress cannot strip it.
+    const inline = venueWhereProps({
+      name: "Four Seasons Hotel",
+      address: "120 E Delaware Pl Chicago, IL 60611",
+      city: "Chicago",
+    });
+    expect(inline.address).toBe("120 E Delaware Pl Chicago, IL 60611");
+    expect(inline.city).toBeNull();
+    expect(inline.targets.city).toBeUndefined();
+    // A comma segment is stripped from the street, so the city line stays.
+    const segment = venueWhereProps({
+      name: "Four Seasons Hotel",
+      address: "120 E Delaware Pl, Chicago, IL 60611",
+      city: "Chicago",
+    });
+    expect(segment.address).toBe("120 E Delaware Pl");
+    expect(segment.city).toBe("Chicago");
+    // A word that only contains the city is not the city: "Chicagoland" keeps it.
+    const partial = venueWhereProps({
+      name: "Expo Hall",
+      address: "5555 N River Rd Chicagoland Plaza",
+      city: "Chicago",
+    });
+    expect(partial.city).toBe("Chicago");
+    // Case does not matter, and a two-word city matches as a phrase.
+    expect(
+      venueWhereProps({ name: "Hall", address: "4 Pier Rd new york NY", city: "New York" }).city,
+    ).toBeNull();
+  });
+
+  test("the crew Where card renders its address as body text, reads its container, and underlines Open in Maps at rest", () => {
+    const LINK = "https://maps.google.com/?q=grand-hall";
+    renderVenue(show({ name: "Grand Hall", address: "350 Fifth Ave", googleLink: LINK }));
+    const card = where();
+    const classes = classTokens(card);
+    expect(classes.filter((c) => VIEWPORT_VARIANT.test(c))).toEqual([]);
+    expect(classes).toContain("@min-crew-split:flex-row");
+    const address = within(card).getByText("350 Fifth Ave");
+    expect(address.parentElement!.className.split(/\s+/)).toContain("text-text");
+    const link = card.querySelector(`a[href="${LINK}"]`)!;
+    premiseHolds("the Maps link rendered", link !== null);
+    const linkClasses = link.className.split(/\s+/);
+    expect(linkClasses).toContain("underline");
+  });
+});

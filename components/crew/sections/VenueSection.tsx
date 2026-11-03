@@ -213,13 +213,19 @@ export function VenueSection({
                       data-search-skip=""
                       target="_blank"
                       rel="noopener noreferrer"
-                      className="inline-flex min-h-tap-min items-center -mx-1 px-1 py-1.5 text-text underline-offset-4 transition-colors duration-fast hover:text-accent-on-bg hover:underline"
+                      // Underlined at rest (PR B invariant-8 gate, row 18): beside the
+                      // address from the crew threshold, a bare line read as a caption.
+                      className="inline-flex min-h-tap-min items-center -mx-1 px-1 py-1.5 text-text underline underline-offset-4 transition-colors duration-fast hover:text-accent-on-bg"
                     >
                       Open in Maps <NewTabHint />
                     </a>
                   ) : null,
                   sentinels: "hide",
                   bleed: false,
+                  // The crew's presentation (PR B invariant-8 gate rows 3 and 7):
+                  // the section container's threshold, the address in body text.
+                  layout: "container",
+                  addressTone: "text",
                 })}
               </PanelCard>
             )}
