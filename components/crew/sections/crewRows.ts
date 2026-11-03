@@ -17,13 +17,12 @@ import {
   type CrewBodyMember,
   type CrewBodyProps,
 } from "@/components/show-panels/CrewBody";
+import { crewMailtoHref, crewSmsHref, crewTelHref } from "@/lib/crew/contactHrefs";
 import { partialAttendanceLabel } from "@/lib/crew/partialAttendance";
 import type { ShowForViewer, Viewer } from "@/lib/data/getShowForViewer";
-import { digitsOnly } from "@/lib/format/phone";
 import { entryId } from "@/lib/search/entryId";
 import type { SearchEntry } from "@/lib/search/types";
 import { showSection } from "@/lib/showSections/registry";
-import { shouldHideGenericOptional } from "@/lib/visibility/emptyState";
 
 /**
  * Cardinality cap for the crew roster before the `[data-tile-show-more]`
@@ -42,22 +41,9 @@ export const ROSTER_CARD_ID = "crew-roster";
 /** A search entry without the parts the builder adds (section and copy). */
 export type CrewSearchLine = Omit<SearchEntry, "section" | "copy">;
 
-/** The crew's call link: a `tel:` of the digits, none when the phone has none (phase 1 §4.16). */
-export function crewTelHref(phone: string): string | null {
-  const digits = digitsOnly(phone);
-  return digits.length > 0 ? `tel:${digits}` : null;
-}
-
-/** The crew's text link, under the same digits gate as the call link (plan decision 8). */
-export function crewSmsHref(phone: string): string | null {
-  const digits = digitsOnly(phone);
-  return digits.length > 0 ? `sms:${digits}` : null;
-}
-
-/** The crew's email link: none for a sentinel or a blank address. */
-export function crewMailtoHref(email: string): string | null {
-  return shouldHideGenericOptional(email) ? null : `mailto:${email}`;
-}
+// The contact links live in lib/crew/contactHrefs.ts, markup-free, so the
+// client-reachable peek can read them; re-exported here, where callers import them.
+export { crewMailtoHref, crewSmsHref, crewTelHref };
 
 /** The roster's body props (all but the overflow slot, which is markup) and its search lines. */
 export type RosterPanel = {

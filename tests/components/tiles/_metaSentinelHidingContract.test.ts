@@ -317,12 +317,31 @@ const GENERIC_OPTIONAL_FIELDS: ReadonlyArray<{
  * a documented decision, not a "we'll fix it later."
  *
  * Empty as of M4 round 12: every tile that consumes generic-optional
- * text fields routes through the predicate. Future exemptions go here.
+ * text fields routes through the predicate. Future exemptions go here. Two
+ * since crew page redesign PR B's invariant-8 gate repairs, each a file whose
+ * routing moved one module away (named in its row).
  */
 const EXEMPTIONS: ReadonlyArray<{
   filename: string;
   reason: string;
-}> = [];
+}> = [
+  // feat/crew-page-redesign-pr-b, invariant-8 gate row 9 and row 13's peer: the
+  // contacts display rule and the crew contact links moved into markup-free modules
+  // so the client-reachable "All sections" peek can count the contacts the section
+  // renders. Each file below still routes every field it consumes through the
+  // predicate, one module away, in a file this walk reaches and holds to the
+  // contract; the lexical check cannot follow the import.
+  {
+    filename: "components/show-panels/ContactsBody.tsx",
+    reason:
+      "renders a contact's name, links and note only from contactBlockDisplay (components/show-panels/contactsBlocks.ts), whose `shown` calls shouldHideGenericOptional on the name and note; walked and held to this contract there",
+  },
+  {
+    filename: "components/crew/sections/crewRows.ts",
+    reason:
+      "hands a member's phone and email to the roster body only through crewTelHref, crewSmsHref and crewMailtoHref (lib/crew/contactHrefs.ts, whose email gate is shouldHideGenericOptional), and its role to the body's own sentinel rule (CrewBody `subline`, which calls it)",
+  },
+];
 
 /**
  * Files that live under a walked directory but aren't subject to the

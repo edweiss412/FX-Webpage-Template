@@ -14,13 +14,9 @@
  *
  * Non-client module: the builder runs on the server and imports it.
  */
-import { crewMailtoHref, crewTelHref } from "@/components/crew/sections/crewRows";
-import {
-  contactsBodyBlocks,
-  contactsBodyLines,
-  type ContactsBodyProps,
-  type ContactsBodyTargets,
-} from "@/components/show-panels/ContactsBody";
+import { CREW_CONTACT_OPTIONS, crewContactsShown } from "@/components/crew/sections/crewContacts";
+import type { ContactsBodyProps, ContactsBodyTargets } from "@/components/show-panels/ContactsBody";
+import { contactsBodyBlocks, contactsBodyLines } from "@/components/show-panels/contactsBlocks";
 import type { ShowForViewer } from "@/lib/data/getShowForViewer";
 import { entryId } from "@/lib/search/entryId";
 import type { SearchEntry } from "@/lib/search/types";
@@ -64,19 +60,14 @@ export type ContactsPanel = {
  * the rows the cap keeps.
  */
 export function contactsPanel(data: ShowForViewer): ContactsPanel {
-  const options = {
-    sentinels: "hide",
-    showNotes: true,
-    telHref: crewTelHref,
-    mailtoHref: crewMailtoHref,
-  } as const;
+  const options = CREW_CONTACT_OPTIONS;
   const group = showSection("contacts").label;
   const seen = new Map<string, number>();
   const targets: Record<string, ContactsBodyTargets> = {};
   const lines: ContactsSearchLine[] = [];
   const blocks = contactsBodyBlocks(null, data.contacts);
-  // The body's own predicate: a block renders exactly when it has an identity line.
-  const hasRows = blocks.some((block) => contactsBodyLines(block, options).identity !== null);
+  // The body's own predicate (crewContacts.ts), the one the peek counts with.
+  const hasRows = crewContactsShown(data.contacts).length > 0;
   for (const block of blocks.slice(0, CONTACTS_INLINE_CAP)) {
     const { identity, notes } = contactsBodyLines(block, options);
     const target: ContactsBodyTargets = {};

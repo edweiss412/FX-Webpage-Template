@@ -26,6 +26,7 @@
  * Pure and server-safe.
  */
 import { structuredAgenda } from "@/components/crew/agendaScheduleRows";
+import { crewContactsShown } from "@/components/crew/sections/crewContacts";
 import { crewTransportLegOptions } from "@/components/crew/sections/transportLegTime";
 import { transportRouteLegs } from "@/components/show-panels/transportLegs";
 import type { ShowForViewer } from "@/lib/data/getShowForViewer";
@@ -143,9 +144,13 @@ function crewPeek(data: ShowForViewer): string | null {
   return count === 0 ? null : plural(count, "person", "people");
 }
 
-/** The venue and in-house AV contacts the Contacts section lists; never the client contact. */
+/**
+ * The venue and in-house AV contacts the Contacts section renders a row for,
+ * never the client contact: a contact with no name the crew sees and nothing to
+ * tap is not listed, so it is not counted (PR B invariant-8 gate, row 13's peer).
+ */
 function contactsPeek(data: ShowForViewer): string | null {
-  const count = Array.isArray(data.contacts) ? data.contacts.length : 0;
+  const count = Array.isArray(data.contacts) ? crewContactsShown(data.contacts).length : 0;
   return count === 0 ? null : plural(count, "contact", "contacts");
 }
 

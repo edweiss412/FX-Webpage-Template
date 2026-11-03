@@ -249,6 +249,24 @@ describe("sectionPeek (peek, spec §4.6)", () => {
     expect(peek("contacts", clientOnly, ADMIN)).toBeNull();
   });
 
+  it("peek: contacts counts only the contacts the section renders a row for, so it never counts over the section's empty state (gate row 13's peer)", () => {
+    // Two contacts the Contacts body drops: a sentinel name with a digit-less phone,
+    // and a nameless contact whose only email is a sentinel. The section shows
+    // "No contacts on file yet." for them, so the peek must say nothing.
+    const unrenderable: ShowForViewer["contacts"] = [
+      { kind: "venue", name: "TBD", email: null, phone: "ask at desk", notes: null },
+      { kind: "in_house_av", name: null, email: "N/A", phone: null, notes: null },
+    ];
+    const none = makeShowForViewer({ crewMembers: ROSTER, contacts: unrenderable });
+    expect(peek("contacts", none, crew("c-plain"))).toBeNull();
+    // POSITIVE CONTROL: one renderable contact among them is counted, the others not.
+    const one = makeShowForViewer({
+      crewMembers: ROSTER,
+      contacts: [...unrenderable, CONTACTS[0]!],
+    });
+    expect(peek("contacts", one, crew("c-plain"))).toBe("1 contact");
+  });
+
   it("peek: gear counts a pack list only on the days its phase and stage gates show it", () => {
     const show = fullShow();
     const cases = show.pullSheet!.length;
