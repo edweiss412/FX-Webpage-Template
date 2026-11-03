@@ -28,6 +28,10 @@
  * Empty visible-day list → required-field EmptyState ("Show dates haven't been
  * confirmed yet." — matches ScheduleTile copy / spec §8.3).
  *
+ * The agenda (the "View agenda" PDFs and their structured schedule) is not here:
+ * it moved to its own section, components/crew/sections/AgendaSection.tsx (crew
+ * page redesign PR B, Task 10, spec §6.2 `agenda` row).
+ *
  * `aggregateDays` is ported from ScheduleTile.tsx:93-107 (push travelIn→"Travel
  * In", set→"Set", each showDays[]→"Show", travelOut→"Travel Out"; dedup
  * first-phase-wins; sort ASC by ISO).
@@ -37,8 +41,6 @@
  */
 import type { JSX } from "react";
 
-import { AgendaEmbed } from "@/components/agenda/AgendaEmbed";
-import { AgendaScheduleBlock } from "@/components/crew/AgendaScheduleBlock";
 import { DayCard } from "@/components/crew/primitives/DayCard";
 import { SectionCard } from "@/components/crew/primitives/SectionCard";
 import { CardHeaderActions } from "@/components/crew/primitives/CardHeaderActions";
@@ -50,15 +52,12 @@ import { KeyTimesStrip } from "@/components/crew/primitives/KeyTimesStrip";
 import { RunOfShowList } from "@/components/crew/primitives/RunOfShowList";
 import { EmptyState } from "@/components/atoms/EmptyState";
 import { WrappedSection } from "@/components/crew/WrappedSection";
-import { visibleAgendaDaysForViewer } from "@/lib/crew/agendaViewerDays";
 import { resolveKeyTimes } from "@/lib/crew/resolveKeyTimes";
-import { RUN_OF_SHOW_DISPLAY_CAP, type AggregateDay } from "@/lib/crew/agendaDisplay";
+import { RUN_OF_SHOW_DISPLAY_CAP } from "@/lib/crew/agendaDisplay";
 import {
   keyTimeEntries,
-  scheduleAgendaRows,
   scheduleDayRows,
   scheduleVisibleDays,
-  AGENDA_GROUP,
   SCHEDULE_CALL_TIMES_REGION,
   SCHEDULE_CALL_TIMES_TITLE,
 } from "@/components/crew/sections/scheduleRows";
@@ -129,92 +128,6 @@ export function ScheduleSection({
   // projection alert is the sole producer).
   const roomsFetchFailed = Boolean(data.tileErrors["rooms"]) && isAdmin;
 
-  // §4.6/§4.8 — the agenda area is the authoritative schedule overview and
-  // sits at the TOP of the Schedule section, above the day-cards grid. One
-  // "View agenda" affordance per fileId-bearing link (AgendaEmbed, multi-doc)
-  // plus the structured per-day schedule for any link whose extraction is
-  // high-confidence (AgendaScheduleBlock renders nothing for low/malformed).
-  // Rendered ONLY when ≥1 link carries a Drive fileId (else the embed is null
-  // and the block has nothing to show — no empty area). Deliberately NOT
-  // rendered in the unknown_asterisk privacy branch above (that branch leaks
-  // ZERO dates and returns before this point).
-  const agendaLinks = data.show.agenda_links;
-  const hasAgenda = agendaLinks.some((link) => Boolean(link.fileId));
-  // The agenda's rows and search entries (scheduleRows.ts). Not derived for an
-  // `unknown_asterisk` viewer: that branch renders no agenda at all.
-  const agenda = suppressesDates(dateRestriction) ? null : scheduleAgendaRows(agendaLinks);
-  // Hoisted above `agendaArea` so the agenda can mark the viewer's own days (spec §2).
-  // FUNCTION-scoped, not block-scoped in the `try`: the WrappedSection callback below reads
-  // these same values for the day cards.
-  //
-  // CONTAINED, because all three of `aggregateDays`, `visibleShowDays` and the `visibleDays`
-  // filter read `dates.showDays` unvalidated -- `getShowForViewer` CASTS the jsonb rather than
-  // validating it, so a non-array or a non-string element faults at runtime even though none of
-  // these functions contains a `throw`.
-  //
-  // The catch does NOT swallow: it fails the AGENDA open (whole agenda expands, nothing folds)
-  // and rethrows inside the callback so the day-card path keeps WrappedSection's ledger record
-  // and tile fallback. Fail-open is right for the fold and wrong for hiding an infra fault.
-  let visibleDays: AggregateDay[] = [];
-  let dayDerivationError: unknown = null;
-  // `unknown_asterisk` returns a placeholder and renders no agenda at all, so this work would
-  // be discarded.
-  if (!suppressesDates(dateRestriction)) {
-    try {
-      visibleDays = scheduleVisibleDays(data, dateRestriction);
-    } catch (err) {
-      dayDerivationError = err;
-      visibleDays = [];
-    }
-  }
-  /** The viewer's own days, as ISO dates — spec §3's `R`, already intersected. */
-  const viewerDates = visibleDays.map((d) => d.date);
-  /** Raw restriction days; `restriction \ viewerDates` is the disagreement guard's input. */
-  const restrictionDays = dateRestriction.kind === "explicit" ? dateRestriction.days : [];
-
-  const agendaArea =
-    hasAgenda && agenda !== null ? (
-      <section
-        data-testid="agenda-area"
-        aria-labelledby="agenda-heading"
-        className="flex min-w-0 flex-col gap-3"
-      >
-        <h3
-          id="agenda-heading"
-          // The heading names every agenda line (their search group); with no
-          // agenda line rendered it is plain chrome.
-          data-search-group={agenda.entries.length > 0 ? "" : undefined}
-          data-search-skip={agenda.entries.length > 0 ? undefined : ""}
-          className="text-sm font-semibold text-text-strong"
-        >
-          {AGENDA_GROUP}
-        </h3>
-        <AgendaEmbed
-          showId={showId}
-          agendaLinks={agendaLinks}
-          searchTargets={agenda.embedTargets}
-        />
-        {agendaLinks.map((link, i) => {
-          const block = agenda.blocks[i];
-          return link.fileId && link.extracted && block != null ? (
-            <AgendaScheduleBlock
-              key={link.fileId}
-              extraction={link.extracted}
-              label={block.label}
-              search={block.search}
-              // Once PER LINK, never shared: one PDF can parse while another cannot, and
-              // reusing a result would fold the second link's viewer row (spec §3).
-              viewerDays={
-                dateRestriction.kind === "explicit"
-                  ? visibleAgendaDaysForViewer(link.extracted, viewerDates, restrictionDays)
-                  : { kind: "all" }
-              }
-            />
-          ) : null;
-        })}
-      </section>
-    ) : null;
-
   // Privacy trust boundary — unknown_asterisk leaks ZERO dates. Render ONLY the
   // placeholder and STOP before building the day list (testid does NOT start
   // with "schedule-day", so the prefix-counting selector reads 0 cards).
@@ -234,17 +147,16 @@ export function ScheduleSection({
 
   return (
     <div data-testid="section-schedule" className="flex flex-col gap-4">
-      {agendaArea}
       <WrappedSection
         ledger={ledger}
         tileId="crew:schedule:days"
         showId={showId}
         sheetName={data.show.title}
         render={() => {
-          // The derivation is hoisted (above) so the agenda can use it. If it faulted, rethrow
-          // HERE so this boundary still records the ledger entry and renders the tile fallback,
-          // exactly as it did when the derivation lived inside this callback.
-          if (dayDerivationError !== null) throw dayDerivationError;
+          // Inside the callback, so a fault reading `dates.showDays` (the projection CASTS the
+          // jsonb rather than validating it) is this boundary's: it records the ledger entry and
+          // renders the tile fallback.
+          const visibleDays = scheduleVisibleDays(data, dateRestriction);
 
           const todayIso = todayIsoInShowTimezone(data.show, today);
 
@@ -310,10 +222,12 @@ export function ScheduleSection({
                       showId={showId}
                       cardReport={cardReport}
                       // CARDREPORT-1: this bare header is NOT a SectionCard — the
-                      // agenda area sits just above it and the non-interactive day
-                      // list below. Grow the tap overlays DOWN so they clear the
-                      // agenda. (Every SectionCard-hosted cluster keeps the "up"
-                      // default; see the schedule-call-times SectionCard below.)
+                      // section's heading (or the sheet's header) sits just above it
+                      // and the non-interactive day list below. Grow the tap overlays
+                      // DOWN so they clear what is above (the agenda area sat there
+                      // until it moved to its own section, PR B Task 10). (Every
+                      // SectionCard-hosted cluster keeps the "up" default; see the
+                      // schedule-call-times SectionCard below.)
                       hitDirection="down"
                     />
                   </div>

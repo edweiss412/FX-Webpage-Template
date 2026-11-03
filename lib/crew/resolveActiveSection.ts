@@ -17,6 +17,7 @@ export const CREW_SECTION_IDS = [
   "crew",
   "contacts",
   "schedule",
+  "agenda",
   "hotels",
   "transport",
   "gear",

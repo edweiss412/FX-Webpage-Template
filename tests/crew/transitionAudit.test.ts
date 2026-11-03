@@ -176,6 +176,10 @@ const MINI_AVATAR = "components/show-panels/MiniAvatar.tsx";
 // PR B plan Task 9: the crew Hotels and Transport sections that replace Travel.
 const HOTELS = "components/crew/sections/HotelsSection.tsx";
 const TRANSPORT = "components/crew/sections/TransportSection.tsx";
+// PR B plan Task 10: the crew Agenda section. Its shared block,
+// components/show-panels/AgendaScheduleBlock.tsx, moved from components/crew/
+// with its own audit (tests/components/agendaTransitionAudit.test.tsx).
+const AGENDA = "components/crew/sections/AgendaSection.tsx";
 
 const COMPACT_E2E = "tests/e2e/crew-section-toggle.spec.ts";
 const WIDE_E2E = "tests/e2e/crew-wide-nav.spec.ts";
@@ -555,6 +559,17 @@ const ROWS: Record<number, Row> = {
       [
         COMPACT_E2E,
         "compound: a refresh that takes Billing from a previewed lead closes the Billing sheet to home without animation and leaves no Billing value on the page",
+      ],
+      // PR B Task 10: the content-driven half of the row, which an Agenda with no
+      // agenda file made reachable (entitled, unlisted, still built), and the
+      // entitlement half again over that section.
+      [
+        COMPACT_E2E,
+        "agenda: a refresh that removes the open Agenda section's content keeps the sheet open on its empty state, in place, while the list drops Agenda",
+      ],
+      [
+        COMPACT_E2E,
+        "agenda: a refresh after which the previewed viewer's dates are suppressed closes the Agenda sheet to home and leaves no agenda line on the page",
       ],
     ],
     unit: [
@@ -1016,6 +1031,16 @@ const CONDITIONAL_RENDERS: Record<string, { presences: number; renders: Conditio
         match: '{hidden === 1 ? "more contact" : "more contacts"}',
         treatment: T.serverPresence,
       },
+    ],
+  },
+  [AGENDA]: {
+    presences: 0,
+    renders: [
+      // No section for a viewer whose dates are suppressed, the empty state when the
+      // show has no agenda file, and each link's structured block.
+      { match: "if (suppressesDates(dateRestriction)) return null;", treatment: T.serverPresence },
+      { match: 'return (\n<div data-testid="section-empty">', treatment: T.serverPresence },
+      { match: "block === null ? null : (", treatment: T.serverPresence },
     ],
   },
 };

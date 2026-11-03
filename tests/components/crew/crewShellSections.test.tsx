@@ -12,6 +12,9 @@
  *       admin        → today + every CREW_SECTION_IDS id
  *       LEAD viewer  → the same minus transport (no flight, no ride), billing PRESENT
  *       NON-lead     → the lead's minus billing, NO billing key
+ *     and the listed sections are those keys minus the home and minus Agenda,
+ *     which these fixtures entitle (no viewer's dates are suppressed) but do not
+ *     list (no agenda link): PR B Task 10, plan decision 1.
  *   - `initialSection` === the server-resolved active (a non-lead ?s=budget →
  *     today).
  *   - PER-ID body correctness (anti-tautology — keys alone can pass with a
@@ -134,6 +137,9 @@ vi.mock("@/components/crew/sections/GearSection", () => ({
 vi.mock("@/components/crew/sections/BillingSection", () => ({
   BillingSection: sectionMarker("section-billing"),
 }));
+vi.mock("@/components/crew/sections/AgendaSection", () => ({
+  AgendaSection: sectionMarker("section-agenda"),
+}));
 
 beforeEach(() => {
   captured.value = null;
@@ -235,13 +241,19 @@ function leadData(): ShowForViewer {
 describe("CrewShell builds sectionNodes for the entitled set", () => {
   /** The ids the "All sections" card and the wide nav receive. */
   const listed = () => captured.value!.sections.map((x) => x.id).sort();
+  /**
+   * The keys a viewer is listed: every body but the home's and the content-less
+   * Agenda's (`populated` carries no agenda link; plan decision 1).
+   */
+  const listable = (keys: readonly string[]) =>
+    keys.filter((k) => k !== "today" && k !== "agenda").sort();
 
   it("a LEAD viewer gets every key but transport (billing included)", async () => {
     await renderShell({ data: leadData(), viewer: crewViewer, rawSection: "today" });
     expect(captured.value).not.toBeNull();
     const keys = Object.keys(captured.value!.sectionNodes).sort();
     expect(keys).toEqual([...LEAD_KEYS].sort());
-    expect(listed()).toEqual(keys.filter((k) => k !== "today").sort());
+    expect(listed()).toEqual(listable(keys));
     expect(listed()).toContain("billing");
   });
 
@@ -250,7 +262,7 @@ describe("CrewShell builds sectionNodes for the entitled set", () => {
     const keys = Object.keys(captured.value!.sectionNodes).sort();
     expect(keys).toEqual([...NON_LEAD_KEYS].sort());
     expect(keys).not.toContain("billing");
-    expect(listed()).toEqual(keys.filter((k) => k !== "today").sort());
+    expect(listed()).toEqual(listable(keys));
     expect(listed()).not.toContain("billing");
   });
 
@@ -258,7 +270,7 @@ describe("CrewShell builds sectionNodes for the entitled set", () => {
     await renderShell({ data: populated(), viewer: adminViewer, rawSection: "today" });
     const keys = Object.keys(captured.value!.sectionNodes).sort();
     expect(keys).toEqual([...ALL_KEYS].sort());
-    expect(listed()).toEqual(keys.filter((k) => k !== "today").sort());
+    expect(listed()).toEqual(listable(keys));
     expect(listed()).toContain("billing");
   });
 });
@@ -293,6 +305,68 @@ describe("CrewShell builds the Transport body only for an entitled viewer (PR B 
   it("hotels: ?s=travel resolves to hotels for a crew viewer", async () => {
     await renderShell({ data: populated(), viewer: crewViewer, rawSection: "travel" });
     expect(captured.value!.initialSection).toBe("hotels");
+  });
+});
+
+// ============================================================================
+// The Agenda body exists for every entitled viewer, content or not (PR B Task 10)
+// ============================================================================
+describe("CrewShell builds the Agenda body for every viewer whose dates are not suppressed (PR B Task 10)", () => {
+  const listed = () => captured.value!.sections.map((x) => x.id);
+  const UNCONFIRMED = { kind: "unknown_asterisk", days: null } as const;
+  const AGENDA_LINK = { label: "AGENDA", fileId: "agenda-file-1" };
+
+  function crewData(opts: {
+    links: ShowForViewer["show"]["agenda_links"];
+    suppressed: boolean;
+  }): ShowForViewer {
+    const base = populated();
+    return populated({
+      show: { ...base.show, agenda_links: opts.links },
+      crewMembers: base.crewMembers.map((m) =>
+        m.id === CREW_ID && opts.suppressed ? { ...m, dateRestriction: UNCONFIRMED } : m,
+      ),
+    });
+  }
+
+  it("agenda: an entitled viewer with no agenda link gets the Agenda body but no row, and ?s=agenda opens it", async () => {
+    await renderShell({
+      data: crewData({ links: [], suppressed: false }),
+      viewer: crewViewer,
+      rawSection: "agenda",
+    });
+    expect(Object.keys(captured.value!.sectionNodes)).toContain("agenda");
+    expect(listed()).not.toContain("agenda");
+    expect(captured.value!.initialSection).toBe("agenda");
+  });
+
+  it("agenda: a viewer with an agenda file gets the body and the row, in its slot after schedule", async () => {
+    await renderShell({
+      data: crewData({ links: [AGENDA_LINK], suppressed: false }),
+      viewer: crewViewer,
+      rawSection: "today",
+    });
+    expect(Object.keys(captured.value!.sectionNodes)).toContain("agenda");
+    const ids = listed();
+    expect(ids.indexOf("agenda")).toBe(ids.indexOf("schedule") + 1);
+  });
+
+  it("agenda: a date-suppressed viewer gets no Agenda body and no row, with or without an agenda file, and ?s=agenda resolves home", async () => {
+    for (const links of [[AGENDA_LINK], []]) {
+      await renderShell({
+        data: crewData({ links, suppressed: true }),
+        viewer: crewViewer,
+        rawSection: "agenda",
+      });
+      const keys = Object.keys(captured.value!.sectionNodes);
+      // PREMISE: the rest of the page is built, so the missing key is the gate's doing.
+      expect(keys).toContain("schedule");
+      expect(keys, JSON.stringify(links)).not.toContain("agenda");
+      expect(listed()).not.toContain("agenda");
+      expect(captured.value!.initialSection).toBe("today");
+      cleanup();
+      captured.value = null;
+    }
   });
 });
 

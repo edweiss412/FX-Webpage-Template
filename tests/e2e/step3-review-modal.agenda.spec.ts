@@ -37,7 +37,7 @@
  *     horizontally — verified by mutation (dropping `min-w-0` from the `li` at
  *     step3ReviewSections.tsx:3239 leaves all six cases green). The load-bearing
  *     declaration is `wrap-break-word` on the session title
- *     (components/crew/AgendaScheduleBlock.tsx:166); dropping it turns these
+ *     (components/show-panels/AgendaScheduleBlock.tsx); dropping it turns these
  *     cases red. The `li` assertions still earn their place: they pin the real
  *     wrapper's box against the real section chrome, which the deleted
  *     hand-transcribed spec could only ever pin against its own copy;
@@ -135,9 +135,9 @@ test.beforeAll(async () => {
     [
       `@source "${join(workDir, "harness.html")}";`,
       `@source "${join(REPO_ROOT, "components", "admin", "wizard", "step3ReviewSections.tsx")}";`,
-      // The shared section bodies the admin popup renders (crew page redesign PR B).
+      // The shared section bodies the admin popup renders (crew page redesign PR B),
+      // AgendaScheduleBlock among them since Task 10 moved it out of components/crew.
       `@source "${join(REPO_ROOT, "components", "show-panels")}";`,
-      `@source "${join(REPO_ROOT, "components", "crew", "AgendaScheduleBlock.tsx")}";`,
       globals,
     ].join("\n"),
   );
@@ -220,7 +220,7 @@ for (const vw of VIEWPORTS) {
 
       // The real ul list container must not grow horizontally. What keeps it
       // from growing is `wrap-break-word` on the session title
-      // (AgendaScheduleBlock.tsx:166) — NOT the li's `min-w-0`, which is inert
+      // (components/show-panels/AgendaScheduleBlock.tsx) — NOT the li's `min-w-0`, which is inert
       // inside a `flex-col` ul (see the header note). Drop `wrap-break-word` and
       // the unbreakable token widens the list and this reports a positive delta.
       const listOverflow = await page

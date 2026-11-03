@@ -35,6 +35,8 @@ import * as diagramItemsModule from "@/components/crew/diagramItems";
 import { CrewSection } from "@/components/crew/sections/CrewSection";
 import { GearSection } from "@/components/crew/sections/GearSection";
 import * as gearRows from "@/components/crew/sections/gearRows";
+import { AgendaSection } from "@/components/crew/sections/AgendaSection";
+import * as agendaRowsModule from "@/components/crew/sections/agendaRows";
 import { ScheduleSection } from "@/components/crew/sections/ScheduleSection";
 import { HotelsSection } from "@/components/crew/sections/HotelsSection";
 import * as hotelsRowsModule from "@/components/crew/sections/hotelsRows";
@@ -74,6 +76,7 @@ import {
   flightVisible,
   fullContent,
   leadWithFinancials,
+  memberIdsFor,
   overCaps,
   wifiNotes,
   wifiRaw,
@@ -135,6 +138,7 @@ function renderSection(id: SectionId, c: ViewerCase): HTMLElement {
   const byId: Record<SectionId, () => JSX.Element> = {
     today: () => <TodayBlock {...props} />,
     schedule: () => <ScheduleSection {...props} />,
+    agenda: () => <AgendaSection {...props} />,
     venue: () => <VenueSection {...props} />,
     hotels: () => <HotelsSection {...props} />,
     transport: () => <TransportSection {...props} />,
@@ -1633,11 +1637,6 @@ describe("schedule", () => {
       );
     },
     fullContent: (root) => {
-      premise(
-        "fullContent renders more than one agenda document label",
-        root.querySelectorAll('[data-testid="agenda-schedule-label"]').length,
-        1,
-      );
       premiseHolds(
         "fullContent folds a long run-of-show title",
         root.querySelector('[data-testid="agenda-title-truncated"]') !== null,
@@ -1663,9 +1662,6 @@ describe("schedule", () => {
   });
 
   const fullDates = fullContent.data.show.dates;
-  const fullAgenda = fullContent.data.show.agenda_links;
-  const fullDays = fullAgenda.flatMap((l) => normalizeAgendaExtraction(l.extracted)?.days ?? []);
-  const fullSessions = fullDays.flatMap((d) => d.sessions);
   const fullRos = Object.values(fullContent.data.runOfShow ?? {}).flatMap((d) => d.entries);
   const at = (es: readonly SearchEntry[], region: string) =>
     es.filter((e) => regionOf(e) === region);
@@ -1747,6 +1743,110 @@ describe("schedule", () => {
       caseName: "fullContent",
       present: (es) => at(es, "schedule-call-times").some((e) => e.label === "Strike"),
     },
+  ];
+
+  test.each(LINE_KINDS.map((k) => [k.kind, k] as const))("line kind reached: %s", (_kind, k) => {
+    const c = caseNamed(ALL_CASES, k.caseName);
+    expect(k.present(build("schedule", c), c)).toBe(true);
+  });
+
+  test("the agenda left Schedule for its own section: Schedule renders and indexes no agenda line (PR B Task 10)", () => {
+    const fileLinks = fullContent.data.show.agenda_links.filter((l) => Boolean(l.fileId));
+    premise("fullContent carries agenda files", fileLinks.length, 0);
+    const root = renderSection("schedule", fullContent);
+    expect(root.querySelector('[data-testid="agenda-schedule"]')).toBeNull();
+    expect(root.querySelector('[data-testid="agenda-embed"]')).toBeNull();
+    expect(build("schedule", fullContent).filter((e) => e.group === "Agenda")).toEqual([]);
+  });
+
+  test("error guard: a throwing day derivation drops the days block, and with it every Schedule entry", () => {
+    // The day cards and the Crew Schedule card share one WrappedSection, which
+    // since PR B Task 10 holds everything the section indexes (the agenda moved
+    // to its own section). The spy reaches both callers because both import
+    // scheduleDayRows from the sibling rows module.
+    vi.spyOn(scheduleRows, "scheduleDayRows").mockImplementation(() => {
+      throw new Error("planted day derivation fault");
+    });
+    const root = renderSection("schedule", fullContent);
+    premiseHolds(
+      "the days block renders its fallback",
+      root.querySelector('[data-testid="tile-error-fallback"]') !== null &&
+        root.querySelector('[data-testid="day-card"]') === null,
+    );
+
+    const entries = build("schedule", fullContent);
+    expect(entries).toEqual([]);
+    expect(assertParity(root, entries)).toEqual([]);
+  });
+
+  test("overCaps premise: more show days than SHOWS_CAP", () => {
+    premise("overCaps show days", overCaps.data.show.dates.showDays.length, SHOWS_CAP);
+  });
+});
+
+// ── agenda ──────────────────────────────────────────────────────────────────
+
+describe("agenda", () => {
+  /**
+   * Agenda is listed only when the show has an agenda link with a file (PR B
+   * Task 10, plan decision 1), so its block runs over the matrix cases that list
+   * it, plus one with a single bare AGENDA link and no extraction (a button with
+   * no document label: the card's heading names no line).
+   */
+  const bareLink = variant(fullContent, "agendaBareLink", (d) => ({
+    ...d,
+    show: { ...d.show, agenda_links: [{ label: "AGENDA", fileId: "agenda-bare" }] },
+  }));
+  const cases = [...ALL_CASES, bareLink].filter((c) => c === bareLink || canOpen("agenda", c));
+
+  const PREMISES: Partial<Record<string, (root: HTMLElement, c: ViewerCase) => void>> = {
+    fullContent: (root) => {
+      premise(
+        "fullContent renders more than one agenda document label",
+        root.querySelectorAll('[data-testid="agenda-schedule-label"]').length,
+        1,
+      );
+    },
+    agendaBareLink: (root) => {
+      premiseHolds(
+        "agendaBareLink renders its button and no structured schedule",
+        root.querySelector('[data-testid="agenda-embed"]') !== null &&
+          root.querySelector('[data-testid="agenda-schedule"]') === null,
+      );
+    },
+  };
+
+  test.each(parityOver("agenda", cases).map((c) => [c.name, c] as const))(
+    "%s: index equals render",
+    (_name, c) => {
+      const root = renderSection("agenda", c);
+      PREMISES[c.name]?.(root, c);
+      expect(assertParity(root, build("agenda", c))).toEqual([]);
+    },
+  );
+
+  test("a date-suppressed viewer is not listed Agenda on a show with agenda files, and builds no entries", () => {
+    const c = variant(caseNamed(ALL_CASES, "dateSuppressed"), "dateSuppressedWithAgenda", (d) => ({
+      ...d,
+      show: { ...d.show, agenda_links: fullContent.data.show.agenda_links },
+    }));
+    premiseHolds(
+      "the variant's show carries an agenda file",
+      c.data.show.agenda_links.some((l) => Boolean(l.fileId)),
+    );
+    expect(memberIdsFor(c.viewer, c.data)).not.toContain("agenda");
+    expect(build("agenda", c)).toEqual([]);
+    // Positive control: the same links for a viewer whose dates are confirmed.
+    expect(build("agenda", fullContent).length).toBeGreaterThan(0);
+  });
+
+  const fullAgenda = fullContent.data.show.agenda_links;
+  const fullDays = fullAgenda.flatMap((l) => normalizeAgendaExtraction(l.extracted)?.days ?? []);
+  const fullSessions = fullDays.flatMap((d) => d.sessions);
+  const at = (es: readonly SearchEntry[], region: string) =>
+    es.filter((e) => regionOf(e) === region);
+
+  const LINE_KINDS: readonly LineKind[] = [
     {
       kind: "agenda button document label",
       caseName: "fullContent",
@@ -1800,35 +1900,37 @@ describe("schedule", () => {
 
   test.each(LINE_KINDS.map((k) => [k.kind, k] as const))("line kind reached: %s", (_kind, k) => {
     const c = caseNamed(ALL_CASES, k.caseName);
-    expect(k.present(build("schedule", c), c)).toBe(true);
+    expect(k.present(build("agenda", c), c)).toBe(true);
   });
 
-  test("error guard: a throwing day derivation drops the days block, the agenda stays", () => {
-    // The day cards and the Crew Schedule card share one WrappedSection; the
-    // agenda sits outside it (spec §2.4). The spy reaches both callers because
-    // both import scheduleDayRows from the sibling rows module.
-    vi.spyOn(scheduleRows, "scheduleDayRows").mockImplementation(() => {
-      throw new Error("planted day derivation fault");
+  test("every Agenda entry is filed under the Agenda section, so a hit reveals inside it", () => {
+    // A search hit opens the section its entry names (openSectionAndReveal); an
+    // agenda line still filed under Schedule would open a section that no longer
+    // holds it. Planted mutant: the rows' sink left on "schedule" (parity alone
+    // passes it, since the ids still match their targets).
+    const entries = build("agenda", fullContent);
+    premise("fullContent indexes agenda lines", entries.length, 0);
+    expect(entries.filter((e) => e.section !== "agenda" || !e.id.startsWith("agenda:"))).toEqual(
+      [],
+    );
+  });
+
+  test("error guard: a throwing agenda derivation renders the section's fallback and drops every Agenda entry", () => {
+    // The whole section sits in one WrappedSection (crew:agenda:schedule); the spy
+    // reaches both callers because the section and the builder import agendaPanel
+    // from the rows module.
+    vi.spyOn(agendaRowsModule, "agendaPanel").mockImplementation(() => {
+      throw new Error("planted agenda derivation fault");
     });
-    const root = renderSection("schedule", fullContent);
+    const root = renderSection("agenda", fullContent);
     premiseHolds(
-      "the days block renders its fallback",
+      "the section renders its fallback",
       root.querySelector('[data-testid="tile-error-fallback"]') !== null &&
-        root.querySelector('[data-testid="day-card"]') === null,
+        root.querySelector('[data-testid="agenda-session"]') === null,
     );
-    premiseHolds(
-      "the agenda still renders",
-      root.querySelector('[data-testid="agenda-session"]') !== null,
-    );
-
-    const entries = build("schedule", fullContent);
-    expect(entries.filter((e) => regionOf(e) !== "none")).toEqual([]);
-    expect(entries.filter((e) => regionOf(e) === "none").length).toBeGreaterThan(0);
+    const entries = build("agenda", fullContent);
+    expect(entries).toEqual([]);
     expect(assertParity(root, entries)).toEqual([]);
-  });
-
-  test("overCaps premise: more show days than SHOWS_CAP", () => {
-    premise("overCaps show days", overCaps.data.show.dates.showDays.length, SHOWS_CAP);
   });
 });
 

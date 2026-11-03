@@ -361,11 +361,16 @@ export const diagramsNamedAndUnnamed = makeCase(
   base({ diagrams: diagrams([embedded(1, "FOH plot"), embedded(2, undefined)]) }),
 );
 
-/** An admin viewer: all flags, no restrictions, transport and billing visible. */
+/**
+ * An admin viewer: all flags, no restrictions, transport and billing visible, and
+ * an agenda PDF with a file, so the Agenda is listed too (crew page redesign PR B,
+ * Task 10): the one case listed every section.
+ */
 export const adminViewer = makeCase(
   "adminViewer",
   { kind: "admin" },
   base({
+    show: { agenda_links: [{ label: "AGENDA", fileId: "agenda-admin" }] },
     viewerId: null,
     transportation: transport("Pat Driver"),
     financials: {

@@ -267,7 +267,10 @@ describe("CREW_SECTION_IDS and the always table are read where they are used", (
   it("consumption: the membership list follows a reversed CREW_SECTION_IDS", async () => {
     const reversed = await withReversedIds();
     const { crewSectionsFor } = await import("@/lib/crew/crewSections");
-    const data: ShowForViewer = makeShowForViewer();
+    // An agenda file, so the admin is listed every section (PR B Task 10: Agenda's content rule).
+    const data: ShowForViewer = makeShowForViewer({
+      show: { agenda_links: [{ label: "AGENDA", fileId: "agenda-file" }] },
+    });
     const ids = crewSectionsFor(data, {
       viewerFlags: [],
       isAdmin: true,

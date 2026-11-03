@@ -1,7 +1,8 @@
 // @vitest-environment jsdom
 /**
  * T2's seam test: the viewer's day set is derived ONCE above the agenda area and threaded to
- * each agenda block PER LINK.
+ * each agenda block PER LINK. Moved from the Schedule section's suite with the agenda itself
+ * (crew page redesign PR B, Task 10): the Agenda section derives the day set the same way.
  *
  * Why per-link is asserted rather than assumed: one PDF can parse while another cannot, so a
  * single shared result would fold the second link's viewer row — the outcome spec §1.1 calls
@@ -20,14 +21,14 @@ import type { ViewerAgendaDays } from "@/lib/crew/agendaViewerDays";
 
 const received: Array<{ label: string | null; viewerDays: ViewerAgendaDays | undefined }> = [];
 
-vi.mock("@/components/crew/AgendaScheduleBlock", () => ({
+vi.mock("@/components/show-panels/AgendaScheduleBlock", () => ({
   AgendaScheduleBlock: (props: { label?: string | null; viewerDays?: ViewerAgendaDays }) => {
     received.push({ label: props.label ?? null, viewerDays: props.viewerDays });
     return null;
   },
 }));
 
-const { ScheduleSection } = await import("@/components/crew/sections/ScheduleSection");
+const { AgendaSection } = await import("@/components/crew/sections/AgendaSection");
 const { makeShowForViewer } = await import("@/tests/fixtures/showForViewer");
 const { ledgerProp } = await import("./_ledgerProp");
 
@@ -108,7 +109,7 @@ function renderWith(
     ],
   });
   render(
-    <ScheduleSection
+    <AgendaSection
       {...ledgerProp()}
       data={show}
       showId={SHOW_ID}
@@ -118,7 +119,7 @@ function renderWith(
   );
 }
 
-describe("ScheduleSection threads viewerDays per agenda link", () => {
+describe("AgendaSection threads viewerDays per agenda link", () => {
   beforeEach(() => {
     received.length = 0;
   });

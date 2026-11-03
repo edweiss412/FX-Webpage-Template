@@ -22,6 +22,7 @@ import { BillingSection } from "@/components/crew/sections/BillingSection";
 import { ContactsSection } from "@/components/crew/sections/ContactsSection";
 import { CrewSection } from "@/components/crew/sections/CrewSection";
 import { GearSection } from "@/components/crew/sections/GearSection";
+import { AgendaSection } from "@/components/crew/sections/AgendaSection";
 import { ScheduleSection } from "@/components/crew/sections/ScheduleSection";
 import { HotelsSection } from "@/components/crew/sections/HotelsSection";
 import { TransportSection } from "@/components/crew/sections/TransportSection";
@@ -89,6 +90,7 @@ function renderSection(id: SectionId, c: ViewerCase): HTMLElement {
   const byId: Record<SectionId, () => JSX.Element> = {
     today: () => <TodayBlock {...props} />,
     schedule: () => <ScheduleSection {...props} />,
+    agenda: () => <AgendaSection {...props} />,
     venue: () => <VenueSection {...props} />,
     hotels: () => <HotelsSection {...props} />,
     transport: () => <TransportSection {...props} />,
@@ -220,10 +222,10 @@ describe("fullContent", () => {
     expect(card.querySelectorAll("dt")).toHaveLength(lines!.length);
   });
 
-  test("Schedule: the agenda area, every agenda block and label, day cards and a folded title", () => {
+  test("Agenda: the agenda area, every agenda block and label (its own section since PR B Task 10)", () => {
     const fileLinks = fullContent.data.show.agenda_links.filter((l) => Boolean(l.fileId));
     expect(fileLinks.length).toBeGreaterThan(1);
-    const root = renderSection("schedule", fullContent);
+    const root = renderSection("agenda", fullContent);
 
     const agenda = byTestId(root, "agenda-area");
     expect(agenda.querySelectorAll('[data-testid="agenda-schedule"]')).toHaveLength(
@@ -234,6 +236,11 @@ describe("fullContent", () => {
     );
     expect(agenda.querySelector('[data-testid="agenda-session"]')).not.toBeNull();
     expect(agenda.querySelector('[data-testid="agenda-track"]')).not.toBeNull();
+  });
+
+  test("Schedule: day cards and a folded title, and no agenda", () => {
+    const root = renderSection("schedule", fullContent);
+    expect(root.querySelector('[data-testid="agenda-area"]')).toBeNull();
 
     expect(root.querySelectorAll('[data-testid="day-card"]').length).toBeGreaterThanOrEqual(
       fullContent.data.show.dates.showDays.length,

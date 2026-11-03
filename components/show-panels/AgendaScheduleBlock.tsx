@@ -1,8 +1,13 @@
 /**
- * components/crew/AgendaScheduleBlock.tsx — structured per-day agenda schedule
- * (spec §4.7). Pure presentational Server Component (no `'use client'`): it
- * renders the schedule that the sync step already extracted from the agenda
+ * components/show-panels/AgendaScheduleBlock.tsx — structured per-day agenda
+ * schedule (spec §4.7). Pure presentational Server Component (no `'use client'`):
+ * it renders the schedule that the sync step already extracted from the agenda
  * PDF and stored on `agenda_links[i].extracted`.
+ *
+ * A shared body (crew page redesign spec §6.2 `agenda` row, PR B Task 10): the
+ * admin Step 3 review renders it as an element, unchanged, and the crew Agenda
+ * section CALLS it inside its `WrappedSection` (spec §6.1, error containment), so
+ * it stays hook-free and under the show-panels boundary.
  *
  * Render gate (§4.7 / §5): consumes ONLY the output of
  * `normalizeAgendaExtraction` — never the raw jsonb. When the payload is not a
@@ -19,10 +24,10 @@
  *
  * `label` (optional) is the per-document badge (e.g. "RFI" / "PCF"); rendered as
  * a caption above the days so multiple agenda blocks are distinguishable
- * (impeccable MEDIUM). The signpost <h3> "Agenda" lives one level up in
- * ScheduleSection (under the section's or the sheet's <h2>), so day labels here are
- * <h4> -- still true after the fold: the h4 lives INSIDE each day's <summary>, so the
- * disclosure and the document outline coexist.
+ * (impeccable MEDIUM). The signpost <h3> "Agenda" lives one level up, the crew
+ * Agenda section's panel card title (under the section's or the sheet's <h2>), so day
+ * labels here are <h4> -- still true after the fold: the h4 lives INSIDE each day's
+ * <summary>, so the disclosure and the document outline coexist.
  *
  * Dimensional invariants (§6 — Tailwind v4 has NO default
  * `align-items: stretch`):
@@ -59,7 +64,7 @@ type AgendaScheduleBlockProps = {
   viewerDays?: ViewerAgendaDays;
   /**
    * Search target ids (components/crew/agendaScheduleRows.ts), from the crew
-   * Schedule section. Absent (the admin preview) renders no search markers.
+   * Agenda section. Absent (the admin preview) renders no search markers.
    */
   search?: AgendaBlockSearch;
 };

@@ -89,11 +89,12 @@ function healthyShow(): ShowForViewer {
 }
 
 /**
- * The crew ids every viewer is listed on `healthyShow`: all of them but the two
- * gated ones, billing and transport (PR B Task 9; `healthyShow` has no transport
- * row and no flight, so only an admin is listed Transport there).
+ * The crew ids every viewer is listed on `healthyShow`: all of them but the three
+ * gated ones, billing, transport and agenda (PR B Task 9; `healthyShow` has no
+ * transport row and no flight, so only an admin is listed Transport there; PR B
+ * Task 10: it has no agenda link, so its Agenda is entitled and listed for none).
  */
-const GATED: readonly string[] = ["billing", "transport"];
+const GATED: readonly string[] = ["billing", "transport", "agenda"];
 const BASE_LISTED = CREW_SECTION_IDS.filter((id) => !GATED.includes(id));
 
 function ctxFor(viewer: Viewer, data: ShowForViewer) {
@@ -153,9 +154,16 @@ describe("crewSectionsFor (sections, PR A membership)", () => {
       const ctx = ctxFor(viewer, data);
       const entitled = financialsVisible(ctx.viewerFlags, ctx.isAdmin);
       outcomes.add(entitled);
-      // Transport, on a show with no transport row and no flight, is the admin's alone.
+      // Transport, on a show with no transport row and no flight, is the admin's alone;
+      // Agenda, on a show with no agenda link, is no one's to list (PR B Task 10).
       const expected = CREW_SECTION_IDS.filter((id) =>
-        id === "billing" ? entitled : id === "transport" ? ctx.isAdmin : true,
+        id === "billing"
+          ? entitled
+          : id === "transport"
+            ? ctx.isAdmin
+            : (id as string) === "agenda"
+              ? false
+              : true,
       );
       expect(
         crewSectionsFor(data, ctx).map((s) => s.id),
@@ -166,16 +174,23 @@ describe("crewSectionsFor (sections, PR A membership)", () => {
     expect([...outcomes].sort()).toEqual([false, true]);
   });
 
-  it("sections: every listed id is one the shell's resolver opens for that viewer, and none is missing", () => {
+  it("sections: every listed id is one the shell's resolver opens for that viewer, and the only one it opens unlisted is a content-less Agenda", () => {
+    // Plan decision 1: entitlement and membership are two predicates, and Agenda's
+    // content rule is the one difference between them. `healthyShow` has no agenda
+    // link, so every viewer here (none date-suppressed) opens an Agenda it is not
+    // listed.
     const data = healthyShow();
+    premiseHolds(
+      "healthyShow carries no agenda link with a file",
+      !data.show.agenda_links.some((l) => Boolean(l.fileId)),
+    );
     for (const { name, viewer } of VIEWERS) {
       const ctx = ctxFor(viewer, data);
       const entitled = entitledSet(data, ctx);
       const opens = CREW_SECTION_IDS.filter((id) => resolveActiveSection(id, entitled) === id);
-      expect(
-        crewSectionsFor(data, ctx).map((s) => s.id),
-        name,
-      ).toEqual(opens);
+      const listed = crewSectionsFor(data, ctx).map((s) => s.id);
+      expect(listed, name).toEqual(opens.filter((id) => (id as string) !== "agenda"));
+      expect(opens as readonly string[], name).toContain("agenda");
     }
   });
 
@@ -305,7 +320,8 @@ describe("hotels and transport replace travel (PR B Task 9, spec line 240, plan 
   it("sections: hotels then transport take travel's slot in nav order, both moved ids; travel is no id", () => {
     const ids: readonly string[] = CREW_SECTION_IDS;
     expect(ids).not.toContain("travel");
-    expect(ids.indexOf("hotels")).toBe(ids.indexOf("schedule") + 1);
+    // Travel's slot was right after schedule; Agenda (PR B Task 10) sits between them now.
+    expect(ids.indexOf("hotels")).toBe(ids.indexOf("agenda") + 1);
     expect(ids.indexOf("transport")).toBe(ids.indexOf("hotels") + 1);
     expect(ids.indexOf("gear")).toBe(ids.indexOf("transport") + 1);
     for (const id of ["hotels", "transport"] as const) {
@@ -404,5 +420,118 @@ describe("hotels and transport replace travel (PR B Task 9, spec line 240, plan 
       }
     }
     premiseHolds("every viewer kind is exercised", kinds.size === 3);
+  });
+});
+
+describe("agenda: its own section, entitled and listed apart (PR B Task 10, spec lines 240 and 488, plan decision 1)", () => {
+  const agenda = "agenda" as CrewSectionId;
+  /** One agenda PDF the shell can embed: a link carrying a Drive file id. */
+  const FILE_LINK = { label: "AGENDA", fileId: "agenda-file-1" };
+  /** A link the sheet wrote as a bare URL: no file, so nothing to embed or read. */
+  const URL_LINK = { label: "AGENDA", url: "https://example.test/agenda" };
+
+  /** The roster with `c-plain`'s days unconfirmed, so every date of hers is suppressed. */
+  function rosterWith(restriction: Member["dateRestriction"]): Member[] {
+    return ROSTER.map((m) => (m.id === "c-plain" ? { ...m, dateRestriction: restriction } : m));
+  }
+
+  function showWith(
+    links: ShowForViewer["show"]["agenda_links"],
+    restriction: Member["dateRestriction"] = { kind: "none" },
+  ): ShowForViewer {
+    return makeShowForViewer({
+      crewMembers: rosterWith(restriction),
+      show: { agenda_links: links },
+    });
+  }
+
+  it("sections: agenda takes the slot after schedule in nav order, a moved id labelled from the registry", () => {
+    const ids: readonly string[] = CREW_SECTION_IDS;
+    expect(ids.indexOf("agenda")).toBe(ids.indexOf("schedule") + 1);
+    expect(ids.indexOf("hotels")).toBe(ids.indexOf("agenda") + 1);
+    expect(CREW_MOVED_IDS as readonly string[]).toContain("agenda");
+    expect(CREW_SECTION_LABELS[agenda]).toBe(showSection("agenda").label);
+  });
+
+  it("agenda: listed exactly when the show has an agenda link with a file and the viewer's dates are not suppressed; entitled whenever they are not", () => {
+    const UNKNOWN = { kind: "unknown_asterisk", days: null } as const;
+    const cases: Array<{
+      name: string;
+      data: ShowForViewer;
+      viewer: Viewer;
+      entitled: boolean;
+      listed: boolean;
+    }> = [];
+    for (const { name, viewer } of VIEWERS) {
+      cases.push(
+        {
+          name: `${name}, a file link`,
+          data: showWith([FILE_LINK]),
+          viewer,
+          entitled: true,
+          listed: true,
+        },
+        {
+          name: `${name}, a file link and a url link`,
+          data: showWith([URL_LINK, FILE_LINK]),
+          viewer,
+          entitled: true,
+          listed: true,
+        },
+        { name: `${name}, no link`, data: showWith([]), viewer, entitled: true, listed: false },
+        {
+          name: `${name}, a url link only`,
+          data: showWith([URL_LINK]),
+          viewer,
+          entitled: true,
+          listed: false,
+        },
+      );
+    }
+    // A suppressed viewer is entitled to no Agenda, with or without a file to show.
+    for (const kind of ["crew", "admin_preview"] as const) {
+      const viewer = { kind, crewMemberId: "c-plain" } as Viewer;
+      cases.push(
+        {
+          name: `${kind} c-plain suppressed, a file link`,
+          data: showWith([FILE_LINK], UNKNOWN),
+          viewer,
+          entitled: false,
+          listed: false,
+        },
+        {
+          name: `${kind} c-plain suppressed, no link`,
+          data: showWith([], UNKNOWN),
+          viewer,
+          entitled: false,
+          listed: false,
+        },
+      );
+    }
+    const seen = new Set<string>();
+    for (const { name, data, viewer, entitled, listed } of cases) {
+      const ctx = ctxFor(viewer, data);
+      seen.add(`${entitled}/${listed}`);
+      expect(crewSectionEntitled(agenda, data, ctx), name).toBe(entitled);
+      const ids = crewSectionsFor(data, ctx).map((s) => s.id);
+      expect(ids.includes(agenda), name).toBe(listed);
+      expect(resolveActiveSection("agenda", entitledSet(data, ctx)), name).toBe(
+        entitled ? "agenda" : "today",
+      );
+    }
+    premiseHolds("all three outcomes are exercised", seen.size === 3);
+  });
+
+  it("agenda: a viewer whose dates are suppressed by an explicit restriction keeps the Agenda; only an unconfirmed one loses it", () => {
+    // Positive control for the gate's input: an explicit day list restricts which
+    // days are hers but withholds no date, so the Agenda stays hers.
+    const viewer: Viewer = { kind: "crew", crewMemberId: "c-plain" };
+    const explicit = showWith([FILE_LINK], { kind: "explicit", days: ["2026-11-03"] });
+    expect(crewSectionEntitled(agenda, explicit, ctxFor(viewer, explicit))).toBe(true);
+    expect(crewSectionsFor(explicit, ctxFor(viewer, explicit)).map((s) => s.id)).toContain(agenda);
+  });
+
+  it("agenda: the skeleton never shows the Agenda row, since no viewer is listed it by default", () => {
+    expect(CREW_ALWAYS_SECTION_IDS as readonly string[]).not.toContain("agenda");
   });
 });

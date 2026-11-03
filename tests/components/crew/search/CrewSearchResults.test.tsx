@@ -45,6 +45,7 @@ vi.mock("@/components/shared/ReportModal", () => ({
 const LABEL: Record<SectionId, string> = {
   today: "Today",
   schedule: "Schedule",
+  agenda: "Agenda",
   venue: "Venue",
   hotels: "Hotels",
   transport: "Transport",
@@ -240,14 +241,18 @@ describe("chips (spec §6.3)", () => {
     renderResults(zebra);
     search("zebra");
     // The wide nav exactly as the controller feeds it (components/crew/CrewSections.tsx):
-    // "Today", then the membership `crewSectionsFor` returns, Billing included for an admin.
+    // "Today", then the membership `crewSectionsFor` returns, Billing included for an admin
+    // and Agenda for a show with an agenda file (PR B Task 10).
     const items = [
       { id: "today" as const, label: CREW_TODAY_LABEL },
-      ...crewSectionsFor(makeShowForViewer(), {
-        viewerFlags: [],
-        isAdmin: true,
-        dateRestriction: { kind: "none" },
-      }),
+      ...crewSectionsFor(
+        makeShowForViewer({ show: { agenda_links: [{ label: "AGENDA", fileId: "agenda-file" }] } }),
+        {
+          viewerFlags: [],
+          isAdmin: true,
+          dateRestriction: { kind: "none" },
+        },
+      ),
     ];
     const { container } = render(
       <CrewWideNav items={items} active="today" hrefFor={(id) => `?s=${id}`} />,

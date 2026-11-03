@@ -2,6 +2,7 @@ import type { SectionId } from "@/lib/crew/resolveActiveSection";
 import type { ShowForViewer, Viewer } from "@/lib/data/getShowForViewer";
 import type { SearchEntry } from "@/lib/search/types";
 
+import { buildAgendaEntries } from "./agenda";
 import { buildBillingEntries } from "./billing";
 import { buildContactsEntries } from "./contacts";
 import { buildCrewEntries } from "./crew";
@@ -40,6 +41,7 @@ export type SectionBuilder = (input: SectionBuildInput) => SearchEntry[];
 export const SECTION_BUILDERS: Record<SectionId, SectionBuilder> = {
   today: buildTodayEntries,
   schedule: buildScheduleEntries,
+  agenda: buildAgendaEntries,
   venue: buildVenueEntries,
   hotels: buildHotelsEntries,
   transport: buildTransportEntries,

@@ -42,6 +42,7 @@ import { HotelsSection } from "@/components/crew/sections/HotelsSection";
 import { TransportSection } from "@/components/crew/sections/TransportSection";
 import { VenueSection } from "@/components/crew/sections/VenueSection";
 import { GearSection } from "@/components/crew/sections/GearSection";
+import { AgendaSection } from "@/components/crew/sections/AgendaSection";
 import { ScheduleSection } from "@/components/crew/sections/ScheduleSection";
 import { BillingSection } from "@/components/crew/sections/BillingSection";
 import { pinCrewClock, TodayBlock } from "@/tests/search/_todayBlock";
@@ -240,6 +241,15 @@ function renderAllSections(data: ShowForViewer) {
         showId="show-1"
       />
       <ScheduleSection
+        {...ledgerProp()}
+        data={data}
+        viewer={adminViewer}
+        today={FROZEN_TODAY}
+        showId="show-1"
+      />
+      {/* The agenda left Schedule for its own section in PR B Task 10; its panel card
+          carries no card id and no header actions (the agenda has none). */}
+      <AgendaSection
         {...ledgerProp()}
         data={data}
         viewer={adminViewer}

@@ -15,6 +15,9 @@
  *     days through `visibleShowDays` (ScheduleSection).
  *   - Billing through `financialsVisible` (BillingSection), and nothing when
  *     its fetch failed, since the section then shows the failure.
+ *   - The Agenda's sessions through the structured-agenda gate the shared
+ *     block renders by (`structuredAgenda`, AgendaSection), and nothing under
+ *     date suppression, where the section is withheld.
  *
  * A peek that resolves to nothing is `null`, never placeholder text (spec §11):
  * every value goes through `shouldHideGenericOptional`. Computed on the server;
@@ -22,6 +25,7 @@
  *
  * Pure and server-safe.
  */
+import { structuredAgenda } from "@/components/crew/agendaScheduleRows";
 import { crewTransportLegOptions } from "@/components/crew/sections/transportRows";
 import { transportRouteLegs } from "@/components/show-panels/TransportBody";
 import type { ShowForViewer } from "@/lib/data/getShowForViewer";
@@ -76,6 +80,21 @@ function schedulePeek(data: ShowForViewer, viewer: SectionPeekViewer): string | 
       ? formatIsoDate(first, "short")
       : `${formatIsoDate(first, "short")} to ${formatIsoDate(last, "short")}`;
   return `${count}, ${span}`;
+}
+
+/**
+ * The Agenda peek: the sessions its structured schedules show, across every
+ * agenda PDF with a file, or nothing when it shows none (an embed-only agenda).
+ */
+function agendaPeek(data: ShowForViewer, viewer: SectionPeekViewer): string | null {
+  if (suppressesDates(viewer.dateRestriction)) return null;
+  const links = Array.isArray(data.show.agenda_links) ? data.show.agenda_links : [];
+  let sessions = 0;
+  for (const link of links) {
+    if (!link.fileId) continue;
+    for (const day of structuredAgenda(link.extracted)?.days ?? []) sessions += day.sessions.length;
+  }
+  return sessions === 0 ? null : plural(sessions, "session", "sessions");
 }
 
 function venuePeek(data: ShowForViewer): string | null {
@@ -158,6 +177,8 @@ export function sectionPeek(
   switch (id) {
     case "schedule":
       return schedulePeek(data, viewer);
+    case "agenda":
+      return agendaPeek(data, viewer);
     case "venue":
       return venuePeek(data);
     case "hotels":

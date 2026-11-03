@@ -292,8 +292,10 @@ test.describe("stage-restricted crew schedule (SFS-1)", () => {
 // every explicit viewer fails one of the two tests, so the suite pins the
 // viewerDates/restrictionDays → row composition, not just "some row folded" (spec §3.4).
 // The admin control proves the fold is a narrowing (admins bypass the matcher entirely).
-// `?s=schedule` is LOAD-BEARING (spec §3.3): absent `s` resolves to "today"
+// `?s=agenda` is LOAD-BEARING (spec §3.3): absent `s` resolves to "today"
 // (lib/crew/resolveActiveSection.ts) and CrewSections mounts ONLY the active section.
+// It was `?s=schedule` until the crew page redesign PR B, Task 10, moved the agenda to
+// a section of its own.
 
 const FOLD_DATES = {
   travelIn: "2026-05-04",
@@ -442,12 +444,12 @@ test.describe("date-restricted agenda fold (BL-AGENDA-FOLD-NO-SEEDED-E2E)", () =
           "X-Screenshot-Frozen-Now": FROZEN_NOW,
           Authorization: `Bearer ${TEST_AUTH_SECRET}`,
         });
-        const res = await page.goto(`/show/${seeded.slug}/${seeded.shareToken}?s=schedule`, {
+        const res = await page.goto(`/show/${seeded.slug}/${seeded.shareToken}?s=agenda`, {
           waitUntil: "networkidle",
         });
         expect(res?.status(), "crew route must render (email-matched session)").toBe(200);
         await expect(page.getByTestId("crew-shell")).toBeVisible();
-        await expect(page.getByTestId("section-schedule")).toBeVisible();
+        await expect(page.getByTestId("section-agenda")).toBeVisible();
 
         // Spec §3.3 assertions 1-5. `open` is asserted as the DOM property (toHaveJSProperty),
         // not attribute string-matching — <details>.open is the live boolean either way.
@@ -497,7 +499,7 @@ test.describe("date-restricted agenda fold (BL-AGENDA-FOLD-NO-SEEDED-E2E)", () =
         Authorization: `Bearer ${TEST_AUTH_SECRET}`,
       });
       const seeded = shows.fiona!;
-      const res = await page.goto(`/show/${seeded.slug}/${seeded.shareToken}?s=schedule`, {
+      const res = await page.goto(`/show/${seeded.slug}/${seeded.shareToken}?s=agenda`, {
         waitUntil: "domcontentloaded",
       });
       expect(res?.status(), "admin resolves the same show Fiona folds").toBe(200);

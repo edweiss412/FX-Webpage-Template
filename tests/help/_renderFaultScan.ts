@@ -995,7 +995,13 @@ export function scanCandidates(): Candidate[] {
       // became two, HotelsSection's and TransportSection's, each guarded on its own
       // fetch failure. Re-derived by running the guard.
       //
-      // Probed: 798 such ternaries under the derived roots, 79 on a
+      // 798 -> 796 on feat/crew-page-redesign-pr-b Task 10: the agenda left the Schedule
+      // section, and with it the agenda area's two ternaries (the area itself and each
+      // link's structured block); the new AgendaSection decides its empty state with an
+      // early return and its per-link blocks with a ternary whose JSX is the false arm.
+      // None was a fault branch. Re-derived by running the guard.
+      //
+      // Probed: 796 such ternaries under the derived roots, 79 on a
       // fault-vocabulary guard and unclassifiable. 69 of those 79 sit in
       // `"use client"` files, where the guard is interaction state -- `errorCode`,
       // `state.kind === "error"`, `switchStatus === "error"` -- and not a server-render

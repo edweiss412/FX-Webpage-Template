@@ -45,6 +45,7 @@ import { TerminalFailure } from "@/components/auth/TerminalFailure";
 import { CrewSections } from "@/components/crew/CrewSections";
 import { CrewSearchField } from "@/components/crew/search/CrewSearchField";
 import { CrewSearchProvider } from "@/components/crew/search/CrewSearchProvider";
+import { AgendaSection } from "@/components/crew/sections/AgendaSection";
 import { BillingSection } from "@/components/crew/sections/BillingSection";
 import { ContactsSection } from "@/components/crew/sections/ContactsSection";
 import { HotelsSection } from "@/components/crew/sections/HotelsSection";
@@ -428,6 +429,17 @@ export async function CrewShell({
       case "schedule":
         return (
           <ScheduleSection
+            data={data}
+            viewer={viewer}
+            today={today}
+            showId={showId}
+            ledger={tileLedger}
+            cardReport={cardReport}
+          />
+        );
+      case "agenda":
+        return (
+          <AgendaSection
             data={data}
             viewer={viewer}
             today={today}

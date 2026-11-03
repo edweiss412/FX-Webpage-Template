@@ -10,24 +10,18 @@
  * region (its `data-card-id`, or `none` outside every card), so each block
  * counts byte-identical lines (`~n`) on its own, in render order.
  *
- * Also home to the entry helpers Today's rows reuse (todayRows.ts): the run-of-show
- * list and the key-times strip render in both sections.
+ * Also home to the entry helpers Today's rows (todayRows.ts) and the Agenda's
+ * (agendaRows.ts) reuse: the run-of-show list and the key-times strip render in
+ * both Today and Schedule. The agenda left Schedule for its own section in the
+ * crew page redesign PR B, Task 10, and its rows with it.
  *
  * A non-client module: the builder runs on the server and imports from here.
  */
 import { normalize } from "@/lib/search/normalize";
 import { entryId } from "@/lib/search/entryId";
 import type { SearchCopy, SearchEntry } from "@/lib/search/types";
-import {
-  agendaSessionLine,
-  agendaTrackLine,
-  structuredAgenda,
-  type AgendaBlockSearch,
-} from "@/components/crew/agendaScheduleRows";
 import { keyTimeRows } from "@/components/crew/primitives/KeyTimesStrip";
 import { runOfShowEntryLine, runOfShowRows } from "@/components/crew/primitives/RunOfShowList";
-import { agendaDisplayLabel } from "@/lib/agenda/agendaLabel";
-import { driftNote } from "@/lib/agenda/agendaPaint";
 import {
   aggregateDays,
   formatScheduleWindow,
@@ -145,8 +139,6 @@ export const SCHEDULE_DAYS_REGION = "schedule-days";
 export const SCHEDULE_CALL_TIMES_REGION = "schedule-call-times";
 /** The card title of the key-times card. */
 export const SCHEDULE_CALL_TIMES_TITLE = "Crew Schedule";
-/** The agenda area's heading: the group of every agenda line (region `none`). */
-export const AGENDA_GROUP = "Agenda";
 
 /**
  * The days the viewer may see: the full date domain (travel in, set, show days,
@@ -281,68 +273,4 @@ export function scheduleDayRows({
     return { day, isToday, meta, runOfShow, dayCardTarget, runOfShowTargets };
   });
   return { rows, entries: sink.entries };
-}
-
-type AgendaLinkRow = ShowForViewer["show"]["agenda_links"][number];
-
-export type ScheduleAgendaBlock = {
-  /** The per-document caption, shown only when there is more than one agenda PDF. */
-  label: string | null;
-  search: AgendaBlockSearch;
-};
-
-/**
- * The agenda area (region `none`, outside every card and every error boundary):
- * one "View agenda" button per link with a Drive file id, whose document label is
- * a line, then per link with an extraction its structured block (document
- * caption, each day, each session with its tracks and drift note). `blocks` is
- * aligned with `agendaLinks`; null where a link renders no block.
- */
-export function scheduleAgendaRows(agendaLinks: readonly AgendaLinkRow[]): {
-  embedTargets: Record<string, string>;
-  blocks: (ScheduleAgendaBlock | null)[];
-  entries: SearchEntry[];
-} {
-  const sink = entrySink("schedule", "none");
-  const embedTargets: Record<string, string> = {};
-  for (const link of agendaLinks) {
-    if (!link.fileId) continue;
-    const badge = link.label ? agendaDisplayLabel(link.label) : null;
-    const id = badge !== null ? addEntry(sink, { group: AGENDA_GROUP, value: badge }) : undefined;
-    if (id !== undefined) embedTargets[link.fileId] = id;
-  }
-  // Show a per-document label on the structured blocks only when there's more
-  // than one agenda PDF (so two "View agenda" buttons + two schedules are
-  // distinguishable — impeccable MEDIUM). A single agenda needs no badge.
-  const agendaPdfCount = agendaLinks.filter((link) => Boolean(link.fileId)).length;
-  const blocks = agendaLinks.map((link): ScheduleAgendaBlock | null => {
-    if (!link.fileId || !link.extracted) return null;
-    const label = agendaPdfCount > 1 ? agendaDisplayLabel(link.label) : null;
-    const data = structuredAgenda(link.extracted);
-    if (data === null) return { label, search: { days: [] } };
-    const docLabel = label ? addEntry(sink, { group: AGENDA_GROUP, value: label }) : undefined;
-    const days = data.days.map((day) => {
-      const summary = addEntry(sink, {
-        group: AGENDA_GROUP,
-        value: day.dayLabel,
-        context: [day.date],
-      });
-      const sessions = day.sessions.map((session) => {
-        const line = agendaSessionLine(session);
-        return addEntry(sink, {
-          group: AGENDA_GROUP,
-          label: line !== "" ? session.time : null,
-          value: line !== "" ? line : session.time,
-          context: [
-            day.dayLabel,
-            session.drift !== null ? driftNote(session.drift) : null,
-            ...session.tracks.map(agendaTrackLine),
-          ],
-        });
-      });
-      return { ...(summary !== undefined ? { summary } : {}), sessions };
-    });
-    return { label, search: { ...(docLabel !== undefined ? { docLabel } : {}), days } };
-  });
-  return { embedTargets, blocks, entries: sink.entries };
 }

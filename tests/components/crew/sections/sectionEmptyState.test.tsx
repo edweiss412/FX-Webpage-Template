@@ -1,6 +1,7 @@
 // @vitest-environment jsdom
 import { expect, test } from "vitest";
 import { render } from "@testing-library/react";
+import { AgendaSection } from "@/components/crew/sections/AgendaSection";
 import { VenueSection } from "@/components/crew/sections/VenueSection";
 import { HotelsSection } from "@/components/crew/sections/HotelsSection";
 import { TransportSection } from "@/components/crew/sections/TransportSection";
@@ -20,6 +21,7 @@ const SECTIONS = {
   CrewSection,
   ContactsSection,
   GearSection,
+  AgendaSection,
 } as const;
 
 // _Catches: a blank section with no empty-state, or multiple stray empty stubs,

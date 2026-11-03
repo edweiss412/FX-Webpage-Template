@@ -638,7 +638,15 @@ describe("the scanner's population is pinned against resolver drift", () => {
     // Same hotel and transportation `tile-errors` rows, still marked. Nothing joined or
     // left: membership is still 34, and mapping those TWO rows back reproduces 94cc5057...
     // byte-for-byte (recomputed from scanCandidates()).
-    expect(digest).toBe("b264b36307391c8a5c8e244ceb4dfc849168819eaa6d02ed664a1c0f7aafd2d8");
+    // Regenerated for feat/crew-page-redesign-pr-b Task 10, to the same bar. EXACTLY ONE
+    // input changed, a line number, in the one file of this set the task edits:
+    //   components/crew/sections/ScheduleSection.tsx 400 -> 314 (-86: the agenda area
+    //   left for the new AgendaSection, and the day derivation moved into the wrapper)
+    // Same rooms `tile-errors` row (`roomsFetchFailed ? <SectionTileError`), still marked.
+    // AgendaSection adds no candidate (no fetch-failure block). Nothing joined or left:
+    // membership is still 34, and mapping that ONE row back reproduces b264b363...
+    // byte-for-byte (recomputed from scanCandidates()).
+    expect(digest).toBe("4c65a019e6d3f20c7316f47166d8b03d2eaca6db1343b051a0b7787ed1c9ccc9");
   });
 });
 

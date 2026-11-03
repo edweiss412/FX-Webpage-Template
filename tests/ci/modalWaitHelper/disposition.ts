@@ -603,7 +603,11 @@ export const DISPOSITION_RULES: DispositionRule[] = [
     // `path` variable again, once in crew-section-toggle.spec.ts (loadPath) and once
     // in crew-wide-nav.spec.ts (loadWide). Same disposition: a crew page. Re-derived
     // from the failure's own count (31 candidates).
-    expectedCount: 31,
+    // 33 since PR B's Task 10: the agenda blocks load crew routes through a `path`
+    // variable again, once in crew-section-toggle.spec.ts (loadPath) and once in
+    // crew-wide-nav.spec.ts (loadIn). Same disposition: a crew page. Re-derived from
+    // the failure's own count (33 candidates).
+    expectedCount: 33,
     match: (c) =>
       !c.file.startsWith("tests/e2e/published-review-modal.") &&
       !/\bcrewPage\.goto\(/.test(c.matchLineText) &&
@@ -714,7 +718,10 @@ export const DISPOSITION_RULES: DispositionRule[] = [
     // 28 since Task 9: the hotels/transport compact block builds the preview-as path
     // for its seeded viewers (`preview(name)` in crew-section-toggle.spec.ts).
     // Re-derived from the failure's own count (28 candidates).
-    expectedCount: 28,
+    // 29 since Task 10: the agenda compact block builds the preview-as path for its
+    // seeded viewers (`previewOf(seeded, name)` in crew-section-toggle.spec.ts).
+    // Re-derived from the failure's own count (29 candidates).
+    expectedCount: 29,
     match: (c) =>
       !isTestTitle(c.matchLineText) &&
       !/^\["\/admin\/show\//.test(c.matchLineText) &&
@@ -892,7 +899,11 @@ export const DISPOSITION_RULES: DispositionRule[] = [
     // 29 since PR B's Task 9: the s=travel case steps Back and Forward over a
     // crew-route entry the same way. Re-derived from the failure's own count (29
     // candidates).
-    expectedCount: 29,
+    // 33 since PR B's Task 10: the two agenda history cases (an entry carrying
+    // s=agenda with no content, and a date-suppressed viewer's popstate to it) step
+    // Back and Forward over a crew-route entry the same way. Re-derived from the
+    // failure's own count (33 candidates).
+    expectedCount: 33,
     match: (c) =>
       [
         "admin-nav-layout-dimensions.spec.ts",

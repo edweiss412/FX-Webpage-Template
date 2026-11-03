@@ -155,7 +155,7 @@ import { isWarnSeverity } from "@/lib/parser/dataGaps";
 import { candidateLabel } from "@/lib/parser/candidateLabel";
 import { labelFromRawSnippet } from "@/lib/parser/rawSnippet";
 import { CrewRowActions, type CrewRowOutcome } from "@/components/admin/wizard/CrewRowActions";
-import { AgendaScheduleBlock } from "@/components/crew/AgendaScheduleBlock";
+import { AgendaScheduleBlock } from "@/components/show-panels/AgendaScheduleBlock";
 import { DressCodeLines } from "@/components/crew/DressCodeLines";
 import type { AdminAgendaItem } from "@/lib/agenda/agendaAdminPreview";
 import { agendaOverflowNotes } from "@/lib/agenda/agendaPaint";

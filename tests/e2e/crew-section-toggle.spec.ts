@@ -38,12 +38,12 @@ import { join } from "node:path";
 
 import { test, expect, type Locator, type Page } from "@playwright/test";
 import { DRAG_DISMISS_THRESHOLD_PX } from "@/components/shared/sheetConstants";
-import { CREW_SECTION_LABELS, type CrewSectionId } from "@/lib/crew/crewSections";
+import { CREW_MOVED_IDS, CREW_SECTION_LABELS, type CrewSectionId } from "@/lib/crew/crewSections";
 import { CREW_SECTION_IDS } from "@/lib/crew/resolveActiveSection";
-import { showSection } from "@/lib/showSections/registry";
+import { showSection, type ShowSectionId } from "@/lib/showSections/registry";
 import { refreshFromServer, renderFresh } from "./helpers/crewRefresh";
 import { ADMIN_FIXTURE } from "./helpers/fixtures";
-import { setRoleFlagsLocked } from "./helpers/lockedCrewRestriction";
+import { setDateRestrictionLocked, setRoleFlagsLocked } from "./helpers/lockedCrewRestriction";
 import { updateShowLocked } from "./helpers/lockedShowCopy";
 import { deleteSeededShow, seedShowWithCrew } from "./helpers/seedShowWithCrew";
 import { signInAs, signOut } from "./helpers/signInAs";
@@ -59,8 +59,15 @@ const SHOW_DAY_N_INSTANT = "2026-04-21T12:00:00Z";
 
 const TOL = 0.5;
 
-/** Every section an admin opens, in nav order (spec §5.1, `CREW_SECTION_IDS`). */
-const ADMIN_SECTIONS: CrewSectionId[] = [...CREW_SECTION_IDS];
+/**
+ * Every section an admin is listed on the Waldorf seed, in nav order (spec §5.1,
+ * `CREW_SECTION_IDS`): all of them but Agenda, which is listed only when the show
+ * has an agenda link with a file (PR B plan, decision 1), and the Waldorf
+ * fixture's parsed agenda_links is empty. Its Agenda is entitled and unlisted.
+ */
+const ADMIN_SECTIONS: CrewSectionId[] = CREW_SECTION_IDS.filter(
+  (id) => (id as string) !== "agenda",
+);
 
 type Rect = {
   top: number;
@@ -960,7 +967,8 @@ test.describe("crew compact compound transitions (spec §7, plan Task 12)", () =
     });
     try {
       await loadPath(page, `/show/${seeded.slug}/${seeded.shareToken}`);
-      await openFromRow(page, "schedule");
+      // The agenda's own section since PR B Task 10 (spec §6.2 `agenda` row).
+      await openFromRow(page, "agenda");
       await sheetDialog(page)
         .getByRole("button", { name: /View agenda/ })
         .click();
@@ -973,7 +981,8 @@ test.describe("crew compact compound transitions (spec §7, plan Task 12)", () =
 
       await expect(page.getByTestId("agenda-embed")).toHaveCount(0);
       await expect(page.getByTestId("agenda-sheet")).toHaveCount(0);
-      await expect(sheetDialog(page)).toHaveAttribute("data-section", "schedule");
+      // Agenda left the list with its content, and stays open on its fresh state.
+      await expect(sheetDialog(page)).toHaveAttribute("data-section", "agenda");
       // Focus was in the viewer, which left the page: it is back in the sheet,
       // not on <body> behind an inert page (whole-diff review round 2, 2A-R2-1).
       await expect
@@ -1004,7 +1013,7 @@ test.describe("crew compact compound transitions (spec §7, plan Task 12)", () =
     });
     try {
       await loadPath(page, `/show/${seeded.slug}/${seeded.shareToken}`);
-      await openFromRow(page, "schedule");
+      await openFromRow(page, "agenda");
       const trigger = sheetDialog(page).getByRole("button", { name: /View agenda/ });
       await activate(page, trigger);
       await expect(page.getByTestId("agenda-sheet")).toBeVisible();
@@ -1012,7 +1021,7 @@ test.describe("crew compact compound transitions (spec §7, plan Task 12)", () =
       await page.keyboard.press("Escape");
 
       await expect(page.getByTestId("agenda-sheet")).toHaveCount(0);
-      await expect(sheetDialog(page)).toHaveAttribute("data-section", "schedule");
+      await expect(sheetDialog(page)).toHaveAttribute("data-section", "agenda");
       await expect.poll(() => focusInsideSheet(page)).toBe(true);
       await expect(trigger).toBeFocused();
     } finally {
@@ -1703,6 +1712,344 @@ test.describe("hotels and transport: the travel alias and the transport gate, co
         await expect(sheetDialog(page), s).toHaveAttribute("data-section", opens);
         await expect(sheetDialog(page).getByTestId(`section-${opens}`), s).toBeVisible();
       }
+    }
+  });
+});
+
+/**
+ * PR B plan Task 10: the agenda leaves the Schedule section for an Agenda section
+ * of its own (spec §6.2 `agenda` row). Agenda is entitled whenever the viewer's
+ * dates are not suppressed and listed only when the show has an agenda link with
+ * a file (plan decision 1), so it is the one section that can be entitled and
+ * unlisted: a refresh that removes its content keeps an open sheet on its empty
+ * state, a deep link or a history entry opens it with no row behind it, and a
+ * viewer whose dates are suppressed has neither the section nor any agenda line.
+ * Shows that a case mutates are seeded per case; a plain admin on the share
+ * route, every crew identity through the admin preview route.
+ *
+ * The id is spelled as a string and its label read from the show section
+ * registry, so these cases typecheck before the crew id union carries `agenda`.
+ */
+test.describe("agenda: the Agenda section, compact (PR B Task 10)", () => {
+  test.setTimeout(180_000);
+
+  const BASE_HEADERS = {
+    "X-Screenshot-Frozen-Now": SHOW_DAY_N_INSTANT,
+    Authorization: `Bearer ${TEST_AUTH_SECRET}`,
+  };
+  const DATES = {
+    travelIn: "2026-04-19",
+    set: "2026-04-20",
+    showDays: ["2026-04-21", "2026-04-22"],
+    travelOut: "2026-04-23",
+  };
+  const AGENDA_LABEL = showSection("agenda").label;
+  /** The one session line, distinctive enough that its absence means withheld. */
+  const SESSION_TITLE = "Zephyr keynote rehearsal";
+  const DAY_LABEL = "Tuesday, April 21, 2026";
+  /** One agenda PDF with a file and a high-confidence schedule, so the section lists. */
+  const AGENDA_LINKS = [
+    {
+      label: "AGENDA",
+      fileId: "agendaSectionE2E01",
+      extracted: {
+        confidence: "high",
+        corrections: 0,
+        extractorVersion: 2,
+        days: [
+          {
+            dayLabel: DAY_LABEL,
+            date: null,
+            sessions: [
+              {
+                time: "9:00 AM",
+                title: SESSION_TITLE,
+                room: "Ballroom A",
+                tracks: [],
+                drift: null,
+              },
+            ],
+          },
+        ],
+      },
+    },
+  ];
+  /** Dates confirmed: Agenda is hers whenever the show has one. */
+  const ADA = { name: "Ada Agenda", role: "A1" };
+  /** Days unconfirmed, so every date of hers is suppressed: no Agenda at all. */
+  const UNA = {
+    name: "Una Unconfirmed",
+    role: "A2",
+    dateRestriction: { kind: "unknown_asterisk", days: null } as const,
+  };
+
+  test.beforeEach(async ({ page }) => {
+    await page.clock.setFixedTime(new Date(SHOW_DAY_N_INSTANT));
+    await signOut(page);
+    await signInAs(page, ADMIN_FIXTURE);
+    await page.setExtraHTTPHeaders(BASE_HEADERS);
+  });
+
+  async function loadPath(page: Page, path: string): Promise<void> {
+    const res = await page.goto(path, { waitUntil: "domcontentloaded" });
+    expect(res?.status(), `${path} must render`).toBe(200);
+    await expect(page.getByTestId("crew-shell-sections")).toHaveAttribute(
+      "data-crew-controller-ready",
+      "true",
+      { timeout: 30_000 },
+    );
+  }
+
+  /** An "All sections" row, by an id spelled as a string (see the block comment). */
+  function listRow(page: Page, id: string): Locator {
+    return page.getByTestId("crew-all-sections").locator(`[data-section="${id}"]`);
+  }
+
+  function seedAgendaShow(title: string) {
+    return seedShowWithCrew({
+      title,
+      dates: DATES,
+      agendaLinks: AGENDA_LINKS as never,
+      crew: [ADA, UNA],
+    });
+  }
+
+  function previewOf(seeded: Awaited<ReturnType<typeof seedShowWithCrew>>, name: string): string {
+    const member = seeded.crew.find((c) => c.name === name);
+    if (!member) throw new Error(`no seeded crew member ${name}`);
+    return `/admin/show/${seeded.slug}/preview/${member.id}`;
+  }
+
+  /** The page's text and attributes, without the inline scripts that carry the first render's payload. */
+  function renderedPage(page: Page): Promise<string> {
+    return page.evaluate(() => {
+      const clone = document.body.cloneNode(true) as HTMLElement;
+      for (const el of clone.querySelectorAll("script, template")) el.remove();
+      return clone.outerHTML;
+    });
+  }
+
+  test("agenda: a refresh that removes the open Agenda section's content keeps the sheet open on its empty state, in place, while the list drops Agenda", async ({
+    page,
+  }) => {
+    const seeded = await seedAgendaShow("Agenda Refresh Show");
+    try {
+      await loadPath(page, `/show/${seeded.slug}/${seeded.shareToken}`);
+      await listRow(page, "agenda").click();
+      await expect(sheetDialog(page)).toHaveAttribute("data-section", "agenda");
+      await expect(sheetDialog(page)).toHaveAccessibleName(AGENDA_LABEL);
+      await settleOpen(page);
+      const section = sheetDialog(page).getByTestId("section-agenda");
+      await expect(section).toContainText(SESSION_TITLE);
+      // Mark the dialog and the body's crossfade wrapper: a remount or a re-keyed
+      // crossfade (an animation) would replace them, and the marks would be gone.
+      await page.evaluate(() => {
+        for (const sel of [
+          '[data-testid="crew-section-sheet-dialog"]',
+          '[data-testid="crew-section-transition"]',
+        ]) {
+          (document.querySelector(sel) as unknown as { __agenda?: true }).__agenda = true;
+        }
+      });
+
+      await renderFresh(page, BASE_HEADERS);
+      updateShowLocked(seeded.driveFileId, { agenda_links: [] });
+      await refreshFromServer(page);
+
+      await expect(listRow(page, "agenda")).toHaveCount(0);
+      await expect(sheetDialog(page)).toHaveAttribute("data-section", "agenda");
+      await expect(section.getByText("No agenda on file yet.", { exact: true })).toBeVisible();
+      await expect(section).not.toContainText(SESSION_TITLE);
+      const kept = await page.evaluate(() =>
+        [
+          '[data-testid="crew-section-sheet-dialog"]',
+          '[data-testid="crew-section-transition"]',
+        ].map(
+          (sel) =>
+            (document.querySelector(sel) as unknown as { __agenda?: true } | null)?.__agenda ===
+            true,
+        ),
+      );
+      expect(kept, "the same dialog and the same crossfade wrapper: updated in place").toEqual([
+        true,
+        true,
+      ]);
+      expect(new URL(page.url()).searchParams.get("s")).toBe("agenda");
+    } finally {
+      await deleteSeededShow(seeded.driveFileId);
+    }
+  });
+
+  test("agenda: ?s=agenda on a show with no agenda link opens the Agenda sheet on its empty state, with no Agenda row", async ({
+    page,
+  }) => {
+    // The Waldorf seed's parsed agenda_links is empty: its Agenda is entitled and unlisted.
+    const { slug, shareToken } = await lookupSlugAndToken();
+    await loadPath(page, `/show/${slug}/${shareToken}?s=agenda`);
+    await expect(sheetDialog(page)).toHaveAttribute("data-section", "agenda");
+    await expect(sheetDialog(page)).toHaveAccessibleName(AGENDA_LABEL);
+    await expect(
+      sheetDialog(page)
+        .getByTestId("section-agenda")
+        .getByText("No agenda on file yet.", { exact: true }),
+    ).toBeVisible();
+    // PREMISE: the list is rendered, and lists the sections around Agenda's slot.
+    await expect(listRow(page, "schedule")).toHaveCount(1);
+    await expect(listRow(page, "agenda")).toHaveCount(0);
+  });
+
+  test("agenda: Back then Forward over an in-app entry carrying s=agenda with no content reopens the Agenda sheet", async ({
+    page,
+  }) => {
+    const { slug, shareToken } = await lookupSlugAndToken();
+    await loadPath(page, `/show/${slug}/${shareToken}`);
+    await listRow(page, "venue").click();
+    await expect(sheetDialog(page)).toHaveAttribute("data-section", "venue");
+    await settleOpen(page);
+    // The pushed entry now names the unlisted Agenda, as an in-page link would.
+    await page.evaluate(() => {
+      const url = new URL(window.location.href);
+      url.searchParams.set("s", "agenda");
+      window.history.replaceState(window.history.state, "", url);
+    });
+
+    await page.goBack();
+    await expect(sheetDialog(page)).toHaveCount(0);
+    await expect.poll(() => new URL(page.url()).searchParams.get("s")).toBeNull();
+
+    await page.goForward();
+    await expect(sheetDialog(page)).toHaveAttribute("data-section", "agenda");
+    await expect(
+      sheetDialog(page)
+        .getByTestId("section-agenda")
+        .getByText("No agenda on file yet.", { exact: true }),
+    ).toBeVisible();
+    await expect.poll(() => new URL(page.url()).searchParams.get("s")).toBe("agenda");
+    await expect(listRow(page, "agenda")).toHaveCount(0);
+  });
+
+  test("agenda: a date-suppressed viewer's ?s=agenda lands home, and a popstate to it replaces s away (preview route)", async ({
+    page,
+  }) => {
+    const seeded = await seedAgendaShow("Agenda Suppressed Show");
+    try {
+      await loadPath(page, `${previewOf(seeded, UNA.name)}?s=agenda`);
+      await expect(sheetDialog(page)).toHaveCount(0);
+      await expect(page.getByTestId("crew-all-sections")).toBeVisible();
+      await expect(listRow(page, "agenda")).toHaveCount(0);
+      await expect(page.getByTestId("section-agenda")).toHaveCount(0);
+      expect(await renderedPage(page)).not.toContain(SESSION_TITLE);
+
+      await listRow(page, "venue").click();
+      await expect(sheetDialog(page)).toHaveAttribute("data-section", "venue");
+      await settleOpen(page);
+      await page.evaluate(() => {
+        const url = new URL(window.location.href);
+        url.searchParams.set("s", "agenda");
+        window.history.replaceState(window.history.state, "", url);
+      });
+      await page.goBack();
+      await expect(sheetDialog(page)).toHaveCount(0);
+      await page.goForward();
+      // Not entitled: the controller has no body to open and replaces s away.
+      await expect.poll(() => new URL(page.url()).searchParams.get("s")).toBeNull();
+      await expect(sheetDialog(page)).toHaveCount(0);
+      await expect(page.getByTestId("crew-all-sections")).toBeVisible();
+
+      // POSITIVE CONTROL: a viewer whose dates are confirmed opens Agenda on the same show.
+      await loadPath(page, `${previewOf(seeded, ADA.name)}?s=agenda`);
+      await expect(sheetDialog(page)).toHaveAttribute("data-section", "agenda");
+      await expect(sheetDialog(page).getByTestId("section-agenda")).toContainText(SESSION_TITLE);
+      await expect(listRow(page, "agenda")).toHaveCount(1);
+    } finally {
+      await deleteSeededShow(seeded.driveFileId);
+    }
+  });
+
+  test("agenda: a refresh after which the previewed viewer's dates are suppressed closes the Agenda sheet to home and leaves no agenda line on the page", async ({
+    page,
+  }) => {
+    const seeded = await seedAgendaShow("Agenda Lost Show");
+    const ada = seeded.crew.find((c) => c.name === ADA.name)!;
+    try {
+      // One refresh in flight, this case's own (the billing lost-entitlement case's reason).
+      await page.route("**/api/realtime/subscriber-token", (route) =>
+        route.fulfill({ status: 503, contentType: "application/json", body: "{}" }),
+      );
+      await loadPath(page, previewOf(seeded, ADA.name));
+      await listRow(page, "agenda").click();
+      await expect(sheetDialog(page)).toHaveAttribute("data-section", "agenda");
+      await settleOpen(page);
+      // Positive control: the lines this case searches for are on the page now.
+      const before = await renderedPage(page);
+      expect(before).toContain(SESSION_TITLE);
+      expect(before).toContain(DAY_LABEL);
+      await page.evaluate(() => {
+        const w = window as unknown as { __backs: number };
+        w.__backs = 0;
+        const back = history.back.bind(history);
+        history.back = () => {
+          w.__backs += 1;
+          back();
+        };
+      });
+
+      await renderFresh(page, BASE_HEADERS);
+      await setDateRestrictionLocked(seeded.driveFileId, ada.id, {
+        kind: "unknown_asterisk",
+        days: null,
+      });
+      await refreshFromServer(page);
+
+      await expect(listRow(page, "agenda")).toHaveCount(0);
+      await expect(page.getByTestId("crew-section-sheet")).toHaveCount(0);
+      await expect.poll(() => new URL(page.url()).searchParams.get("s")).toBeNull();
+      await expect(page.getByTestId("crew-all-sections")).toBeVisible();
+      expect(
+        await page.evaluate(() => (window as unknown as { __backs: number }).__backs),
+        "closed through history.back(), the pushed entry's close row",
+      ).toBe(1);
+      const after = await renderedPage(page);
+      expect(after).not.toContain(SESSION_TITLE);
+      expect(after).not.toContain(DAY_LABEL);
+    } finally {
+      await deleteSeededShow(seeded.driveFileId);
+    }
+  });
+
+  test("agenda: the list follows CREW_SECTION_IDS over the viewer's members, each moved id with its registry label", async ({
+    page,
+  }) => {
+    const seeded = await seedAgendaShow("Agenda Order Show");
+    try {
+      await loadPath(page, `/show/${seeded.slug}/${seeded.shareToken}`);
+      // An admin on a show with an agenda file is a member of every crew section.
+      const ids = await page
+        .getByTestId("crew-all-sections-row")
+        .evaluateAll((els) => els.map((e) => e.getAttribute("data-section")));
+      expect(ids).toEqual([...CREW_SECTION_IDS]);
+      expect(ids.indexOf("agenda")).toBe(ids.indexOf("schedule") + 1);
+      const moved: readonly string[] = CREW_MOVED_IDS;
+      for (const id of CREW_SECTION_IDS) {
+        const label = page.locator(`#crew-all-sections-label-${id}`);
+        if (moved.includes(id)) {
+          await expect(label, id).toHaveText(showSection(id as ShowSectionId).label);
+        } else {
+          // A section not yet moved keeps the crew's own label, which is not the registry's.
+          await expect(label, id).toHaveText(CREW_SECTION_LABELS[id]);
+        }
+      }
+      await expect(page.locator("#crew-all-sections-label-schedule")).not.toHaveText(
+        showSection("schedule").label,
+      );
+      // The moved set, pinned whole in this one place: the seven sections spec line
+      // 324 moves in PR B. Every other check reads CREW_MOVED_IDS, so this is what
+      // catches a section left out of it (it would keep its crew label and glyph).
+      expect([...moved].sort()).toEqual(
+        ["agenda", "billing", "contacts", "crew", "hotels", "transport", "venue"].sort(),
+      );
+    } finally {
+      await deleteSeededShow(seeded.driveFileId);
     }
   });
 });

@@ -29,7 +29,7 @@ function src(rel: string): string {
   return readFileSync(join(process.cwd(), rel), "utf8");
 }
 
-const AGENDA_SCHEDULE_BLOCK = "components/crew/AgendaScheduleBlock.tsx";
+const AGENDA_SCHEDULE_BLOCK = "components/show-panels/AgendaScheduleBlock.tsx";
 const AGENDA_EMBED = "components/agenda/AgendaEmbed.tsx";
 
 // Avoid pulling react-pdf/pdfjs into jsdom when AgendaEmbed's sheet opens.
@@ -39,7 +39,7 @@ vi.mock("@/components/agenda/AgendaPdfViewer", () => ({
   ),
 }));
 
-import { AgendaScheduleBlock } from "@/components/crew/AgendaScheduleBlock";
+import { AgendaScheduleBlock } from "@/components/show-panels/AgendaScheduleBlock";
 import { AgendaEmbed } from "@/components/agenda/AgendaEmbed";
 
 const HIGH = {

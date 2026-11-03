@@ -52,11 +52,13 @@ import { readFileSync } from "node:fs";
 import { join } from "node:path";
 
 import { test, expect, type Page } from "@playwright/test";
-import { CREW_SECTION_LABELS, type CrewSectionId } from "@/lib/crew/crewSections";
+import { CREW_MOVED_IDS, CREW_SECTION_LABELS, type CrewSectionId } from "@/lib/crew/crewSections";
 import { CREW_SECTION_IDS } from "@/lib/crew/resolveActiveSection";
-import { showSection } from "@/lib/showSections/registry";
+import { showSection, type ShowSectionId } from "@/lib/showSections/registry";
 import { SCROLL_SPY_OFFSET_PX, activeSectionFor } from "@/lib/ui/scrollSpy";
+import { refreshFromServer, renderFresh } from "./helpers/crewRefresh";
 import { ADMIN_FIXTURE } from "./helpers/fixtures";
+import { updateShowLocked } from "./helpers/lockedShowCopy";
 import { signInAs, signOut } from "./helpers/signInAs";
 import { deleteSeededShow, seedShowWithCrew } from "./helpers/seedShowWithCrew";
 import {
@@ -71,8 +73,15 @@ const SEED_DRIVE_FILE_ID = "seed-fixture:2026-04-asset-mgmt-cfo-coo-waldorf";
 const SHOW_DAY_N_INSTANT = "2026-04-21T12:00:00Z";
 const WIDE = { width: 1280, height: 800 };
 
-/** Every section an admin opens, in nav order (spec §5.1, `CREW_SECTION_IDS`). */
-const ADMIN_SECTIONS: CrewSectionId[] = [...CREW_SECTION_IDS];
+/**
+ * Every section an admin is listed on the Waldorf seed, in nav order (spec §5.1,
+ * `CREW_SECTION_IDS`): all of them but Agenda, which is listed only when the show
+ * has an agenda link with a file (PR B plan, decision 1), and the Waldorf
+ * fixture's parsed agenda_links is empty. Its Agenda is entitled and unlisted.
+ */
+const ADMIN_SECTIONS: CrewSectionId[] = CREW_SECTION_IDS.filter(
+  (id) => (id as string) !== "agenda",
+);
 
 async function lookupRoute(): Promise<string> {
   const showRes = await admin
@@ -1584,6 +1593,178 @@ test.describe("hotels and transport: the travel alias, wide (PR B Task 9)", () =
           { message: s },
         )
         .toBe("landed");
+    }
+  });
+});
+
+/**
+ * PR B plan Task 10: Agenda is its own section, listed only when the show has an
+ * agenda link with a file and entitled whenever the viewer's dates are not
+ * suppressed (plan decision 1). In wide the nav and the stack iterate members,
+ * so an entitled, unlisted Agenda has no stacked section, and a wide landing on
+ * it goes to the top of the page with the spy on Today (decision 1 rule d). The
+ * crossing case starts compact, scrolled down, with Agenda open, removes its
+ * content with a refresh, then widens past 1024px. Each show is seeded per case;
+ * the signed-in admin on the share route.
+ *
+ * DOCUMENTED LIMIT of the crossing case, measured: it pins the end state, not
+ * rule d's own scroll. Built with the crossing effect returning early for a
+ * section with no stacked element (the behavior before PR B Task 3), the case
+ * still passes: the compact page at 1280x800 is no taller than the viewport, so
+ * the browser clamps the scroll to 0 as it widens, and at a shorter wide
+ * viewport the dismissed sheet hands focus to the Today block (rule e), which
+ * scrolls the page to it. Rule d's `window.scrollTo(0)` is pinned by the Task 3
+ * controller case "decision 1 rule d: crossing into wide with a sheet open on a
+ * section with no stacked element scrolls to the top"
+ * (tests/components/crew/crewSections.test.tsx).
+ */
+test.describe("agenda: the Agenda section, wide (PR B Task 10)", () => {
+  test.setTimeout(180_000);
+
+  const BASE_HEADERS = {
+    "X-Screenshot-Frozen-Now": SHOW_DAY_N_INSTANT,
+    Authorization: `Bearer ${TEST_AUTH_SECRET}`,
+  };
+  const COMPACT = { width: 390, height: 640 };
+  const AGENDA_LINKS = [
+    {
+      label: "AGENDA",
+      fileId: "agendaSectionWideE2E01",
+      extracted: {
+        confidence: "high",
+        corrections: 0,
+        extractorVersion: 2,
+        days: [
+          {
+            dayLabel: "Tuesday, April 21, 2026",
+            date: null,
+            sessions: [
+              {
+                time: "9:00 AM",
+                title: "Wide keynote rehearsal",
+                room: "Ballroom B",
+                tracks: [],
+                drift: null,
+              },
+            ],
+          },
+        ],
+      },
+    },
+  ];
+
+  test.beforeEach(async ({ page }) => {
+    await page.setExtraHTTPHeaders(BASE_HEADERS);
+    await page.clock.setFixedTime(new Date(SHOW_DAY_N_INSTANT));
+    await signOut(page);
+    await signInAs(page, ADMIN_FIXTURE);
+  });
+
+  function seedAgendaShow(title: string) {
+    return seedShowWithCrew({
+      title,
+      dates: {
+        travelIn: "2026-04-19",
+        set: "2026-04-20",
+        showDays: ["2026-04-21", "2026-04-22"],
+        travelOut: "2026-04-23",
+      },
+      agendaLinks: AGENDA_LINKS as never,
+      crew: [{ name: "Wide Agenda Crew", role: "A1" }],
+    });
+  }
+
+  async function loadIn(page: Page, path: string, mode: "wide" | "compact") {
+    const res = await page.goto(path, { waitUntil: "domcontentloaded" });
+    expect(res?.status(), `${path} must render`).toBe(200);
+    const root = page.getByTestId("crew-shell-sections");
+    await expect(root).toHaveAttribute("data-crew-controller-ready", "true", { timeout: 30_000 });
+    await expect(root).toHaveAttribute("data-crew-mode", mode);
+  }
+
+  const navItem = (page: Page, id: string) =>
+    page.getByTestId("crew-wide-nav").locator(`[data-section="${id}"]`);
+  const stackedAgenda = (page: Page) =>
+    page.locator('[data-testid="crew-wide-section"][data-section="agenda"]');
+
+  test("agenda: the wide nav lists Today then the viewer's members in CREW_SECTION_IDS order, each moved id with its registry label, and stacks them in that order", async ({
+    page,
+  }) => {
+    const seeded = await seedAgendaShow("Agenda Wide Order Show");
+    try {
+      await page.setViewportSize(WIDE);
+      await loadIn(page, `/show/${seeded.slug}/${seeded.shareToken}`, "wide");
+      // An admin on a show with an agenda file is a member of every crew section.
+      const moved: readonly string[] = CREW_MOVED_IDS;
+      const expected = CREW_SECTION_IDS.map((id) =>
+        moved.includes(id) ? showSection(id as ShowSectionId).label : CREW_SECTION_LABELS[id],
+      );
+      const items = page.getByTestId("crew-wide-nav").locator("[data-section]");
+      const sections = await items.evaluateAll((els) =>
+        els.map((e) => e.getAttribute("data-section")),
+      );
+      expect(sections).toEqual(["today", ...CREW_SECTION_IDS]);
+      const texts = await items.evaluateAll((els) => els.map((e) => e.textContent ?? ""));
+      expect(texts).toEqual(["Today", ...expected]);
+      await expect(navItem(page, "agenda")).toHaveText(showSection("agenda").label);
+      const stacked = await page
+        .getByTestId("crew-wide-section")
+        .evaluateAll((els) => els.map((e) => e.getAttribute("data-section")));
+      expect(stacked).toEqual([...CREW_SECTION_IDS]);
+      await expect(stackedAgenda(page)).toContainText("Wide keynote rehearsal");
+    } finally {
+      await deleteSeededShow(seeded.driveFileId);
+    }
+  });
+
+  test("agenda: crossing into wide from a scrolled compact page with an Agenda sheet whose content a refresh removed lands at the top, keeping s=agenda, with no stacked Agenda", async ({
+    page,
+  }) => {
+    const seeded = await seedAgendaShow("Agenda Crossing Show");
+    try {
+      await page.setViewportSize(COMPACT);
+      await loadIn(page, `/show/${seeded.slug}/${seeded.shareToken}`, "compact");
+      // Scroll the home so the "All sections" card is in view, then open Agenda from it.
+      await page
+        .getByTestId("crew-all-sections")
+        .locator('[data-section="agenda"]')
+        .scrollIntoViewIfNeeded();
+      await expect.poll(() => page.evaluate(() => window.scrollY)).toBeGreaterThan(0);
+      await page.getByTestId("crew-all-sections").locator('[data-section="agenda"]').click();
+      await expect(page.getByRole("dialog")).toHaveAttribute("data-section", "agenda");
+
+      await renderFresh(page, BASE_HEADERS);
+      updateShowLocked(seeded.driveFileId, { agenda_links: [] });
+      await refreshFromServer(page);
+      await expect(
+        page.getByTestId("crew-all-sections").locator('[data-section="agenda"]'),
+      ).toHaveCount(0);
+      await expect(page.getByRole("dialog")).toHaveAttribute("data-section", "agenda");
+      await expect(page.getByRole("dialog").getByText("No agenda on file yet.")).toBeVisible();
+      // The refresh re-renders the home under the sheet, which leaves the page at the
+      // top (measured: scrollY 675 before the refresh, 0 after it), so the page is
+      // scrolled again before the crossing. The scroll lock blocks the user's
+      // scrolling, not a programmatic one.
+      await page.evaluate(() => window.scrollTo({ top: 400, behavior: "auto" }));
+      // PREMISE: the page under the sheet is scrolled, so a landing at 0 is a scroll.
+      await expect
+        .poll(() => page.evaluate(() => window.scrollY), { message: "scrollY before the crossing" })
+        .toBeGreaterThan(0);
+
+      await page.setViewportSize(WIDE);
+      await expect(page.getByTestId("crew-shell-sections")).toHaveAttribute(
+        "data-crew-mode",
+        "wide",
+      );
+
+      await expect(page.getByTestId("crew-section-sheet")).toHaveCount(0);
+      await expect.poll(() => page.evaluate(() => window.scrollY)).toBe(0);
+      expect(new URL(page.url()).searchParams.get("s")).toBe("agenda");
+      await expect(stackedAgenda(page)).toHaveCount(0);
+      await expect(navItem(page, "agenda")).toHaveCount(0);
+      await expect(navItem(page, "today")).toHaveAttribute("aria-current", "true");
+    } finally {
+      await deleteSeededShow(seeded.driveFileId);
     }
   });
 });

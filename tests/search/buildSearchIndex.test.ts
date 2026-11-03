@@ -84,16 +84,17 @@ describe("composition", () => {
 
   test("leaves Billing out, without calling its builder, when Billing is not listed", () => {
     premiseHolds(
-      "the crew case does not list Billing, nor (no flight, no ride) Transport",
+      "the crew case does not list Billing, nor (no flight, no ride) Transport, nor (no agenda file) Agenda",
       !crewNoTransport.sections.includes("billing") &&
-        !crewNoTransport.sections.includes("transport"),
+        !crewNoTransport.sections.includes("transport") &&
+        !crewNoTransport.sections.includes("agenda"),
     );
     const calls = stubBuilders();
 
     const index = buildSearchIndex(crewNoTransport);
 
     expect([...new Set(index.entries.map((e) => e.section))]).toEqual(
-      INDEX_ORDER.filter((id) => id !== "billing" && id !== "transport"),
+      INDEX_ORDER.filter((id) => id !== "billing" && id !== "transport" && id !== "agenda"),
     );
     expect(calls.has("billing")).toBe(false);
   });

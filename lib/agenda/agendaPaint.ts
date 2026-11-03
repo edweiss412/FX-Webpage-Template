@@ -19,7 +19,7 @@ import type { AdminAgendaItem } from "@/lib/agenda/agendaAdminPreview";
  *
  * Only the `source:` capture survives into the DOM, so two different raw drift
  * strings naming the same source paint the SAME sentence. Moved verbatim from
- * `components/crew/AgendaScheduleBlock.tsx`.
+ * `components/show-panels/AgendaScheduleBlock.tsx`.
  */
 export function driftNote(drift: string): string {
   const src = drift.match(/source:\s*([^)]+)\)/)?.[1]?.trim();

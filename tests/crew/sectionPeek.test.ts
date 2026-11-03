@@ -26,6 +26,7 @@ import type {
 import { venueDisplay } from "@/lib/venue/venueLocation";
 import { isPackListVisibleToday, todayIsoInShowTimezone } from "@/lib/visibility/packList";
 import { financialsVisible, transportTileVisible } from "@/lib/visibility/scopeTiles";
+import { premise } from "@/tests/_shared/premise";
 import { makeShowForViewer } from "../fixtures/showForViewer";
 
 type Member = ShowForViewer["crewMembers"][number];
@@ -125,6 +126,32 @@ const CONTACTS: ShowForViewer["contacts"] = [
   { kind: "in_house_av", name: null, email: "av@venue.example", phone: null, notes: null },
 ];
 
+/** One agenda day of the structured schedule, with `n` sessions. */
+function agendaDay(label: string, n: number) {
+  return {
+    dayLabel: label,
+    date: null,
+    sessions: Array.from({ length: n }, (_, i) => ({
+      time: `${9 + i}:00 AM`,
+      title: `Session ${i + 1}`,
+      room: null,
+      tracks: [],
+      drift: null,
+    })),
+  };
+}
+
+/** An agenda PDF with a file and, when given days, a high-confidence schedule. */
+function agendaLink(fileId: string, days?: ReturnType<typeof agendaDay>[]) {
+  return {
+    label: "AGENDA",
+    fileId,
+    ...(days !== undefined
+      ? { extracted: { confidence: "high" as const, corrections: 0, extractorVersion: 2, days } }
+      : {}),
+  };
+}
+
 /** A show where every section has something to peek at. */
 function fullShow(): ShowForViewer {
   return makeShowForViewer({
@@ -133,6 +160,7 @@ function fullShow(): ShowForViewer {
       venue: { name: "Grand Hall", address: "1 Plaza Way" },
       dates: { travelIn: TRAVEL_IN, set: SET_DAY, showDays: SHOW_DAYS, travelOut: TRAVEL_OUT },
       schedule_phases: PHASES,
+      agenda_links: [agendaLink("agenda-full", [agendaDay("Day 1", 2), agendaDay("Day 2", 1)])],
     },
     hotelReservations: [reservation({})],
     transportation: transport([...CONTENT_LEGS, BLANK_LEG]),
@@ -394,6 +422,49 @@ describe("sectionPeek (peek, spec §4.6)", () => {
     expect(peek("schedule", show, crew("c-plain"))).toBe(
       `${SHOW_DAYS.length} show days, ${short(SHOW_DAYS[0]!)} to ${short(SHOW_DAYS.at(-1)!)}`,
     );
+  });
+
+  it("peek: agenda counts the sessions its structured schedule shows, across documents, and nothing when it shows none (PR B Task 10)", () => {
+    const two = fullShow();
+    two.show.agenda_links = [
+      agendaLink("agenda-a", [agendaDay("Day 1", 2), agendaDay("Day 2", 1)]),
+      agendaLink("agenda-b", [agendaDay("Day 1", 3)]),
+      // A link with no file renders nothing, so its schedule never counts.
+      {
+        label: "AGENDA",
+        url: "https://example.test/agenda",
+        extracted: agendaLink("agenda-url", [agendaDay("Day 1", 5)]).extracted!,
+      },
+    ];
+    const sessions = two.show.agenda_links
+      .filter((l) => Boolean(l.fileId))
+      .flatMap((l) => l.extracted?.days ?? [])
+      .flatMap((d) => d.sessions).length;
+    premise("sessions across the file links", sessions, 1);
+    expect(peek("agenda" as CrewSectionId, two, crew("c-plain"))).toBe(`${sessions} sessions`);
+
+    const one = fullShow();
+    one.show.agenda_links = [agendaLink("agenda-one", [agendaDay("Day 1", 1)])];
+    expect(peek("agenda" as CrewSectionId, one, crew("c-plain"))).toBe("1 session");
+
+    // A button with no structured schedule: the section shows no session to count.
+    const bare = fullShow();
+    bare.show.agenda_links = [agendaLink("agenda-bare")];
+    expect(peek("agenda" as CrewSectionId, bare, crew("c-plain"))).toBeNull();
+    // A low-confidence extraction renders embed-only, so it counts nothing either.
+    const low = fullShow();
+    low.show.agenda_links = [
+      {
+        ...agendaLink("agenda-low"),
+        extracted: {
+          confidence: "low",
+          corrections: 0,
+          extractorVersion: 2,
+          days: [agendaDay("Day 1", 4)],
+        },
+      },
+    ];
+    expect(peek("agenda" as CrewSectionId, low, crew("c-plain"))).toBeNull();
   });
 
   it("peek: billing shows the PO only to a viewer financialsVisible admits", () => {

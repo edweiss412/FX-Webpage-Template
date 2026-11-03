@@ -8,24 +8,26 @@
  * decision 1). `crewSectionEntitled` says whether the viewer may see a section
  * at all: the shell builds a body for every entitled id and resolves `?s=`
  * against them. Membership, `crewSectionsFor`, is the entitled ids in
- * `CREW_SECTION_IDS` order; from PR B one content rule narrows it (an Agenda
- * with nothing in it is entitled and unlisted). Two gates (spec line 240):
- * `billing` only when `financialsVisible` holds, and `transport` for an admin,
+ * `CREW_SECTION_IDS` order, narrowed by one content rule: an Agenda with no
+ * agenda file is entitled and unlisted (PR B Task 10). Three gates (spec line
+ * 240): `billing` only when `financialsVisible` holds; `transport` for an admin,
  * a viewer `transportTileVisible` admits, or a viewer whose "Your flight" card
- * renders a row (PR B Task 9). A viewer with neither has nothing the section
- * may show them, and an empty state there would claim no transport exists
- * when it is only withheld, so the section is not theirs (plan decision 1).
+ * renders a row (PR B Task 9), since a viewer with neither has nothing the
+ * section may show them, and an empty state there would claim no transport
+ * exists when it is only withheld, so the section is not theirs (plan decision
+ * 1); and `agenda` whenever the viewer's dates are not suppressed (PR B Task 10).
  * `today` is the home, not a section.
  *
- * Membership never reads the projection's data: a domain whose fetch failed
- * (`tileErrors`) keeps its section listed, and the section shows its own
- * degraded state. `data` is in the signature because the rules from PR B on
- * read it (spec §5.1).
+ * Membership never reads a domain whose fetch can fail: a domain whose fetch
+ * failed (`tileErrors`) keeps its section listed, and the section shows its own
+ * degraded state. The Agenda's content rule reads the show row's agenda links,
+ * which arrive with the show itself, not from a fetch of their own (spec §5.1).
  *
  * Pure and server-safe.
  */
 import type { ShowForViewer } from "@/lib/data/getShowForViewer";
 import type { ViewerContext } from "@/lib/data/viewerContext";
+import { hasAgendaFile } from "@/components/crew/agendaScheduleRows";
 import { suppressesDates } from "@/lib/crew/dateSuppression";
 import { viewerFlightShown } from "@/lib/crew/flightDisplay";
 import { CREW_SECTION_IDS, type SectionId } from "@/lib/crew/resolveActiveSection";
@@ -59,6 +61,7 @@ export const CREW_MOVED_IDS = [
   "contacts",
   "hotels",
   "transport",
+  "agenda",
 ] as const satisfies readonly (CrewSectionId & ShowSectionId)[];
 
 type CrewMovedId = (typeof CREW_MOVED_IDS)[number];
@@ -119,7 +122,20 @@ const SECTION_GATES: Readonly<Partial<Record<CrewSectionId, SectionGate>>> = {
       isAdmin: viewer.isAdmin,
     }) ||
     viewerFlightShown(data.viewerFlightInfo, suppressesDates(viewer.dateRestriction)),
+  // Hidden for a viewer whose dates are suppressed (spec §6.2 `agenda` row): an
+  // agenda is a schedule of days, so its days are a claim about theirs.
+  agenda: (_data, viewer) => !suppressesDates(viewer.dateRestriction),
 };
+
+/**
+ * The one content rule membership adds to entitlement (spec line 240, plan
+ * decision 1): an Agenda is listed only when the show has an agenda link with a
+ * file, the same test the section's empty state reads. Every other id is listed
+ * whenever it is entitled.
+ */
+function listedWithContent(id: CrewSectionId, data: ShowForViewer): boolean {
+  return id !== "agenda" || hasAgendaFile(data.show.agenda_links);
+}
 
 /**
  * The sections every viewer is listed, in nav order: the rows the loading
@@ -141,9 +157,14 @@ export function crewSectionEntitled(
   return gate === undefined || gate(data, viewer);
 }
 
-/** The sections this viewer may open, in nav order. */
+/**
+ * The sections the list and the nav offer this viewer, in nav order: the entitled
+ * ones with something to show (an Agenda with no file is entitled and unlisted).
+ */
 export function crewSectionsFor(data: ShowForViewer, viewer: CrewSectionsViewer): CrewSection[] {
-  return CREW_SECTION_IDS.filter((id) => crewSectionEntitled(id, data, viewer)).map((id) => ({
+  return CREW_SECTION_IDS.filter(
+    (id) => crewSectionEntitled(id, data, viewer) && listedWithContent(id, data),
+  ).map((id) => ({
     id,
     label: CREW_SECTION_LABELS[id],
   }));

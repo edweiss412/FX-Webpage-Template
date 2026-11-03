@@ -337,6 +337,9 @@ describe("staged adapter output through the REAL CrewShell", () => {
 
     expect(sectionKeys().sort()).toEqual(
       [
+        // Entitled whenever the viewer's dates are not suppressed, its body built with
+        // content or without (PR B Task 10, plan decision 1).
+        "agenda",
         "billing",
         "contacts",
         "crew",

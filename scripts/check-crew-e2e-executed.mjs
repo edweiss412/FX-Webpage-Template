@@ -50,8 +50,13 @@ export const REQUIRED = {
   // cases (?s=travel opens Hotels, Back then Forward over an s=travel entry, the
   // flight-only viewer's Transport, the viewer with neither, the date-suppressed
   // Hotels, the "leaves" time line, every PR A id). Counted from the observed
-  // mobile-safari run.
-  "crew-section-toggle.spec.ts": 38,
+  // mobile-safari run. 44 since PR B's Task 10 added six "agenda" cases (a refresh
+  // that removes the open Agenda's content, ?s=agenda with no content, Back then
+  // Forward over an s=agenda entry, a date-suppressed viewer's ?s=agenda and its
+  // popstate, a refresh that suppresses the previewed viewer's dates, the list
+  // order and labels); the two nested-dialog agenda cases moved from Schedule to
+  // Agenda in place. Re-derived from the wiring guard's live Playwright resolution (44).
+  "crew-section-toggle.spec.ts": 44,
   "picker-flow.spec.ts": 7,
   "alert-action-links.spec.ts": 4,
   // 3 SFS-1 cases + 3 seeded agenda-fold cases.
@@ -141,8 +146,11 @@ export const REQUIRED = {
   // a lead preview; a non-lead's ?s=budget and ?s=billing land at the top on Today).
   // Counted from the observed desktop-chromium run. Thirty since PR B's Task 9 added
   // two (?s=travel lands on Hotels; every PR A id lands on its section or Today).
-  // Counted from the observed desktop-chromium run.
-  "crew-wide-nav.spec.ts": 30,
+  // Counted from the observed desktop-chromium run. Thirty-two since PR B's Task 10
+  // added two "agenda" cases (the wide nav's order and labels, and the crossing into
+  // wide with an unlisted Agenda open from a scrolled page). Re-derived from the
+  // wiring guard's live Playwright resolution (32).
+  "crew-wide-nav.spec.ts": 32,
   // 9, and the number is the MATRIX rather than a multiple (plan
   // 2026-08-09-quick-wins-2 "e2e harness readiness"). theme-toggle runs two arms:
   //   arm (a) — 4 standalone-toggle cases, BOTH projects            = 8

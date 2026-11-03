@@ -22,6 +22,7 @@ const SECTIONS_DIR = join("components", "crew", "sections");
 const SECTION_COMPONENTS = [
   "HomeSection",
   "ScheduleSection",
+  "AgendaSection",
   "VenueSection",
   "HotelsSection",
   "TransportSection",
@@ -44,6 +45,9 @@ const EXPECTED_TILE_BY_FILE: Record<string, string> = {
   // server-built props, outside every WrappedSection, and own no tileId.
   "HomeSection.tsx": "crew:today:notes",
   "ScheduleSection.tsx": "crew:schedule:days",
+  // PR B plan Task 10: the agenda left the Schedule section, where it sat outside
+  // every wrapper, for its own section and a new tile id (decision 6).
+  "AgendaSection.tsx": "crew:agenda:schedule",
   // PR B plan Task 5: the shared Venue body is called inside its own wrapper
   // (spec §6.1, error containment), ahead of the diagrams block in source order.
   "VenueSection.tsx": "crew:venue:where,crew:venue:diagrams",

@@ -237,11 +237,14 @@ export const SUBTLE_INTERACTIVE_EXEMPTIONS: readonly SubtleExemption[] = [
       "Wizard Ignored (N) disclosure header; a caption-weight fold label over warnings the operator has already dismissed, so the active list above it stays the loudest thing in the panel. Copies the published sectionWarningExtras disclosure verbatim, including this token (DESIGN §1.1a Family S)",
   },
   {
-    file: "components/crew/AgendaScheduleBlock.tsx",
+    file: "components/show-panels/AgendaScheduleBlock.tsx",
     // 107 -> 116 on feat/crew-show-search (Schedule search entries): search-marker props and shared row helpers moved
     // lines around it. Same `<summary>`, same token. 116 -> 117 on the invariant-8
     // fixes (audit P2-4): the header comment's heading levels grew a line. Same `<summary>`.
-    line: 117,
+    // 117 -> 122, and the file from components/crew/ to components/show-panels/ (crew page
+    // redesign PR B, Task 10: the block became a shared body, its header comment five lines
+    // longer). Same `<summary>`, same token.
+    line: 122,
     tag: "summary",
     token: "text-text-subtle",
     family: "summary-disclosure",
