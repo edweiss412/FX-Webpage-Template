@@ -20,6 +20,11 @@
  *   - "bare": the registry entry's `render(d)` with no chrome provider, which takes
  *     `BreakdownSection`'s no-chrome branch.
  *
+ * The field-boundary scenarios (below EMPTY: one field absent, or one field
+ * present, per field of each body's inputs) came later, in whole-diff review
+ * round 1. Their goldens were captured the same way, with `-u` on a worktree at
+ * be05685ca (the unmodified admin tree), and compared here.
+ *
  * A golden diff is a defect, never a re-baseline (plan, "Admin DOM invariant").
  * Regenerating is `-u` on purpose and is reviewable as a diff under `__golden__/`;
  * a MISSING golden fails here instead of being written, so a deleted file cannot
@@ -33,6 +38,7 @@
  */
 import { existsSync, readdirSync } from "node:fs";
 import { join } from "node:path";
+import { isDeepStrictEqual } from "node:util";
 import type { ComponentProps, ReactNode } from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { cleanup, render, waitFor } from "@testing-library/react";
@@ -421,6 +427,424 @@ const EMPTY: Content = {
   agendaLinks: [{ label: "Agenda" }],
 };
 
+// ── Field-boundary fixtures (derived from each body's optional inputs) ──────
+//
+// FULL, SENTINEL and EMPTY leave the sparse, non-empty bodies between them
+// unpinned: a populated venue with no dock, a named contact with no phone or
+// email, a stay with a check-out and no check-in, transport with no route leg
+// (PR B whole-diff review round 1, A1). This cover is derived rather than listed.
+// POPULATED holds one entity per collection with every field set, and an ABSENT
+// table per entity type gives the value each field takes when the sheet leaves
+// it out. Each table is keyed by every key of its type, so a field added to a
+// type fails to compile until it has a row. From them, per field:
+//   - drop: POPULATED with that one field absent and every other field present;
+//   - keep: that one field present and every other field of its section absent,
+//     which is the all-absent side of every disjunction a body gates on (a named
+//     contact with neither a phone nor an email, a venue with neither a name nor
+//     an address).
+// Each renders in staged mode, bare kind only: the bodies are the subject here,
+// and the two kinds differ only by the section chrome, which the scenarios above
+// pin. Not covered: two fields absent together other than through a keep.
+
+/** A field no fixture leaves out: a discriminant, an ordinal, a count, a version. */
+const REQUIRED: unique symbol = Symbol("required");
+type Absent<T> = { readonly [K in keyof Required<T>]: T[K] | typeof REQUIRED };
+
+type Venue = NonNullable<Content["venue"]>;
+type ClientPerson = NonNullable<ClientContact["secondary"]>;
+type Transport = NonNullable<Content["transport"]>;
+type AgendaDay = AgendaExtraction["days"][number];
+type AgendaSessionRow = AgendaDay["sessions"][number];
+type AgendaTrack = AgendaSessionRow["tracks"][number];
+
+const POPULATED_EXTRACTION: AgendaExtraction = {
+  confidence: "high",
+  corrections: 1,
+  sourceRevision: "rev-populated",
+  extractorVersion: EXTRACTOR_VERSION,
+  days: [
+    {
+      dayLabel: "Day 1",
+      date: "2026-04-10",
+      sessions: [
+        session(
+          "12:25 PM – 1:15 PM",
+          "Opening keynote",
+          "Ballroom A",
+          [{ label: "Track A", title: "Breakout 1", room: "Room 1" }],
+          "start→12:25 PM (source: 12:25 AM)",
+        ),
+      ],
+    },
+  ],
+};
+
+const POPULATED: Content = {
+  venue: {
+    name: "The Masonic Auditorium",
+    address: "1111 California St",
+    city: "San Francisco, CA 94108",
+    loadingDock: "Rear alley off Taylor St, 2 bays",
+    googleLink: "https://maps.google.com/?q=masonic",
+    notes: "Union house, 4 hour minimum",
+    timezone: "America/Los_Angeles",
+  },
+  clientContact: {
+    name: "Dana Client",
+    phone: "(415) 555-0100",
+    email: "dana@client.example",
+    officePhone: "(415) 555-0101",
+    secondary: {
+      name: "Sam Second",
+      phone: "415-555-0102",
+      email: "sam@client.example",
+      officePhone: "415-555-0103",
+    },
+  },
+  contacts: [
+    {
+      kind: "venue",
+      name: "Vic Venue",
+      phone: "(415) 555-0120",
+      email: "vic@venue.example",
+      notes: "Dock key at security",
+    },
+  ],
+  crew: [
+    member({
+      name: "Avery Lead",
+      role: "A1",
+      role_flags: ["LEAD"],
+      phone: "(415) 555-0110",
+      email: "avery@crew.example",
+      date_restriction: { kind: "explicit", days: ["2026-04-10"] },
+      stage_restriction: { kind: "explicit", stages: ["Show"] },
+      flight_info: "UA 1234 SFO to ORD, 7:05 AM",
+    }),
+  ],
+  hotels: [
+    hotel({
+      ordinal: 1,
+      hotel_name: "Hotel Nikko",
+      hotel_address: "222 Mason St, San Francisco",
+      names: ["Avery Lead"],
+      confirmation_no: "CONF-1",
+      check_in: "2026-04-09",
+      check_out: "2026-04-12",
+      notes: "Late checkout",
+    }),
+  ],
+  transport: {
+    driver_name: "Pat Driver",
+    driver_phone: "(415) 555-0199",
+    driver_email: "pat@drive.example",
+    loadout_name: "Lou Loadout",
+    loadout_phone: "+1 415 555 0198",
+    loadout_email: "lou@drive.example",
+    vehicle: "26ft box truck",
+    license_plate: "7ABC123",
+    color: "White",
+    parking: "Lot B, level 2",
+    schedule: [
+      {
+        stage: "Load In",
+        date: "2026-04-09",
+        time: "7:00 AM",
+        assigned_names: ["Avery Lead"],
+      },
+    ],
+    notes: "Call the driver 30 minutes before load out.",
+  },
+  billing: FULL.billing,
+  agendaLinks: [
+    {
+      label: "Main Agenda",
+      fileId: "agenda-main",
+      url: "https://example.com/agenda.pdf",
+      extracted: POPULATED_EXTRACTION,
+    },
+  ],
+};
+
+/** Which section reads each part of the content. */
+const CONTENT_SECTION: { readonly [K in keyof Content]-?: SharedId } = {
+  venue: "venue",
+  clientContact: "contacts",
+  contacts: "contacts",
+  crew: "crew",
+  hotels: "hotels",
+  transport: "transport",
+  billing: "billing",
+  agendaLinks: "agenda",
+};
+
+/** A part absent whole. Only a section with two parts drops one (the other part
+ *  is left); a section's only part absent is the EMPTY scenario's case. */
+const CONTENT_ABSENT: Absent<Content> = {
+  venue: null,
+  clientContact: null,
+  contacts: [],
+  crew: [],
+  hotels: [],
+  transport: null,
+  billing: EMPTY.billing,
+  agendaLinks: [],
+};
+
+const VENUE_ABSENT: Absent<Venue> = {
+  name: "",
+  address: "",
+  city: null,
+  loadingDock: null,
+  googleLink: null,
+  notes: null,
+  timezone: null,
+};
+
+const CLIENT_ABSENT: Absent<ClientContact> = {
+  name: "",
+  phone: null,
+  email: null,
+  officePhone: null,
+  secondary: null,
+};
+
+const CLIENT_PERSON_ABSENT: Absent<ClientPerson> = {
+  name: "",
+  phone: null,
+  email: null,
+  officePhone: null,
+};
+
+const CONTACT_ABSENT: Absent<ContactRow> = {
+  kind: REQUIRED,
+  name: null,
+  phone: null,
+  email: null,
+  notes: null,
+};
+
+const CREW_ABSENT: Absent<CrewMemberRow> = {
+  name: "",
+  email: null,
+  phone: null,
+  role: "",
+  role_flags: [],
+  date_restriction: { kind: "none" },
+  stage_restriction: { kind: "none" },
+  flight_info: null,
+};
+
+const HOTEL_ABSENT: Absent<HotelReservationRow> = {
+  ordinal: REQUIRED,
+  hotel_name: null,
+  hotel_address: null,
+  names: [],
+  confirmation_no: null,
+  check_in: null,
+  check_out: null,
+  notes: null,
+};
+
+const TRANSPORT_ABSENT: Absent<Transport> = {
+  driver_name: null,
+  driver_phone: null,
+  driver_email: null,
+  loadout_name: null,
+  loadout_phone: null,
+  loadout_email: null,
+  vehicle: null,
+  license_plate: null,
+  color: null,
+  parking: null,
+  schedule: [],
+  notes: null,
+};
+
+const LEG_ABSENT: Absent<Transport["schedule"][number]> = {
+  stage: "",
+  date: null,
+  time: null,
+  assigned_names: [],
+};
+
+const BILLING_ABSENT: Absent<Billing> = {
+  coiStatus: null,
+  proposal: null,
+  po: null,
+  invoice: null,
+  invoiceNotes: null,
+};
+
+const AGENDA_LINK_ABSENT: Absent<AgendaLink> = {
+  label: "",
+  fileId: undefined,
+  url: undefined,
+  extracted: undefined,
+};
+
+const EXTRACTION_ABSENT: Absent<AgendaExtraction> = {
+  confidence: REQUIRED,
+  corrections: REQUIRED,
+  days: [],
+  sourceRevision: undefined,
+  extractorVersion: REQUIRED,
+};
+
+const AGENDA_DAY_ABSENT: Absent<AgendaDay> = { dayLabel: "", date: null, sessions: [] };
+
+const AGENDA_SESSION_ABSENT: Absent<AgendaSessionRow> = {
+  time: "",
+  title: null,
+  room: null,
+  tracks: [],
+  drift: null,
+};
+
+const AGENDA_TRACK_ABSENT: Absent<AgendaTrack> = { label: "", title: null, room: null };
+
+type Path = readonly (string | number)[];
+
+/** Every entity in POPULATED, with its table. Each entity's section is its root part's. */
+const ENTITIES: readonly { path: Path; absent: Readonly<Record<string, unknown>> }[] = [
+  { path: ["venue"], absent: VENUE_ABSENT },
+  { path: ["clientContact"], absent: CLIENT_ABSENT },
+  { path: ["clientContact", "secondary"], absent: CLIENT_PERSON_ABSENT },
+  { path: ["contacts", 0], absent: CONTACT_ABSENT },
+  { path: ["crew", 0], absent: CREW_ABSENT },
+  { path: ["hotels", 0], absent: HOTEL_ABSENT },
+  { path: ["transport"], absent: TRANSPORT_ABSENT },
+  { path: ["transport", "schedule", 0], absent: LEG_ABSENT },
+  { path: ["billing"], absent: BILLING_ABSENT },
+  { path: ["agendaLinks", 0], absent: AGENDA_LINK_ABSENT },
+  { path: ["agendaLinks", 0, "extracted"], absent: EXTRACTION_ABSENT },
+  { path: ["agendaLinks", 0, "extracted", "days", 0], absent: AGENDA_DAY_ABSENT },
+  {
+    path: ["agendaLinks", 0, "extracted", "days", 0, "sessions", 0],
+    absent: AGENDA_SESSION_ABSENT,
+  },
+  {
+    path: ["agendaLinks", 0, "extracted", "days", 0, "sessions", 0, "tracks", 0],
+    absent: AGENDA_TRACK_ABSENT,
+  },
+];
+
+/** Object-valued fields a body reads as one value, never as an entity of fields. */
+const WHOLE_VALUE_FIELDS = new Set(["date_restriction", "stage_restriction"]);
+
+type Field = { section: SharedId; path: Path; absent: unknown };
+
+const sectionOfPath = (path: Path): SharedId => CONTENT_SECTION[path[0] as keyof Content];
+
+/** Every field the cover varies: each entity's non-REQUIRED keys, and each part of
+ *  a section that has two. */
+const FIELDS: readonly Field[] = [
+  ...(Object.keys(CONTENT_SECTION) as (keyof Content)[])
+    .filter(
+      (part) =>
+        Object.values(CONTENT_SECTION).filter((s) => s === CONTENT_SECTION[part]).length > 1,
+    )
+    .map((part) => ({
+      section: CONTENT_SECTION[part],
+      path: [part],
+      absent: CONTENT_ABSENT[part],
+    })),
+  ...ENTITIES.flatMap((e) =>
+    Object.entries(e.absent)
+      .filter(([, absent]) => absent !== REQUIRED)
+      .map(([key, absent]) => ({ section: sectionOfPath(e.path), path: [...e.path, key], absent })),
+  ),
+];
+
+function getAt(root: unknown, path: Path): unknown {
+  let node = root;
+  for (const key of path) {
+    if (node === null || typeof node !== "object") return undefined;
+    node = (node as Record<string | number, unknown>)[key];
+  }
+  return node;
+}
+
+function setAt(root: Content, path: Path, value: unknown): void {
+  const parent = getAt(root, path.slice(0, -1));
+  if (parent === null || typeof parent !== "object") {
+    throw new Error(`no container at ${path.slice(0, -1).join(".")}`);
+  }
+  const key = path[path.length - 1]!;
+  if (value === undefined) delete (parent as Record<string | number, unknown>)[key];
+  else (parent as Record<string | number, unknown>)[key] = value;
+}
+
+/** Whether `a` is `b` or one of its ancestors. */
+const isPrefix = (a: Path, b: Path): boolean =>
+  a.length <= b.length && a.every((k, i) => b[i] === k);
+
+const fieldName = (f: Field): string => f.path.join(".");
+
+/** The section's other fields: neither the field's ancestors nor its own subtree. */
+const othersOf = (f: Field): Field[] =>
+  FIELDS.filter(
+    (o) => o.section === f.section && !isPrefix(o.path, f.path) && !isPrefix(f.path, o.path),
+  );
+
+type FieldShape = "drop" | "keep";
+type FieldVariant = { name: string; field: Field; shape: FieldShape; content: Content };
+
+function fieldVariant(field: Field, shape: FieldShape): FieldVariant {
+  const content = structuredClone(POPULATED);
+  if (shape === "drop") {
+    setAt(content, field.path, field.absent);
+  } else {
+    // Deepest first, so a part or an entity left out whole is set after its fields.
+    for (const o of othersOf(field).sort((a, b) => b.path.length - a.path.length)) {
+      setAt(content, o.path, o.absent);
+    }
+  }
+  return { name: `${shape}-${fieldName(field)}`, field, shape, content };
+}
+
+/** Both shapes per field; a variant whose content another already has is kept once. */
+function fieldVariants(): FieldVariant[] {
+  const seen = new Set<string>();
+  const out: FieldVariant[] = [];
+  for (const field of FIELDS) {
+    for (const shape of ["drop", "keep"] as const) {
+      const v = fieldVariant(field, shape);
+      const key = `${field.section}:${JSON.stringify(v.content)}`;
+      if (seen.has(key)) continue;
+      seen.add(key);
+      out.push(v);
+    }
+  }
+  return out;
+}
+
+const FIELD_VARIANTS = fieldVariants();
+
+function fieldPremise(v: FieldVariant): () => void {
+  return () => {
+    const own = getAt(v.content, v.field.path);
+    if (v.shape === "drop") {
+      premiseHolds(
+        `${fieldName(v.field)} is absent and was present in POPULATED`,
+        isDeepStrictEqual(own, v.field.absent) &&
+          !isDeepStrictEqual(getAt(POPULATED, v.field.path), v.field.absent),
+      );
+    } else {
+      // A field inside a part or entity that is absent whole has no value of its own.
+      const others = othersOf(v.field);
+      const outermost = others.filter(
+        (o) => !others.some((p) => p !== o && isPrefix(p.path, o.path)),
+      );
+      premiseHolds(
+        `${fieldName(v.field)} is the one ${v.field.section} field present`,
+        isDeepStrictEqual(own, getAt(POPULATED, v.field.path)) &&
+          outermost.every((o) => isDeepStrictEqual(getAt(v.content, o.path), o.absent)),
+      );
+    }
+  };
+}
+
 /** The parsed inline guest split (a real parse, as hotelReservationMarker.test.tsx
  *  uses), re-pointed at reservation `index`. */
 function judgedHotelWarning(index: number): ParseWarning {
@@ -542,6 +966,9 @@ type Scenario = {
   /** Substrings the captured subtree must hold: the branch the input premise
    *  claims was in fact rendered, so the golden carries it. */
   reached: Partial<Record<`${Kind}:${SharedId}`, string[]>>;
+  /** Given, the only kinds and sections this scenario captures (a field-boundary
+   *  fixture captures its own section, bare). Absent: every kind, every section. */
+  only?: { kinds: readonly Kind[]; sections: readonly SharedId[] };
 };
 
 const STAGED_MOUNT: Scenario["surfaceProps"] = {
@@ -878,14 +1305,37 @@ function buildScenarios(): Scenario[] {
         "surface:venue": ['data-testid="wizard-step3-card--review-section-venue"'],
       },
     },
+    ...FIELD_VARIANTS.map(
+      (v): Scenario => ({
+        name: v.name,
+        data: stagedData(v.content),
+        readyAgenda: stagedReadyItems(v.content),
+        surfaceProps: STAGED_MOUNT,
+        // Every variant keeps one agenda link: the agenda part is never left out whole.
+        agendaMounts: true,
+        inputPremises: { [v.field.section]: fieldPremise(v) },
+        reached: {},
+        only: { kinds: ["bare"], sections: [v.field.section] },
+      }),
+    ),
   ];
 }
 
 const SCENARIOS = buildScenarios();
 
-function sectionsOf(sc: Scenario): SharedId[] {
+/** The shared sections the scenario's data renders. */
+function renderedShared(sc: Scenario): SharedId[] {
   const rendered = new Set(step3Sections(sc.data).map((s) => s.id));
   return SHARED.filter((id) => rendered.has(id));
+}
+
+/** The sections the scenario captures. */
+function sectionsOf(sc: Scenario): SharedId[] {
+  return renderedShared(sc).filter((id) => sc.only?.sections.includes(id) ?? true);
+}
+
+function kindsOf(sc: Scenario): readonly Kind[] {
+  return sc.only?.kinds ?? KINDS;
 }
 
 function goldenName(sc: Scenario, kind: Kind, id: SharedId): string {
@@ -968,9 +1418,10 @@ async function captureSurface(sc: Scenario): Promise<Map<SharedId, string>> {
 async function captureBare(sc: Scenario): Promise<Map<SharedId, string>> {
   readyAgenda = sc.readyAgenda;
   const out = new Map<SharedId, string>();
+  const captured = new Set<SectionId>(sectionsOf(sc));
   for (const def of step3Sections(sc.data)) {
     const id = def.id as SharedId;
-    if (!(SHARED as readonly SectionId[]).includes(def.id)) continue;
+    if (!captured.has(def.id)) continue;
     const view = render(<>{def.render(sc.data)}</>);
     await settle(view.container, sc.data, id === "agenda");
     out.set(id, normalizeIds(view.container.innerHTML));
@@ -1002,10 +1453,16 @@ describe("admin section DOM golden (spec line 505, PR B invariant)", () => {
   describe.each(SCENARIOS)("$name", (sc) => {
     it("mounts the agenda section exactly when its fixture says it does", () => {
       expect(includesAgenda(sc.data)).toBe(sc.agendaMounts);
-      expect(sectionsOf(sc)).toEqual(SHARED.filter((id) => id !== "agenda" || sc.agendaMounts));
+      expect(renderedShared(sc)).toEqual(SHARED.filter((id) => id !== "agenda" || sc.agendaMounts));
+      for (const id of sc.only?.sections ?? []) {
+        premiseHolds(
+          `${sc.name} renders the ${id} section it captures`,
+          sectionsOf(sc).includes(id),
+        );
+      }
     });
 
-    describe.each(KINDS)("%s", (kind) => {
+    describe.each(kindsOf(sc))("%s", (kind) => {
       it.each(sectionsOf(sc))("%s matches its golden", async (id) => {
         const captured = await capture(sc, kind);
         const html = captured.get(id);
@@ -1028,12 +1485,73 @@ describe("admin section DOM golden (spec line 505, PR B invariant)", () => {
 
   it("the golden directory holds exactly the goldens the scenarios derive", () => {
     const expected = SCENARIOS.flatMap((sc) =>
-      KINDS.flatMap((kind) => sectionsOf(sc).map((id) => goldenName(sc, kind, id))),
+      kindsOf(sc).flatMap((kind) => sectionsOf(sc).map((id) => goldenName(sc, kind, id))),
     ).sort();
     premise("the scenarios derive at least one golden", expected.length, 0);
     const actual = readdirSync(GOLDEN_DIR)
       .filter((f) => f.endsWith(".html"))
       .sort();
     expect(actual).toEqual(expected);
+  });
+});
+
+describe("the field-boundary cover is derived from the bodies' inputs", () => {
+  const isEntity = (v: unknown): boolean =>
+    v !== null && typeof v === "object" && !Array.isArray(v);
+
+  it("every field it varies is present in POPULATED", () => {
+    premise("fields the cover varies", FIELDS.length, 0);
+    for (const f of FIELDS) {
+      const value = getAt(POPULATED, f.path);
+      premiseHolds(
+        `POPULATED sets ${fieldName(f)}`,
+        value !== undefined &&
+          value !== null &&
+          value !== "" &&
+          !(Array.isArray(value) && value.length === 0) &&
+          !isDeepStrictEqual(value, f.absent),
+      );
+    }
+  });
+
+  it("every entity POPULATED holds has a table, so none of its fields escapes the cover", () => {
+    const tabled = new Set(ENTITIES.map((e) => e.path.join(".")));
+    const roots: { path: Path; keys: string[] }[] = [
+      { path: [], keys: Object.keys(CONTENT_SECTION) },
+      ...ENTITIES.map((e) => ({ path: e.path, keys: Object.keys(e.absent) })),
+    ];
+    for (const { path, keys } of roots) {
+      premiseHolds(
+        `POPULATED holds an entity at ${path.join(".") || "the root"}`,
+        isEntity(getAt(POPULATED, path)) || path.length === 0,
+      );
+      for (const key of keys) {
+        if (WHOLE_VALUE_FIELDS.has(key)) continue;
+        const value = getAt(POPULATED, [...path, key]);
+        if (isEntity(value)) {
+          expect(tabled, `${[...path, key].join(".")} is an entity`).toContain(
+            [...path, key].join("."),
+          );
+        } else if (Array.isArray(value) && value.some(isEntity)) {
+          expect(value, `${[...path, key].join(".")} holds one entity`).toHaveLength(1);
+          expect(tabled, `${[...path, key, 0].join(".")} is an entity`).toContain(
+            [...path, key, 0].join("."),
+          );
+        }
+      }
+    }
+  });
+
+  it("every field's drop and keep is a scenario (a variant another already holds is kept once)", () => {
+    const contentKey = (v: FieldVariant) => `${v.field.section}:${JSON.stringify(v.content)}`;
+    const held = new Set(FIELD_VARIANTS.map(contentKey));
+    for (const f of FIELDS) {
+      for (const shape of ["drop", "keep"] as const) {
+        expect(held, `${shape}-${fieldName(f)}`).toContain(contentKey(fieldVariant(f, shape)));
+      }
+    }
+    const names = new Set(SCENARIOS.map((sc) => sc.name));
+    for (const v of FIELD_VARIANTS) expect(names).toContain(v.name);
+    premise("field variants", FIELD_VARIANTS.length, FIELDS.length);
   });
 });
