@@ -4,7 +4,7 @@ Speculative / lower-priority hardening items. "Might do" — not blocking, no co
 
 **This file is the OPEN queue only.** Resolved / shipped / superseded entries live in **[BACKLOG-archive.md](./BACKLOG-archive.md)** with full provenance — grep by id, ids are unchanged. When an item below ships, move its whole entry there rather than annotating it resolved in place; otherwise this queue silently turns into a changelog.
 
-Last reconciled: 2026-09-01 — `fix/confirm-focus-restore` (PR #963) graduated `BL-CONFIRM-FOCUS-RESTORE-DESTRUCTIVE-CONTROLS`. The row's own first scheduled step is why the shipped scope is smaller than the filing: extending the probe to the derived sites REFUTED archive, which already restores focus, so the reachable class was three rather than four. Revoke needed a different mechanism from the other two — its success path replaces the row's subtree through RSC revalidation, leaving nothing to restore focus to — and took the container-level heading restore ShareHub §2.3 had already ratified for archive. Measured in a real browser, because jsdom cannot observe a server-driven subtree replacement at all.
+Last reconciled: 2026-11-03 — `feat/crew-page-redesign-pr-b` (PR #985) graduated `BL-CREW-ROLE-LINE-RAW-TRUNCATED` and `BL-CREW-SECTION-GLYPH-ICONS`. PR B replaced the Crew section's PersonRow roster and contact rows with the shared Crew and Contacts bodies, so both repairs landed there rather than in PersonRow: the role line wraps with its trailing position code always visible (a visibility case with a measured overflow premise and three mutants), and the call, text and email actions use drawn icons.
 
 ---
 
@@ -378,20 +378,8 @@ cap-restore writes and both are provably no-ops. Every measurement of every
 uncapped popover on every surface composing the helper takes that path. **No
 review round in six ever faulted it.**
 
-## BL-CREW-ROLE-LINE-RAW-TRUNCATED — the Crew section's role lines show the raw roster string and cut off the position code
-
-**Status:** IN PROGRESS · **Branch:** feat/crew-page-redesign-pr-b · **Filed:** 2026-10-30 (`feat/crew-page-redesign`, impeccable critique O2) · **Facing:** product · **Severity:** low · **Class:** roster text display · **Effort:** S · **Class-sweep exception:** (c) — the peer on the pass ("You, role") is repaired on `feat/crew-page-redesign` because that PR rebuilt the pass; the Crew section body (`components/crew/primitives/PersonRow.tsx`) is a surface the PR renders but does not change. · **Reachability:** PROBED 2026-10-30 — the critique measured the seeded Waldorf roster in the crew sheet at 390px: role lines render as uppercase raw roster strings ("- LOAD IN / SET / STRIKE / LOAD OUT - A1") truncated before the trailing position code (`PersonRow.tsx:275`).
-
-The position code ("A1", "V1") is the part a crew member scans for, and it sits at the end of the sheet's role text, so a one-line truncate drops it on every phone width measured. Spec 2026-10-26 §9.2 says roles render as the sheet writes them, so the repair is layout (wrap, or keep the tail), not parsing.
-
 ## BL-DIAGRAMS-HEADING-FAINT-CONTRAST — the Diagrams tile heading and the day-card weekday labels sit below AA body contrast
 
 **Status:** OPEN · **Filed:** 2026-10-30 (`feat/crew-page-redesign`, impeccable critique O1) · **Facing:** product · **Severity:** low · **Class:** text contrast · **Effort:** XS · **Reachability:** PROBED 2026-10-30 — the critique measured `text-text-faint` at 12px on the Diagrams tile heading (`components/atoms/Section.tsx:201`, rendered by `components/crew/DiagramsBlock.tsx`) at 3.4:1 light and 3.8:1 dark; the schedule day-card weekday labels use the same token.
 
 12px text needs 4.5:1. Both sites are pre-existing and outside the crew page redesign diff.
-
-## BL-CREW-SECTION-GLYPH-ICONS — the Crew section's call and email buttons use "☎" and "✉" glyphs where the home uses drawn icons
-
-**Status:** IN PROGRESS · **Branch:** feat/crew-page-redesign-pr-b · **Filed:** 2026-10-30 (`feat/crew-page-redesign`, impeccable critique F13) · **Facing:** product · **Severity:** low · **Class:** icon vocabulary · **Effort:** XS · **Reachability:** PROBED 2026-10-30 — the critique compared the home's "Who to call" buttons (Lucide icons, `components/crew/CrewQuickFacts.tsx`) with the Crew section's call and email buttons for the same actions (Unicode glyphs) on the seeded Waldorf show.
-
-Glyphs render in the platform's emoji or symbol font, so their size, weight and colour do not follow the theme, and the same action looks different in two places on one page.

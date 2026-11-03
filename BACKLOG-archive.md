@@ -1,3 +1,15 @@
+## BL-CREW-ROLE-LINE-RAW-TRUNCATED — the Crew section's role lines show the raw roster string and cut off the position code — ✅ RESOLVED
+
+**Status:** RESOLVED 2026-11-03 (`feat/crew-page-redesign-pr-b`, PR #985) · **Filed:** 2026-10-30 (`feat/crew-page-redesign`, impeccable critique O2) · **Facing:** product · **Severity:** low · **Class:** roster text display · **Effort:** S · **Class-sweep exception:** (c) — the peer on the pass ("You, role") is repaired on `feat/crew-page-redesign` because that PR rebuilt the pass; the Crew section body (`components/crew/primitives/PersonRow.tsx`) is a surface the PR renders but does not change. · **Reachability:** PROBED 2026-10-30 — the critique measured the seeded Waldorf roster in the crew sheet at 390px: role lines render as uppercase raw roster strings ("- LOAD IN / SET / STRIKE / LOAD OUT - A1") truncated before the trailing position code (`PersonRow.tsx:275`).
+
+The position code ("A1", "V1") is the part a crew member scans for, and it sits at the end of the sheet's role text, so a one-line truncate drops it on every phone width measured. Spec 2026-10-26 §9.2 says roles render as the sheet writes them, so the repair is layout (wrap, or keep the tail), not parsing.
+
+## BL-CREW-SECTION-GLYPH-ICONS — the Crew section's call and email buttons use "☎" and "✉" glyphs where the home uses drawn icons — ✅ RESOLVED
+
+**Status:** RESOLVED 2026-11-03 (`feat/crew-page-redesign-pr-b`, PR #985) · **Filed:** 2026-10-30 (`feat/crew-page-redesign`, impeccable critique F13) · **Facing:** product · **Severity:** low · **Class:** icon vocabulary · **Effort:** XS · **Reachability:** PROBED 2026-10-30 — the critique compared the home's "Who to call" buttons (Lucide icons, `components/crew/CrewQuickFacts.tsx`) with the Crew section's call and email buttons for the same actions (Unicode glyphs) on the seeded Waldorf show.
+
+Glyphs render in the platform's emoji or symbol font, so their size, weight and colour do not follow the theme, and the same action looks different in two places on one page.
+
 ## BL-CONFIRM-FOCUS-RESTORE-DESTRUCTIVE-CONTROLS — every two-tap destructive control restores focus on Cancel and drops it on Confirm — ✅ RESOLVED
 
 **Status:** RESOLVED 2026-09-01 (`fix/confirm-focus-restore`, PR #963) · **Filed:** 2026-08-31 (`fix/sharelink-cue-focus`, PR #956, from the SHARELINK-CUE-FOCUS-OBSCURED-1 probe) · **Facing:** product · **Severity:** MEDIUM (keyboard and switch operators are returned to the top of the document after every destructive confirm on the admin surface) · **Class:** focus management on two-tap confirm · **Effort:** M · **Class-sweep exception:** (c) — repairing it spans five UI files and carries the invariant-8 impeccable dual gate, which would have converted a docs-only probe PR into a five-file UI arc; bl-orch ruled it a fresh arc rather than growth of #956 · **Reachability:** PROBED 2026-08-31 on the rotate control; the other four are derived, not observed.
