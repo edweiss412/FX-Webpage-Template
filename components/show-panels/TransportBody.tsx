@@ -109,17 +109,28 @@ export type TransportBodyTargets = {
 function TransportCell({
   label,
   searchTarget,
+  wide = false,
   children,
 }: {
   label: string;
   /** The cell's search target (crew): the cell is one line. */
   searchTarget?: string | undefined;
+  /**
+   * Take the strip's full row below the crew threshold, one column from it (a
+   * crew contact cell, PR B invariant-8 gate row 3: its 44px phone and email
+   * chips need the width a half cell lacks on a phone).
+   */
+  wide?: boolean;
   children: ReactNode;
 }) {
   return (
     <div
       data-search-target={searchTarget}
-      className="flex min-w-0 flex-col items-center gap-1 rounded-md bg-surface-sunken px-3 py-2 text-center"
+      className={
+        wide
+          ? "col-span-2 flex min-w-0 flex-col items-center gap-1 rounded-md bg-surface-sunken px-3 py-2 text-center @min-crew-split:col-span-1"
+          : "flex min-w-0 flex-col items-center gap-1 rounded-md bg-surface-sunken px-3 py-2 text-center"
+      }
     >
       <span className={CELL_EYEBROW_CLASS}>{label}</span>
       {/* No `flex-1`/`justify-center`: with `items-start` on the grid the cell no longer
@@ -139,6 +150,7 @@ function ContactCell({
   mailtoHref,
   searchTarget,
   searchSkip,
+  wide,
 }: {
   label: string;
   name: string | null;
@@ -151,9 +163,11 @@ function ContactCell({
   searchTarget: string | undefined;
   /** Skip the avatar's initials in search (crew, with targets): they are not sheet text. */
   searchSkip: boolean;
+  /** The full row below the crew threshold (`layout: "container"`). */
+  wide: boolean;
 }) {
   return (
-    <TransportCell label={label} searchTarget={searchTarget}>
+    <TransportCell label={label} searchTarget={searchTarget} wide={wide}>
       {name !== null ? (
         <span className="flex min-w-0 items-center gap-1.5">
           <MiniAvatar name={name} sizeClass="size-5 text-[8px]" searchSkip={searchSkip} />
@@ -292,6 +306,7 @@ export function TransportBody(props: TransportBodyProps) {
               mailtoHref={mailto(driver.email)}
               searchTarget={targets?.driver}
               searchSkip={skip}
+              wide={contained}
             />
           ) : null}
           {loadout !== null ? (
@@ -302,6 +317,7 @@ export function TransportBody(props: TransportBodyProps) {
               mailtoHref={mailto(loadout.email)}
               searchTarget={targets?.loadout}
               searchSkip={skip}
+              wide={contained}
             />
           ) : null}
           {vehicleCell !== null ? (

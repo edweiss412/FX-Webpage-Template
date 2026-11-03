@@ -395,10 +395,28 @@ describe("TransportBody crew presentation props (gate rows 1, 2, 3, 8, 16)", () 
     expect(tokens(root).filter((t) => VIEWPORT_VARIANT.test(t))).toEqual([]);
     const grid = root.querySelector(".grid");
     expect(grid?.className.split(/\s+/)).toContain("@min-crew-split:grid-cols-3");
-    const ol = route(root)!.className.split(/\s+/);
+    // The contact cells hold the 44px phone and email chips: below the threshold each
+    // takes the full row, so a phone number never breaks mid-token in a half cell
+    // (a 320 phone's half cell is narrower than "917-331-4885"); the one-line cells
+    // still pair up.
+    const cells = [...grid!.children] as HTMLElement[];
+    const contactCells = cells.filter((c) => c.querySelector("a[href^='tel:']"));
+    premise("contact cells", contactCells.length, 0);
+    for (const cell of contactCells)
+      expect(cell.className.split(/\s+/)).toEqual(
+        expect.arrayContaining(["col-span-2", "@min-crew-split:col-span-1"]),
+      );
+    const plainCells = cells.filter((c) => !contactCells.includes(c));
+    premise("one-line cells", plainCells.length, 0);
+    for (const cell of plainCells) expect(cell.className).not.toContain("col-span-2");
+    // POSITIVE CONTROL: the admin's cells never span.
+    cleanup();
+    expect(body().querySelector(".grid")!.innerHTML).not.toContain("col-span-2");
+    const again = body({ layout: "container" });
+    const ol = route(again)!.className.split(/\s+/);
     expect(ol).toContain("flex-col");
     expect(ol).toContain("@min-crew-split:flex-row");
-    for (const li of root.querySelectorAll("ol > li")) {
+    for (const li of again.querySelectorAll("ol > li")) {
       const cls = li.className.split(/\s+/);
       // A row (dot, then the leg's lines) below the threshold; a column on the rail.
       expect(cls).not.toContain("flex-col");
