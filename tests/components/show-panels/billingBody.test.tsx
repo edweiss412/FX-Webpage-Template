@@ -301,3 +301,59 @@ describe("error containment (spec line 291, line 507)", () => {
     );
   });
 });
+
+/**
+ * PR B invariant-8 UI gate rows 10 and 15: the crew Billing section's empty state
+ * and its field keys.
+ */
+describe("Billing crew presentation (gate rows 10, 15)", () => {
+  const keyText = (row: Element) => row.querySelectorAll(":scope > span")[0]!.textContent;
+
+  test("keyColon false: each key reads without its trailing colon; the default keeps the admin's Label:", () => {
+    const rows: BillingRow[] = [
+      { label: "PO", value: "PO-4471", searchTarget: "t-po" },
+      { label: "Proposal", value: "PROP-19" },
+    ];
+    const admin = render(<BillingBody rows={rows} sentinels="show" />).container;
+    expect([...admin.querySelectorAll("li")].map(keyText)).toEqual(["PO:", "Proposal:"]);
+    cleanup();
+    const crew = render(<BillingBody rows={rows} sentinels="hide" keyColon={false} />).container;
+    const keys = [...crew.querySelectorAll("li")].map(keyText);
+    expect(keys).toEqual(["PO", "Proposal"]);
+    // The colon is gone, not hidden: no skip span is left behind it.
+    expect(crew.querySelector("[data-search-skip]")).toBeNull();
+  });
+
+  test("the crew Billing card's keys carry no colon", () => {
+    render(
+      <BillingSection
+        ledger={createTileRenderLedger()}
+        data={lead()}
+        viewer={LEAD_VIEWER}
+        today={TODAY}
+        showId={SHOW_ID}
+      />,
+    );
+    const card = screen
+      .getByTestId("section-billing")
+      .querySelector(`[data-card-id="${BUDGET_CARD_ID}"]`)!;
+    const keys = [...card.querySelectorAll("li")].map(keyText);
+    premise("billing rows rendered", keys.length, 0);
+    for (const key of keys) expect(key, key ?? "").not.toMatch(/:$/);
+  });
+
+  test('all-blank financials say "No billing details on file yet.", the section\'s own name', () => {
+    render(
+      <BillingSection
+        ledger={createTileRenderLedger()}
+        data={lead({ po: "TBD", proposal: null, invoice: "", invoice_notes: "N/A" })}
+        viewer={LEAD_VIEWER}
+        today={TODAY}
+        showId={SHOW_ID}
+      />,
+    );
+    const empty = within(screen.getByTestId("section-billing")).getByTestId("section-empty");
+    expect(empty.textContent).toBe("No billing details on file yet.");
+    expect(empty).toBeVisible();
+  });
+});

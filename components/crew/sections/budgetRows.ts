@@ -79,5 +79,7 @@ export function billingBodyProps(data: ShowForViewer, ctx: GateViewer): BillingB
   return {
     rows: financialsVisible(ctx.viewerFlags, ctx.isAdmin) ? budgetRows(data.financials) : [],
     sentinels: "hide",
+    // The crew's field keys carry no colon (PR B invariant-8 gate, row 15).
+    keyColon: false,
   };
 }

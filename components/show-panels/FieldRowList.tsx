@@ -6,7 +6,8 @@
  * Task 4; the admin file re-exports it under the same name). Restyled to the
  * mock's `fieldlist` grammar (spec §8): each row a `7.5rem + minmax(0,1fr)`
  * grid, eyebrow key, hairline row separators. The trailing colon on the key is
- * PRESERVED copy ("Venue:", "COI:"): existing suites pin the `Label:` text.
+ * PRESERVED copy ("Venue:", "COI:"): existing suites pin the `Label:` text. The
+ * crew drops it (`keyColon: false`), as its other field lists do.
  *
  * Search markers come only from the rows (shared body contract, "Search markers
  * are props"): a row with a `searchTarget` carries `data-search-target`, and its
@@ -62,7 +63,18 @@ export function contentRows(
   return out;
 }
 
-export function FieldRowList({ rows }: { rows: readonly FieldRow[] }) {
+export function FieldRowList({
+  rows,
+  keyColon = true,
+}: {
+  rows: readonly FieldRow[];
+  /**
+   * true (the default, admin): each key ends in its colon, "Proposal:". false
+   * (crew, PR B invariant-8 gate row 15): the eyebrow key alone, as every other
+   * crew field list writes it.
+   */
+  keyColon?: boolean;
+}) {
   return (
     <ul className="flex flex-col">
       {rows.map((r) => (
@@ -73,7 +85,11 @@ export function FieldRowList({ rows }: { rows: readonly FieldRow[] }) {
         >
           <span className={EYEBROW_CLASS} style={EYEBROW_STYLE}>
             {r.label}
-            {r.searchTarget === undefined ? ":" : <span data-search-skip="">:</span>}
+            {!keyColon ? null : r.searchTarget === undefined ? (
+              ":"
+            ) : (
+              <span data-search-skip="">:</span>
+            )}
           </span>
           <span className="wrap-break-word text-sm text-text">{r.value}</span>
         </li>

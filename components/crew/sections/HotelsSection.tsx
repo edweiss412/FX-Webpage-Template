@@ -22,7 +22,7 @@
  * MalformedProjectionError on a malformed crewMembers projection — this section
  * does not swallow it).
  */
-import { Fragment, type JSX } from "react";
+import type { JSX } from "react";
 
 import { EmptyState } from "@/components/atoms/EmptyState";
 import { SectionTileError } from "@/components/crew/SectionTileError";
@@ -113,11 +113,18 @@ export function HotelsSection({
                     />
                   }
                 >
-                  <div className="flex flex-col gap-3">
-                    {panel.cards.map((card) => (
+                  <div className="flex flex-col gap-4">
+                    {panel.cards.map((card, idx) => (
                       // CALLED, not rendered as an element, so a throw from the body
                       // is inside the wrapper's catch (spec §6.1, error containment).
-                      <Fragment key={card.key}>{HotelCardBody(card.body)}</Fragment>
+                      // Each stay after the first sits under a hairline: the cards are
+                      // flat, so the line is what separates them (gate row 14).
+                      <div
+                        key={card.key}
+                        className={idx > 0 ? "border-t border-border pt-4" : undefined}
+                      >
+                        {HotelCardBody(card.body)}
+                      </div>
                     ))}
                   </div>
                 </PanelCard>

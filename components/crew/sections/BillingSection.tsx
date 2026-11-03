@@ -81,7 +81,10 @@ export function BillingSection({
           if (!props.rows.some((row) => row.value.length > 0)) {
             return (
               <div data-testid="section-empty">
-                <EmptyState label="No budget details on file yet." />
+                {/* The section's own name (spec §9.1, one name per thing): it is
+                    "Billing & docs", so its empty state says billing, never budget
+                    (PR B invariant-8 gate, row 10). */}
+                <EmptyState label="No billing details on file yet." />
               </div>
             );
           }

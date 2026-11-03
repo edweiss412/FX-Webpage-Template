@@ -147,6 +147,38 @@ describe("hotels: the shared hotel card with the crew props (spec line 307)", ()
   });
 });
 
+describe("hotels: several stays read as one list (PR B invariant-8 gate row 14)", () => {
+  test("hotels: every crew hotel card is flat, and each after the first sits under a hairline divider", () => {
+    const root = renderHotels(
+      makeShowForViewer({
+        hotelReservations: [
+          hotel({ ordinal: 1, hotel_name: "First Inn" }),
+          hotel({ ordinal: 2, hotel_name: "Second Inn" }),
+          hotel({ ordinal: 3, hotel_name: "Third Inn" }),
+        ],
+      }),
+    );
+    const cards = within(root).getAllByTestId("crew-panel-hotel-card");
+    premise("hotel cards", cards.length, 1);
+    for (const card of cards) {
+      // No box of its own inside the panel card: no border, no padding plate.
+      expect(card.className).not.toMatch(/(?:^|\s)border(?:\s|$)/);
+      expect(card.className).not.toMatch(/\brounded-md\b/);
+    }
+    const dividers = cards.map((c) => c.parentElement!.className.split(/\s+/));
+    expect(dividers[0]).not.toContain("border-t");
+    for (const later of dividers.slice(1))
+      expect(later).toEqual(expect.arrayContaining(["border-t", "border-border"]));
+  });
+
+  test("hotels: a single stay is flat with no divider", () => {
+    const root = renderHotels(makeShowForViewer({ hotelReservations: [hotel({ ordinal: 1 })] }));
+    const [card] = within(root).getAllByTestId("crew-panel-hotel-card");
+    expect(card!.className).not.toMatch(/(?:^|\s)border(?:\s|$)/);
+    expect(card!.parentElement!.className).not.toContain("border-t");
+  });
+});
+
 describe("hotels: the section's empty and degraded states", () => {
   test('hotels: with no reservation the section says "No hotel details on file yet." and draws no card', () => {
     const root = renderHotels(makeShowForViewer({ hotelReservations: [] }));

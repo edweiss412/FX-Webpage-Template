@@ -870,8 +870,12 @@ const CONDITIONAL_RENDERS: Record<string, { presences: number; renders: Conditio
   [FIELD_ROWS]: {
     presences: 0,
     renders: [
+      // The key's colon: none for the crew (`keyColon: false`, PR B invariant-8 gate
+      // row 15), else plain for a row without a target, else outside search text.
+      // Two conditionals start on that line, the outer and the nested one.
       {
-        match: '{r.searchTarget === undefined ? ":" : <span data-search-skip="">:</span>}',
+        match: "{!keyColon ? null : r.searchTarget === undefined ? (",
+        count: 2,
         treatment: T.serverPresence,
       },
     ],

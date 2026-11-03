@@ -173,9 +173,11 @@ export function hotelsPanel(
           : { ...res, names: [] },
         nameId: `crew-hotel-${idx}-name`,
         guestsLabelId: `crew-hotel-${idx}-guests`,
-        // One stay is the card's only content, so it draws no border of its own,
-        // as the admin's solo hotel card does.
-        flat: kept.length === 1,
+        // No border of its own, however many stays: inside the panel card a
+        // bordered card per stay nested three boxes deep and narrowed a 320 phone.
+        // The section draws a hairline between stays instead (PR B invariant-8
+        // gate, row 14; the crew's Travel card on main did the same).
+        flat: true,
         ...options,
         testIdPrefix: "crew-panel",
         targets,

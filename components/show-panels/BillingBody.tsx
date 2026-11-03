@@ -9,8 +9,9 @@
  *   "No billing details parsed." when none is. No search markers.
  * - Crew: PO, Proposal, Invoice and Invoice notes (`budgetRows`,
  *   components/crew/sections/budgetRows.ts), sentinels hidden, a search target
- *   per row. The crew section shows its own section-level empty state and never
- *   calls the body with nothing to show.
+ *   per row, and keys without their colon (`keyColon: false`). The crew section
+ *   shows its own section-level empty state and never calls the body with
+ *   nothing to show.
  *
  * Plain props, hook-free, no context: the crew page calls it as a function
  * inside `WrappedSection`'s render callback (spec §6.1, error containment), and
@@ -27,14 +28,16 @@ export type BillingBodyProps = {
   rows: readonly BillingRow[];
   /** "show": a sentinel renders as parsed (admin). "hide": its row is omitted (crew). */
   sentinels: "show" | "hide";
+  /** true (the default, admin): "Proposal:". false (crew): the key without its colon. */
+  keyColon?: boolean;
 };
 
-export function BillingBody({ rows, sentinels }: BillingBodyProps) {
+export function BillingBody({ rows, sentinels, keyColon = true }: BillingBodyProps) {
   const shown =
     sentinels === "hide" ? rows.filter((row) => !shouldHideGenericOptional(row.value)) : rows;
   return shown.length === 0 ? (
     <p className="text-sm text-text-subtle">No billing details parsed.</p>
   ) : (
-    FieldRowList({ rows: shown })
+    FieldRowList({ rows: shown, keyColon })
   );
 }
