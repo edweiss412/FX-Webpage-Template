@@ -416,7 +416,7 @@ Source: a read-only copy audit of the round-2 boards against `PRODUCT.md`, `DESI
 - Countdown: "Show starts in 25 min", "Show starts in 1 hr 20 min". Never "Call in", which reads as "phone in".
 - Last run-of-show line on a non-final show day: whatever the sheet's entry title says. The mock's invented "Show ends" is dropped.
 - Pass cell "Lead" becomes "Your lead".
-- Transport times: "leaves Tue 2:00 PM", not "out Tue 2:00 PM".
+- Transport times: "leaves Tue 2:00 PM", not "out Tue 2:00 PM". Amended 2026-11-02 (PR B invariant-8 UI gate, row 8; overridable): a leg with a date also carries its short date, "leaves Wed Mar 18, 2:00 PM", the date and time in a `<time dateTime>`, because a route running past a week repeats its weekdays; under date suppression the line keeps the time alone, "leaves 2:00 PM".
 - Quick facts label every copyable value ("Password", "Confirmation") so a bare code never sits alone.
 - The nav shows no counts. Numbers beside nav labels read as alerts.
 - Role lines read "TD" exactly as the sheet writes the role. No expansion is invented.

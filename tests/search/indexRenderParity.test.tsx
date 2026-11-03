@@ -557,7 +557,8 @@ describe("transport", () => {
       kind: "F8b leg with no stage (riders only)",
       caseName: transportAll.name,
       present: (es) =>
-        es.some((e) => inGroup(e, group) && e.label === null && e.value === "Sam Rigger"),
+        // The riders line as the crew writes it (PR B invariant-8 gate row 2).
+        es.some((e) => inGroup(e, group) && e.label === null && e.value === "With Sam Rigger"),
     },
     {
       kind: "F9 transport notes",

@@ -137,17 +137,49 @@ describe("transport: Your flight on top, then the shared transport body (spec li
 });
 
 describe("transport: the crew props on the shared body (spec lines 292, 419)", () => {
-  test('transport: a leg\'s time line reads "leaves" with its day and time as the sheet wrote them', () => {
+  test('transport: a leg\'s time line reads "leaves" with its short date and its time as the sheet wrote it, the date in a <time dateTime>', () => {
     const root = renderTransport(show());
     const items = legs(root);
-    expect(items[0]).toHaveTextContent("leaves Tue 2:00 PM");
+    // Spec line 419, amended by the PR B invariant-8 gate (row 8): the weekday alone
+    // repeats across a route longer than a week, so the line carries the date too.
+    expect(items[0]).toHaveTextContent("leaves Tue May 12, 2:00 PM");
     expect(items[0]).not.toHaveTextContent(/\bout\b/);
     // The time line itself, exact and live: a suffixed or hidden line fails too.
     const line = [...items[0]!.querySelectorAll("span")].find((s) =>
       (s.textContent ?? "").startsWith("leaves"),
     );
-    expect(line?.textContent).toBe("leaves Tue 2:00 PM");
+    expect(line?.textContent).toBe("leaves Tue May 12, 2:00 PM");
     expect(line).toBeVisible();
+    const time = line?.querySelector("time");
+    expect(time?.getAttribute("datetime")).toBe("2026-05-12");
+    expect(time?.textContent).toBe("Tue May 12, 2:00 PM");
+    // A leg with no date has no <time>: its line is the time alone.
+    premiseHolds("the second leg carries no date", TRANSPORT.schedule[1]!.date === null);
+    expect(items[1]!.querySelector("time")).toBeNull();
+    expect(items[1]).toHaveTextContent("leaves 6:30 PM");
+  });
+
+  test('transport: the crew\'s body reads its container, never the viewport, draws neutral route dots and writes riders as "With" and the names (gate rows 1, 2, 3, 16)', () => {
+    const root = renderTransport(show());
+    const panel = root.querySelector('[data-card-id="travel-getting-there"]') as HTMLElement;
+    premiseHolds("the Transport card rendered", panel !== null);
+    const classes = [panel, ...panel.querySelectorAll("*")].flatMap((el) =>
+      (el.getAttribute("class") ?? "").split(/\s+/),
+    );
+    expect(
+      classes.filter((c) => /^(?:sm|md|lg|xl|2xl|min-\[[^\]]+\]|max-\[[^\]]+\]):/.test(c)),
+    ).toEqual([]);
+    const route = panel.querySelector("ol")!;
+    expect(route.className.split(/\s+/)).toEqual(
+      expect.arrayContaining(["flex-col", "@min-crew-split:flex-row"]),
+    );
+    expect(panel.querySelector("ol .bg-accent-on-bg")).toBeNull();
+    const rider = TRANSPORT.schedule[0]!.assigned_names[0]!;
+    const riders = [...legs(root)[0]!.querySelectorAll("span")].find(
+      (el) => el.textContent === `With ${rider}`,
+    );
+    expect(riders).toBeDefined();
+    expect(riders!.className).not.toContain("text-text-faint");
   });
 
   test("transport: under date suppression the day is withheld and the time stays", () => {
@@ -576,7 +608,9 @@ describe("transport: per-leg sentinel hiding (moved from the Travel section's su
     expect(text).not.toContain("TBD");
     expect(text).not.toContain("N/A");
     // The real leg still renders (the card is not blank), and so does the real stage.
-    expect(text).toContain(`leaves ${formatIsoDate("2026-05-13", "weekday")} 8:00 AM`);
+    expect(text).toContain(
+      `leaves ${formatIsoDate("2026-05-13", "weekday")} ${formatIsoDate("2026-05-13", "short")}, 8:00 AM`,
+    );
     expect(text).toContain("RENTAL PICKUP");
   });
 
@@ -653,14 +687,14 @@ describe("transport: ground-leg date suppression (moved from the Travel section'
       { kind: "admin" },
     ],
   ])("transport: %s viewer still sees every leg date", (_label, restriction, viewer) => {
-    // Was: the leg's `<time dateTime>` primary line, spelled `weekday-short`
-    // ("Tue, May 12"). The shared body writes the leg's day into its time line,
-    // "leaves Tue 8:00 AM", with no `<time>` element, so the element check is gone.
-    // Kept: the leg's date reaches these viewers, as its day.
+    // The leg's date reaches these viewers in its time line, "leaves Tue May 12,
+    // 8:00 AM", the date and time in a `<time dateTime>` (gate row 8).
     const root = renderTransport(withRestriction(suppressionData(), restriction), viewer);
     premiseHolds("the Transport card rendered", transportCard(root) !== null);
     const [leg] = legs(root);
-    expect(leg).toHaveTextContent(`leaves ${formatIsoDate(LEG_ISO, "weekday")} 8:00 AM`);
+    const day = `${formatIsoDate(LEG_ISO, "weekday")} ${formatIsoDate(LEG_ISO, "short")}`;
+    expect(leg).toHaveTextContent(`leaves ${day}, 8:00 AM`);
+    expect(leg!.querySelector(`time[datetime="${LEG_ISO}"]`)).toHaveTextContent(`${day}, 8:00 AM`);
   });
 
   test("transport: admin_preview of an unknown_asterisk member sees the SUPPRESSED render", () => {
@@ -772,7 +806,8 @@ describe("transport: ground-leg date suppression (moved from the Travel section'
     const items = legs(renderTransport(data, CREW));
     expect(items).toHaveLength(1);
     const item = items[0]!;
-    expect(item.textContent).toBe("Jamie Rivera");
+    // The riders line as the crew writes it (gate row 2), "With" and the names.
+    expect(item.textContent).toBe("With Jamie Rivera");
     const visibleLeaves = [...item.querySelectorAll("*")].filter(
       (el) => el.children.length === 0 && el.closest('[aria-hidden="true"]') === null,
     );

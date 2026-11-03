@@ -1662,7 +1662,7 @@ test.describe("hotels and transport: the travel alias and the transport gate, co
     expect(HOTEL_DATES.filter((d) => !rider.includes(d))).toEqual([]);
   });
 
-  test("transport: a leg's time line reads leaves, its weekday and its time, and drops the weekday for a date-suppressed viewer", async ({
+  test("transport: a leg's time line reads leaves, its short date and its time, and drops the date for a date-suppressed viewer", async ({
     page,
   }) => {
     await loadPath(page, `${share()}?s=transport`);
@@ -1675,8 +1675,10 @@ test.describe("hotels and transport: the travel alias and the transport gate, co
       await expect(card, cell).toContainText(cell);
     await expect(card).toContainText(LEG.stage);
     await expect(card).toContainText(TRANSPORT.notes);
-    // "2:00pm" through normalizeMeridiem, on a Tuesday.
-    await expect(card).toContainText("leaves Tue 2:00 PM");
+    // "2:00pm" through normalizeMeridiem, on Tuesday April 21, the date in a <time>
+    // (spec line 419 as amended by the PR B invariant-8 gate, row 8).
+    await expect(card).toContainText("leaves Tue Apr 21, 2:00 PM");
+    await expect(card.locator(`time[datetime="${LEG_DAY}"]`)).toHaveText("Tue Apr 21, 2:00 PM");
 
     // On the leg with her days unconfirmed: the gate admits her, the weekday is withheld.
     await loadPath(page, `${preview(UNCONFIRMED.name)}?s=transport`);
@@ -2052,4 +2054,159 @@ test.describe("agenda: the Agenda section, compact (PR B Task 10)", () => {
       await deleteSeededShow(seeded.driveFileId);
     }
   });
+});
+
+/**
+ * PR B invariant-8 UI gate rows 1 and 3: the crew Transport body on a phone and
+ * in the 446px sheet. The route was a horizontal rail at every width, so an
+ * eight-leg route gave each leg 24px at 320 and 44px in the 768 sheet, and its
+ * stage names and time lines painted over the next leg's (the gate's audit
+ * counted 20 overlapping text-box pairs at 320, 13 at 390 and 5 at 768). The
+ * cells went to three columns on a 560px window, which in the 768 sheet broke
+ * the driver's phone and email mid-token.
+ *
+ * The route here is the RPAS Central show's eight legs as the sheet lists them
+ * (fixtures/shows/raw/2026-03-rpas-central-four-seasons.md:59-66), with riders
+ * on two of them.
+ */
+test.describe("transport: the route and cells fit a phone and the sheet (gate rows 1, 3)", () => {
+  test.setTimeout(180_000);
+
+  const DRIVER = {
+    name: "Doug Larson",
+    phone: "917-331-4885",
+    email: "dlarson@fxav.net",
+  };
+  const ROUTE = [
+    { stage: "Rental Pickup", date: null, time: null, assigned_names: [] },
+    { stage: "Load at Warehouse", date: "2026-03-18", time: null, assigned_names: [] },
+    {
+      stage: "Pick Up Warehouse",
+      date: "2026-03-19",
+      time: "12:00 PM",
+      assigned_names: ["Rhea Rider"],
+    },
+    { stage: "Load In at Venue", date: "2026-03-23", time: "8:00 AM", assigned_names: [] },
+    { stage: "Pick Up Venue", date: "2026-03-25", time: "3:30 PM", assigned_names: [] },
+    {
+      stage: "Drop Off Warehouse",
+      date: "2026-03-26",
+      time: "8:00 PM",
+      assigned_names: ["Rhea Rider", "Gus Grounded"],
+    },
+    { stage: "Unload at Warehouse", date: "2026-03-27", time: null, assigned_names: [] },
+    { stage: "Rental Return", date: null, time: null, assigned_names: [] },
+  ];
+
+  let seeded: Awaited<ReturnType<typeof seedShowWithCrew>>;
+
+  test.beforeAll(async () => {
+    seeded = await seedShowWithCrew({
+      title: "Transport Route Fit Show",
+      dates: {
+        travelIn: "2026-03-18",
+        set: "2026-03-23",
+        showDays: ["2026-03-24", "2026-03-25"],
+        travelOut: "2026-03-26",
+      },
+      crew: [
+        { name: "Rhea Rider", role: "A1" },
+        { name: "Gus Grounded", role: "L1" },
+      ],
+      transportation: {
+        driverName: DRIVER.name,
+        driverPhone: DRIVER.phone,
+        driverEmail: DRIVER.email,
+        vehicle: "26' Box Truck",
+        parking: "Lot C behind the loading dock",
+        schedule: ROUTE,
+      },
+    });
+  });
+
+  test.afterAll(async () => {
+    if (seeded) await deleteSeededShow(seeded.driveFileId);
+  });
+
+  test.beforeEach(async ({ page }) => {
+    await page.clock.setFixedTime(new Date(SHOW_DAY_N_INSTANT));
+    await signOut(page);
+    await signInAs(page, ADMIN_FIXTURE);
+    await page.setExtraHTTPHeaders({
+      "X-Screenshot-Frozen-Now": SHOW_DAY_N_INSTANT,
+      Authorization: `Bearer ${TEST_AUTH_SECRET}`,
+    });
+  });
+
+  /**
+   * Pairs of text boxes in the route that paint over each other: every line box
+   * of every non-blank text node, compared across nodes, counted when they share
+   * more than a pixel each way. Two lines of one node never overlap, and
+   * neighbouring inline runs only touch.
+   */
+  async function routeOverlaps(route: Locator): Promise<{ pairs: string[]; boxes: number }> {
+    return route.evaluate((ol) => {
+      const boxes: { node: number; text: string; r: DOMRect }[] = [];
+      const walker = document.createTreeWalker(ol, NodeFilter.SHOW_TEXT);
+      let node = 0;
+      for (let n = walker.nextNode(); n !== null; n = walker.nextNode()) {
+        const text = (n as Text).data;
+        if (text.trim() === "") continue;
+        const range = document.createRange();
+        range.selectNodeContents(n);
+        for (const r of range.getClientRects())
+          if (r.width > 0 && r.height > 0) boxes.push({ node, text: text.trim(), r });
+        node += 1;
+      }
+      const pairs: string[] = [];
+      for (let i = 0; i < boxes.length; i += 1)
+        for (let j = i + 1; j < boxes.length; j += 1) {
+          const a = boxes[i]!;
+          const b = boxes[j]!;
+          if (a.node === b.node) continue;
+          const w = Math.min(a.r.right, b.r.right) - Math.max(a.r.left, b.r.left);
+          const h = Math.min(a.r.bottom, b.r.bottom) - Math.max(a.r.top, b.r.top);
+          if (w > 1 && h > 1) pairs.push(`"${a.text}" x "${b.text}"`);
+        }
+      return { pairs, boxes: boxes.length };
+    });
+  }
+
+  for (const width of [320, 390, 768]) {
+    test(`transport ${width}px: no text in the eight-leg route paints over another, and the driver's phone and email each hold one line`, async ({
+      page,
+    }) => {
+      await page.setViewportSize({ width, height: 900 });
+      const path = `/show/${seeded.slug}/${seeded.shareToken}?s=transport`;
+      const res = await page.goto(path, { waitUntil: "domcontentloaded" });
+      expect(res?.status(), `${path} must render`).toBe(200);
+      await expect(page.getByTestId("crew-shell-sections")).toHaveAttribute(
+        "data-crew-controller-ready",
+        "true",
+        { timeout: 30_000 },
+      );
+      await expect(sheetDialog(page)).toHaveAttribute("data-section", "transport");
+      await settleOpen(page);
+      const card = sheetDialog(page)
+        .getByTestId("section-transport")
+        .locator('[data-card-id="travel-getting-there"]');
+      const route = card.locator("ol");
+      // PREMISE: all eight legs rendered, so a zero below is about this route.
+      await expect(route.locator(":scope > li")).toHaveCount(ROUTE.length);
+      const { pairs, boxes } = await routeOverlaps(route);
+      expect(boxes, "text boxes measured").toBeGreaterThan(ROUTE.length);
+      expect(pairs).toEqual([]);
+
+      for (const value of [DRIVER.phone, DRIVER.email]) {
+        const text = card.getByText(value, { exact: true });
+        await expect(text, value).toBeVisible();
+        const lines = await text.evaluate((el) => {
+          const range = document.createRange();
+          range.selectNodeContents(el);
+          return new Set([...range.getClientRects()].map((r) => Math.round(r.top))).size;
+        });
+        expect(lines, `${value} at ${width}px`).toBe(1);
+      }
+    });
+  }
 });

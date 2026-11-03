@@ -7,8 +7,9 @@
  *   - ScheduleTile.tsx (formatDayLabel, "Wkd, Mon D")
  *   - TransportTile.tsx (formatDate, "Wkd, Mon D")
  *
- * Three output shapes (`short`, `weekday-short`, and `weekday` for the crew
- * transport legs' "leaves Tue 2:00 PM", PR B Task 9), one helper. The risk
+ * Three output shapes (`short`, `weekday-short`, and `weekday`, which with
+ * `short` writes the crew transport legs' "leaves Tue Apr 21, 2:00 PM", PR B
+ * Task 9 and its invariant-8 gate), one helper. The risk
  * of three independent copies was day-boundary off-by-one drift —
  * dropping `timeZone: 'UTC'` from any one copy would render "Apr 18"
  * for "2026-04-19" in US-Pacific runtime. One source of truth eliminates

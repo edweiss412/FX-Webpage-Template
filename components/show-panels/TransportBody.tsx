@@ -21,18 +21,53 @@
  * surface passes its builders, and a value whose builder returns null, or any
  * value when the surface does not linkify, renders as plain text.
  *
+ * Crew presentation (PR B invariant-8 UI gate rows 1, 2, 3, 8 and 16), each a
+ * prop whose default is the admin's markup:
+ *
+ * - `layout: "container"`: the switches read the crew section's container
+ *   (`@min-crew-split:`, DESIGN.md §6), never the viewport. Below the threshold
+ *   the route is a vertical list (a dot, then the leg's lines), since a phone's
+ *   or a sheet's width cannot fit eight legs side by side without their words
+ *   painting over each other; the horizontal rail starts at the threshold.
+ * - `routeMarkers: "neutral"`: one bordered neutral dot per leg and connectors
+ *   drawn as borders, which forced colors keep (DESIGN.md §17); no leg carries a
+ *   "now" state, so none is accent.
+ * - `riders: "with"`: the riders line as the crew's Travel card wrote it on main,
+ *   "With" and the names, readable rather than faint.
+ * - A leg-time formatter may return a lead-in and a dated part, which renders in
+ *   a `<time dateTime>`.
+ *
  * Plain props, hook-free, no context: the crew page calls it as a function
  * inside `WrappedSection`'s render callback (spec §6.1, error containment).
+ * The field and leg derivations live in transportLegs.ts, JSX-free, so the
+ * crew's client-reachable peek can read them without this module (gate row 9).
  */
 import type { ReactNode } from "react";
 import { Mail, Phone } from "lucide-react";
 
 import { CELL_EYEBROW_CLASS } from "@/components/show-panels/FieldRowList";
 import { MiniAvatar } from "@/components/show-panels/MiniAvatar";
+import {
+  transportBodyFields,
+  transportRouteLegs,
+  type TransportLegOptions,
+  type TransportRouteLeg,
+} from "@/components/show-panels/transportLegs";
 import type { TransportationRow } from "@/lib/parser/types";
 import { shouldHideGenericOptional } from "@/lib/visibility/emptyState";
 
-export type TransportBodyProps = {
+export {
+  transportBodyFields,
+  transportRidersText,
+  transportRouteLegs,
+  type LegTimeLine,
+  type TransportBodyFields,
+  type TransportContact,
+  type TransportLegOptions,
+  type TransportRouteLeg,
+} from "@/components/show-panels/transportLegs";
+
+export type TransportBodyProps = TransportLegOptions & {
   /** The transport row, already gated by the caller. */
   transport: TransportationRow;
   /** A phone's call link, or null for plain text. */
@@ -41,17 +76,21 @@ export type TransportBodyProps = {
   mailtoHref: (email: string) => string | null;
   /** false: no contact is a link, whatever the builders return. */
   linkifyContacts: boolean;
-  /** No leg date reaches the formatter: the viewer's dates are suppressed (crew). */
-  hideDates: boolean;
-  /** A route leg's time line from its date (null under `hideDates`) and time. "" renders none. */
-  legTime: (date: string | null, time: string | null) => string;
-  /** "show": a sentinel renders as parsed (admin). "hide": its field is omitted (crew). */
-  sentinels: "show" | "hide";
   /**
-   * "drop" (the default, admin): a leg needs a stage to be on the route. "keep"
-   * (crew): a leg without one stays when it has a time line or riders.
+   * "viewport" (the default, admin): three cells a row from a 560px window and
+   * the route always a horizontal rail. "container" (crew): both switch at the
+   * crew section container's `@min-crew-split` (DESIGN.md §6), and below it the
+   * route is a vertical list.
    */
-  stagelessLegs?: "drop" | "keep";
+  layout?: "viewport" | "container";
+  /**
+   * "alternating" (the default, admin): every other dot an accent fill, the
+   * connector a fill. "neutral" (crew): every dot the same bordered neutral, each
+   * connector a border.
+   */
+  routeMarkers?: "alternating" | "neutral";
+  /** "names" (the default, admin): the riders alone, faint. "with" (crew): "With" and the names. */
+  riders?: "names" | "with";
   /** Search targets (crew). Given, the avatars and the Route eyebrow are skipped. */
   targets?: TransportBodyTargets;
 };
@@ -65,88 +104,6 @@ export type TransportBodyTargets = {
   legs?: readonly (string | undefined)[];
   notes?: string | undefined;
 };
-
-/** A route node: a schedule leg, its stage (null only under `stagelessLegs: "keep"`), time line and riders. */
-export type TransportRouteLeg = { stage: string | null; when: string; names: string[] };
-
-/** A contact cell's lines, each null when the surface does not render it. */
-export type TransportContact = { name: string | null; phone: string | null; email: string | null };
-
-/**
- * The cells and notes the body renders, field by field: the body renders from
- * this and the crew search index reads it, so the two cannot disagree. A cell
- * is null when it renders nothing.
- */
-export type TransportBodyFields = {
-  driver: TransportContact | null;
-  loadout: TransportContact | null;
-  /** The vehicle and its plate and colour, in render order. */
-  vehicle: { vehicle: string | null; subs: string[] } | null;
-  parking: string | null;
-  notes: string | null;
-};
-
-/** A value to render, or null: blank, or a sentinel the surface hides. */
-function shown(value: string | null, sentinels: "show" | "hide"): string | null {
-  if (typeof value !== "string" || value.trim().length === 0) return null;
-  return sentinels === "hide" && shouldHideGenericOptional(value) ? null : value;
-}
-
-/**
- * The route legs the body renders: each schedule leg with a real stage, with its
- * time line and any assigned riders (review completeness). The admin's section
- * count reads this list too, so the count and the timeline cannot disagree.
- */
-export function transportRouteLegs(
-  transport: TransportationRow,
-  {
-    hideDates,
-    legTime,
-    sentinels,
-    stagelessLegs = "drop",
-  }: Pick<TransportBodyProps, "hideDates" | "legTime" | "sentinels" | "stagelessLegs">,
-): TransportRouteLeg[] {
-  const legs = Array.isArray(transport.schedule) ? transport.schedule : [];
-  const out: TransportRouteLeg[] = [];
-  for (const leg of legs) {
-    const stage = shown(leg.stage, sentinels);
-    if (stage === null && stagelessLegs !== "keep") continue;
-    const date = hideDates ? null : shown(leg.date, sentinels);
-    const when = legTime(date, shown(leg.time, sentinels));
-    const names = (Array.isArray(leg.assigned_names) ? leg.assigned_names : []).filter(
-      (n) => shown(n, sentinels) !== null,
-    );
-    // A kept stage-less leg still needs something to show.
-    if (stage === null && when === "" && names.length === 0) continue;
-    out.push({ stage, when, names });
-  }
-  return out;
-}
-
-/** The cells and notes this transport row renders under these sentinels. */
-export function transportBodyFields(
-  t: TransportationRow,
-  sentinels: "show" | "hide",
-): TransportBodyFields {
-  const field = (value: string | null) => shown(value, sentinels);
-  const contact = (
-    name: string | null,
-    phone: string | null,
-    email: string | null,
-  ): TransportContact | null => {
-    const c = { name: field(name), phone: field(phone), email: field(email) };
-    return c.name !== null || c.phone !== null || c.email !== null ? c : null;
-  };
-  const vehicle = field(t.vehicle);
-  const subs = [field(t.license_plate), field(t.color)].filter((x): x is string => x !== null);
-  return {
-    driver: contact(t.driver_name, t.driver_phone, t.driver_email),
-    loadout: contact(t.loadout_name, t.loadout_phone, t.loadout_email),
-    vehicle: vehicle !== null || subs.length > 0 ? { vehicle, subs } : null,
-    parking: field(t.parking),
-    notes: field(t.notes),
-  };
-}
 
 /** One sunken spec cell in the compact transport strip: eyebrow + stacked lines. */
 function TransportCell({
@@ -266,8 +223,38 @@ function ContactCell({
   );
 }
 
+/** A route connector: a fill (the admin's) or a border, which forced colors keep (crew). */
+function connectorClass(markers: "alternating" | "neutral", axis: "x" | "y"): string {
+  if (markers === "alternating") return axis === "x" ? "h-0.5 bg-border" : "w-0.5 bg-border";
+  return axis === "x" ? "border-t-2 border-border" : "border-l-2 border-border";
+}
+
+/** A leg's dot: the admin's alternating accent and outline, or one bordered neutral. */
+function dotClass(markers: "alternating" | "neutral", index: number): string {
+  if (markers === "neutral")
+    return "box-border size-3.5 shrink-0 rounded-pill border-2 border-border-strong bg-surface ring-2 ring-surface";
+  return `box-border size-3.5 rounded-pill ring-2 ring-surface ${
+    index % 2 === 0 ? "bg-accent-on-bg" : "border-2 border-border-strong bg-surface"
+  }`;
+}
+
+/** A leg's time line: its text, with a dated part in a `<time>` when the formatter gave one. */
+function legWhen(leg: TransportRouteLeg): ReactNode {
+  if (leg.time === undefined) return leg.when;
+  return (
+    <>
+      {leg.time.lead}
+      <time dateTime={leg.time.dateTime}>{leg.time.text}</time>
+    </>
+  );
+}
+
 export function TransportBody(props: TransportBodyProps) {
   const { transport: t, telHref, mailtoHref, linkifyContacts, sentinels, targets } = props;
+  const layout = props.layout ?? "viewport";
+  const markers = props.routeMarkers ?? "alternating";
+  const riders = props.riders ?? "names";
+  const contained = layout === "container";
   const {
     driver,
     loadout,
@@ -290,7 +277,13 @@ export function TransportBody(props: TransportBodyProps) {
         // default, so a one-line Vehicle or Parking cell was dragged to the height of a
         // contact cell whose two 44px tap targets make it ~160px — a large sunken panel
         // around ~34px of content, which reads as broken rather than spacious.
-        <div className="grid grid-cols-2 items-start gap-2 min-[560px]:grid-cols-3">
+        <div
+          className={
+            contained
+              ? "grid grid-cols-2 items-start gap-2 @min-crew-split:grid-cols-3"
+              : "grid grid-cols-2 items-start gap-2 min-[560px]:grid-cols-3"
+          }
+        >
           {driver !== null ? (
             <ContactCell
               label="Driver"
@@ -343,23 +336,58 @@ export function TransportBody(props: TransportBodyProps) {
           <p {...(skip ? { "data-search-skip": "" } : {})} className={`${CELL_EYEBROW_CLASS} mb-3`}>
             Route
           </p>
-          <ol className="relative flex justify-between gap-2">
-            <span aria-hidden="true" className="absolute inset-x-[8%] top-[6px] h-0.5 bg-border" />
+          {/* Below the crew threshold the route is a vertical list: each leg a row,
+              its dot, then its lines, with a segment down to the next leg's dot.
+              From the threshold (and always for the admin) it is the horizontal
+              rail, one line behind every dot. */}
+          <ol
+            className={
+              contained
+                ? "relative flex flex-col gap-3 @min-crew-split:flex-row @min-crew-split:justify-between @min-crew-split:gap-2"
+                : "relative flex justify-between gap-2"
+            }
+          >
+            <span
+              aria-hidden="true"
+              className={`${contained ? "hidden @min-crew-split:block " : ""}absolute inset-x-[8%] top-[6px] ${connectorClass(markers, "x")}`}
+            />
             {routeLegs.map((leg, i) => (
               <li
                 key={`${leg.stage}-${i}`}
                 data-search-target={targets?.legs?.[i]}
-                className="relative flex min-w-0 flex-1 flex-col items-center gap-2 text-center"
+                className={
+                  contained
+                    ? "relative flex min-w-0 items-start gap-3 @min-crew-split:flex-1 @min-crew-split:flex-col @min-crew-split:items-center @min-crew-split:gap-2 @min-crew-split:text-center"
+                    : "relative flex min-w-0 flex-1 flex-col items-center gap-2 text-center"
+                }
               >
+                {contained && i < routeLegs.length - 1 ? (
+                  // From under this dot (3px down, 14px tall) to the top of the next
+                  // leg's (the list's 12px gap, then its 3px).
+                  <span
+                    aria-hidden="true"
+                    className={`absolute top-[17px] bottom-[-15px] left-[6px] @min-crew-split:hidden ${connectorClass(markers, "y")}`}
+                  />
+                ) : null}
                 <span
                   aria-hidden="true"
-                  className={`box-border size-3.5 rounded-pill ring-2 ring-surface ${
-                    i % 2 === 0 ? "bg-accent-on-bg" : "border-2 border-border-strong bg-surface"
-                  }`}
+                  className={
+                    contained
+                      ? `${dotClass(markers, i)} mt-[3px] @min-crew-split:mt-0`
+                      : dotClass(markers, i)
+                  }
                 />
-                <span className="min-w-0">
+                <span
+                  className={contained ? "min-w-0 flex-1 @min-crew-split:flex-none" : "min-w-0"}
+                >
                   {leg.stage !== null ? (
-                    <span className="block wrap-break-word text-xs font-semibold text-text-strong">
+                    <span
+                      className={
+                        contained
+                          ? "block wrap-break-word text-sm font-semibold text-text-strong @min-crew-split:text-xs"
+                          : "block wrap-break-word text-xs font-semibold text-text-strong"
+                      }
+                    >
                       {leg.stage}
                     </span>
                   ) : null}
@@ -370,15 +398,25 @@ export function TransportBody(props: TransportBodyProps) {
                     <span
                       className={`${leg.stage !== null ? "mt-0.5 " : ""}block text-[11px] tabular-nums text-text-subtle`}
                     >
-                      {leg.when}
+                      {legWhen(leg)}
                     </span>
                   ) : null}
                   {leg.names.length > 0 ? (
-                    <span
-                      className={`${leg.stage !== null || leg.when ? "mt-0.5 " : ""}block wrap-break-word text-[11px] text-text-faint`}
-                    >
-                      {leg.names.join(", ")}
-                    </span>
+                    riders === "with" ? (
+                      // The crew's riders line (gate row 2): "With" and the names, as the
+                      // Travel card wrote it on main, readable rather than faint.
+                      <span
+                        className={`${leg.stage !== null || leg.when ? "mt-0.5 " : ""}block wrap-break-word text-xs text-text-subtle`}
+                      >
+                        With <span className="text-text">{leg.names.join(", ")}</span>
+                      </span>
+                    ) : (
+                      <span
+                        className={`${leg.stage !== null || leg.when ? "mt-0.5 " : ""}block wrap-break-word text-[11px] text-text-faint`}
+                      >
+                        {leg.names.join(", ")}
+                      </span>
+                    )
                   ) : null}
                 </span>
               </li>

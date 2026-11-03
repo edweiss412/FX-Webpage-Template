@@ -26,8 +26,8 @@
  * Pure and server-safe.
  */
 import { structuredAgenda } from "@/components/crew/agendaScheduleRows";
-import { crewTransportLegOptions } from "@/components/crew/sections/transportRows";
-import { transportRouteLegs } from "@/components/show-panels/TransportBody";
+import { crewTransportLegOptions } from "@/components/crew/sections/transportLegTime";
+import { transportRouteLegs } from "@/components/show-panels/transportLegs";
 import type { ShowForViewer } from "@/lib/data/getShowForViewer";
 import type { ViewerContext } from "@/lib/data/viewerContext";
 import type { CrewSectionId } from "@/lib/crew/crewSections";

@@ -354,3 +354,124 @@ describe("TransportBody route line spacing (PR B Task 9)", () => {
     }
   });
 });
+
+/**
+ * PR B invariant-8 UI gate rows 1, 2, 3, 8 and 16: the crew's transport props.
+ * Each defaults to what the admin renders, so the admin's DOM (pinned by the
+ * golden) is the default's output; each case shows the prop changes the output.
+ */
+describe("TransportBody crew presentation props (gate rows 1, 2, 3, 8, 16)", () => {
+  /** Every class token on the element and its descendants. */
+  const tokens = (root: Element) =>
+    [root, ...root.querySelectorAll("*")].flatMap((el) =>
+      (el.getAttribute("class") ?? "").split(/\s+/).filter(Boolean),
+    );
+  /** A viewport variant: `sm:` to `2xl:`, or an arbitrary `min-[…]:` / `max-[…]:`. */
+  const VIEWPORT_VARIANT = /^(?:sm|md|lg|xl|2xl|min-\[[^\]]+\]|max-\[[^\]]+\]):/;
+  const route = (root: HTMLElement) => root.querySelector("ol");
+  /** The route's drawn dots: the round, aria-hidden markers, one per leg. */
+  const dots = (root: HTMLElement) =>
+    [...root.querySelectorAll('ol > li span[aria-hidden="true"]')].filter((el) =>
+      (el.getAttribute("class") ?? "").includes("rounded-pill"),
+    );
+  /** The route's connector lines: the aria-hidden lines that are not dots. */
+  const connectors = (root: HTMLElement) =>
+    [...root.querySelectorAll('ol span[aria-hidden="true"]')].filter(
+      (el) => !(el.getAttribute("class") ?? "").includes("rounded-pill"),
+    );
+
+  test('layout "container": no viewport variant in the body; the cells go to three columns and the route to a rail at @min-crew-split, a vertical list below it', () => {
+    const viewport = body();
+    // POSITIVE CONTROL: the admin's default carries the viewport variant the crew must not.
+    premiseHolds(
+      "the default layout carries a viewport variant",
+      tokens(viewport).some((t) => VIEWPORT_VARIANT.test(t)),
+    );
+    expect(route(viewport)?.className).not.toContain("flex-col");
+    cleanup();
+
+    const root = body({ layout: "container" });
+    premise("route legs", root.querySelectorAll("ol > li").length, 1);
+    expect(tokens(root).filter((t) => VIEWPORT_VARIANT.test(t))).toEqual([]);
+    const grid = root.querySelector(".grid");
+    expect(grid?.className.split(/\s+/)).toContain("@min-crew-split:grid-cols-3");
+    const ol = route(root)!.className.split(/\s+/);
+    expect(ol).toContain("flex-col");
+    expect(ol).toContain("@min-crew-split:flex-row");
+    for (const li of root.querySelectorAll("ol > li")) {
+      const cls = li.className.split(/\s+/);
+      // A row (dot, then the leg's lines) below the threshold; a column on the rail.
+      expect(cls).not.toContain("flex-col");
+      expect(cls).toContain("@min-crew-split:flex-col");
+    }
+  });
+
+  test('routeMarkers "neutral": every dot is the same bordered neutral, none is accent, and every connector is a border, which forced colors keep, never a fill', () => {
+    const alternating = body();
+    // POSITIVE CONTROL: the admin's dots alternate, the first an accent fill.
+    expect(dots(alternating)[0]?.className).toContain("bg-accent-on-bg");
+    expect(connectors(alternating).some((c) => /\bbg-border\b/.test(c.className))).toBe(true);
+    cleanup();
+
+    for (const layout of ["viewport", "container"] as const) {
+      const root = body({ routeMarkers: "neutral", layout });
+      const drawn = dots(root);
+      premise(`${layout}: dots`, drawn.length, 1);
+      for (const dot of drawn) {
+        const cls = dot.className.split(/\s+/);
+        expect(cls, layout).not.toContain("bg-accent-on-bg");
+        expect(cls, layout).toContain("border-2");
+        expect(cls, layout).toContain("border-border-strong");
+      }
+      const lines = connectors(root);
+      premise(`${layout}: connectors`, lines.length, 0);
+      for (const line of lines) {
+        expect(line.className, layout).not.toMatch(/(?:^|\s)bg-/);
+        expect(line.className, layout).toMatch(/(?:^|\s)border-(?:t|l)-2(?:\s|$)/);
+      }
+      cleanup();
+    }
+  });
+
+  test('riders "with": the riders line reads "With" and the names, at text-xs, the names in text-text and never faint; the default is the names alone', () => {
+    const riderLeg = TRANSPORT.schedule[0]!;
+    premise("riders on the first leg", riderLeg.assigned_names.length, 0);
+    const names = riderLeg.assigned_names.join(", ");
+    const ridersLine = (root: HTMLElement) =>
+      [...root.querySelectorAll("ol > li span")].find(
+        (el) => el.children.length <= 1 && (el.textContent ?? "").endsWith(names),
+      );
+
+    const plain = ridersLine(body());
+    expect(plain?.textContent).toBe(names);
+    expect(plain?.className).toContain("text-text-faint");
+    cleanup();
+
+    const line = ridersLine(body({ riders: "with" }));
+    expect(line?.textContent).toBe(`With ${names}`);
+    const cls = line!.className.split(/\s+/);
+    expect(cls).toContain("text-xs");
+    expect(cls).not.toContain("text-text-faint");
+    const named = [...line!.querySelectorAll("span")].find((s) => s.textContent === names);
+    expect(named?.className.split(/\s+/)).toContain("text-text");
+  });
+
+  test("a formatter's dated line renders its date and time in a <time dateTime>, the lead-in outside it; a plain line renders no <time>", () => {
+    const legTime = (date: string | null, time: string | null) =>
+      date === null ? `at ${time}` : { lead: "leaves ", text: `${date} ${time}`, dateTime: date };
+    const root = body({ legTime });
+    const times = [...root.querySelectorAll("ol > li time")];
+    expect(times.map((t) => t.getAttribute("datetime"))).toEqual(["2026-04-10", "2026-04-12"]);
+    expect(times[0]?.textContent).toBe("2026-04-10 7:00 AM");
+    expect(times[0]?.parentElement?.textContent).toBe("leaves 2026-04-10 7:00 AM");
+    // The leg list carries the line's full text, so the index and the count read it.
+    expect(transportRouteLegs(TRANSPORT, { ...BASE, legTime }).map((l) => l.when)).toEqual([
+      "leaves 2026-04-10 7:00 AM",
+      "leaves 2026-04-12 11:00 PM",
+    ]);
+    cleanup();
+    const hidden = body({ legTime, hideDates: true });
+    expect(hidden.querySelectorAll("time")).toHaveLength(0);
+    expect(hidden.querySelector("ol > li")?.textContent).toContain("at 7:00 AM");
+  });
+});

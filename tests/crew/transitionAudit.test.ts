@@ -978,6 +978,12 @@ const CONDITIONAL_RENDERS: Record<string, { presences: number; renders: Conditio
       { match: "{leg.when ? (", treatment: T.serverPresence },
       { match: "{leg.names.length > 0 ? (", treatment: T.serverPresence },
       { match: "{notes !== null ? (", treatment: T.serverPresence },
+      // PR B invariant-8 gate rows 1, 2 and 8: the crew route's vertical segment
+      // between two legs, the crew's "With" riders line, and a leg's dated part in
+      // a <time>. Each is decided by props on the server.
+      { match: "{contained && i < routeLegs.length - 1 ? (", treatment: T.serverPresence },
+      { match: 'riders === "with" ? (', treatment: T.serverPresence },
+      { match: "if (leg.time === undefined) return leg.when;", treatment: T.serverPresence },
     ],
   },
   [MINI_AVATAR]: { presences: 0, renders: [] },

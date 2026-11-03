@@ -11,8 +11,8 @@
  *     moved here from the retired Travel section's rows module unchanged.
  *   - The shared transport body's crew props (`transportPanel`,
  *     components/show-panels/TransportBody.tsx): the digits-only call link,
- *     contacts linked, sentinels hidden, each leg's time line "leaves <day>
- *     <time>" (spec line 419), the day withheld under date suppression, legs
+ *     contacts linked, sentinels hidden, each leg's time line "leaves <date>,
+ *     <time>" (spec line 419, as amended), the date withheld under date suppression, legs
  *     without a stage kept as the crew page kept them, and a search target per
  *     cell, leg and the notes, each read from the body's own field derivation.
  *
@@ -21,13 +21,17 @@
  * across a module boundary. No `"use client"`: the builder runs on the server.
  */
 import { crewMailtoHref, crewTelHref } from "@/components/crew/sections/crewRows";
+import { crewTransportLegOptions } from "@/components/crew/sections/transportLegTime";
+import type {
+  TransportBodyProps,
+  TransportBodyTargets,
+} from "@/components/show-panels/TransportBody";
 import {
   transportBodyFields,
+  transportRidersText,
   transportRouteLegs,
-  type TransportBodyProps,
-  type TransportBodyTargets,
   type TransportContact,
-} from "@/components/show-panels/TransportBody";
+} from "@/components/show-panels/transportLegs";
 import {
   flightRowFields,
   formatFlightDate,
@@ -37,9 +41,7 @@ import {
   visibleFlightSegments,
   type FlightSegment,
 } from "@/lib/crew/flightDisplay";
-import { normalizeMeridiem } from "@/lib/crew/normalizeMeridiem";
 import type { ShowForViewer } from "@/lib/data/getShowForViewer";
-import { formatIsoDate } from "@/lib/format/date";
 import type { TransportationRow } from "@/lib/parser/types";
 import { entryId } from "@/lib/search/entryId";
 import { normalize } from "@/lib/search/normalize";
@@ -233,25 +235,9 @@ export function flightCard(data: ShowForViewer, today: Date, hideDates: boolean)
 /** The transport card's `data-card-id` (its search region and its source link, `CARD_REGION_MAP`). */
 export const TRANSPORT_CARD_ID = "travel-getting-there";
 
-/**
- * A leg's time line on the crew page (spec line 419, §9.2): "leaves", then its
- * weekday and its time as the sheet wrote it (`normalizeMeridiem`), "leaves Tue
- * 2:00 PM". The body hands no date under `hideDates`, so the day is withheld
- * then; a leg with neither writes nothing.
- */
-export function crewLegTime(date: string | null, time: string | null): string {
-  const day = date !== null ? formatIsoDate(date, "weekday") : "";
-  const at = time !== null ? normalizeMeridiem(time) : "";
-  const when = day !== "" && at !== "" ? `${day} ${at}` : day || at;
-  return when !== "" ? `leaves ${when}` : "";
-}
-
-/** The crew's leg options: the ride count in the "All sections" peek reads them too. */
-export function crewTransportLegOptions(
-  hideDates: boolean,
-): Pick<TransportBodyProps, "hideDates" | "legTime" | "sentinels" | "stagelessLegs"> {
-  return { hideDates, legTime: crewLegTime, sentinels: "hide", stagelessLegs: "keep" };
-}
+// The crew's leg options live in transportLegTime.ts, JSX-free, because the
+// client-reachable peek reads them (PR B invariant-8 gate, row 9).
+export { crewLegTime, crewTransportLegOptions } from "@/components/crew/sections/transportLegTime";
 
 export type TransportPanel = {
   /** The shared transport body's crew props. */
@@ -301,8 +287,9 @@ export function transportPanel(
     loadout: contact("Load out", loadout),
     vehicle: vehicle === null ? undefined : line("Vehicle", [vehicle.vehicle, ...vehicle.subs]),
     parking: parking === null ? undefined : line("Parking", [parking]),
-    // A leg's stage is its label when anything else renders, else its value.
-    legs: legs.map((leg) => line(leg.stage, [leg.when, leg.names.join(", ")])),
+    // A leg's stage is its label when anything else renders, else its value. The
+    // riders read as the body writes them, "With" and the names.
+    legs: legs.map((leg) => line(leg.stage, [leg.when, transportRidersText(leg.names, "with")])),
     notes: notes === null ? undefined : line(null, [notes]),
   };
   return {
@@ -319,6 +306,12 @@ export function transportPanel(
       mailtoHref: crewMailtoHref,
       linkifyContacts: true,
       ...options,
+      // The crew's presentation (PR B invariant-8 gate rows 1, 2, 3, 16): the
+      // section container's threshold, a vertical route below it, neutral dots
+      // with border connectors, and "With" before the riders.
+      layout: "container",
+      routeMarkers: "neutral",
+      riders: "with",
       targets,
     },
     lines,
