@@ -254,7 +254,8 @@ describe("error containment (spec line 291, line 507)", () => {
 /**
  * PR B invariant-8 UI gate rows 3, 7, 12 and 18: the crew's Venue presentation.
  * The body's props default to the admin's markup (pinned by the golden); each
- * case shows the crew prop changes the output.
+ * case shows the crew prop changes the output. Row 12 was accepted after review:
+ * its cases pin the city line that stays.
  */
 describe("Venue crew presentation (gate rows 3, 7, 12, 18)", () => {
   const LINES = { name: "Grand Hall", address: "350 Fifth Ave", city: "New York" };
@@ -308,23 +309,11 @@ describe("Venue crew presentation (gate rows 3, 7, 12, 18)", () => {
     expect(text).not.toContain("text-text-subtle");
   });
 
-  // The crew city line is dropped only when the address as displayed still ends in
-  // the city as its locality (before any state and ZIP), never because the city is
-  // a word in a street name (whole-diff review round 1, B1).
+  // The crew city line shows whenever a city resolves, even when the address
+  // already repeats it. Two de-duplication rules each dropped a real locality
+  // (whole-diff review rounds 1 and 2, B1), so the repeated city is accepted as
+  // cosmetic (UI gate row 12).
   test.each([
-    {
-      why: "the corpus shape (9 of 10 shows): the locality has no comma segment of its own, so streetFromAddress cannot strip it",
-      venue: {
-        name: "Four Seasons Hotel",
-        address: "120 E Delaware Pl Chicago, IL 60611",
-        city: "Chicago",
-      },
-      lines: {
-        name: "Four Seasons Hotel",
-        address: "120 E Delaware Pl Chicago, IL 60611",
-        city: null,
-      },
-    },
     {
       why: "a street named for the city, its locality a comma segment (the city mined from the address)",
       venue: {
@@ -343,43 +332,27 @@ describe("Venue crew presentation (gate rows 3, 7, 12, 18)", () => {
       lines: { name: "Four Seasons Hotel", address: "120 E Chicago Ave", city: "Chicago" },
     },
     {
-      why: "a street named for the city and no locality in the address at all",
-      venue: { name: "Grand Hall", address: "120 E Chicago Ave", city: "Chicago" },
-      lines: { name: "Grand Hall", address: "120 E Chicago Ave", city: "Chicago" },
+      why: 'a street named for the city with an uppercase suffix ("PL"), which reads like a state',
+      venue: { name: "Four Seasons Hotel", address: "120 E Chicago PL", city: "Chicago" },
+      lines: { name: "Four Seasons Hotel", address: "120 E Chicago PL", city: "Chicago" },
     },
     {
-      why: 'a title-case two-letter street suffix after the city ("Pl") is not a state',
-      venue: { name: "Grand Hall", address: "120 E Chicago Pl", city: "Chicago" },
-      lines: { name: "Grand Hall", address: "120 E Chicago Pl", city: "Chicago" },
-    },
-    {
-      why: "a comma segment is stripped from the street, so the city line stays",
+      why: "an address that repeats the city with no comma before it keeps the city line",
       venue: {
         name: "Four Seasons Hotel",
-        address: "120 E Delaware Pl, Chicago, IL 60611",
+        address: "120 E Delaware Pl Chicago, IL 60611",
         city: "Chicago",
       },
-      lines: { name: "Four Seasons Hotel", address: "120 E Delaware Pl", city: "Chicago" },
-    },
-    {
-      why: 'a word that only contains the city is not the city: "Chicagoland" keeps it',
-      venue: { name: "Expo Hall", address: "5555 N River Rd Chicagoland Plaza", city: "Chicago" },
-      lines: { name: "Expo Hall", address: "5555 N River Rd Chicagoland Plaza", city: "Chicago" },
-    },
-    {
-      why: "case does not matter, a two-word city matches as a phrase, and a state needs no comma",
-      venue: { name: "Hall", address: "4 Pier Rd new york NY", city: "New York" },
-      lines: { name: "Hall", address: "4 Pier Rd new york NY", city: null },
-    },
-    {
-      why: "a locality followed by a ZIP alone",
-      venue: { name: "Hall", address: "120 E Delaware Pl Chicago 60611", city: "Chicago" },
-      lines: { name: "Hall", address: "120 E Delaware Pl Chicago 60611", city: null },
+      lines: {
+        name: "Four Seasons Hotel",
+        address: "120 E Delaware Pl Chicago, IL 60611",
+        city: "Chicago",
+      },
     },
   ])("crew Venue lines: $why", ({ venue, lines }) => {
     const props = venueWhereProps(venue);
     expect({ name: props.name, address: props.address, city: props.city }).toEqual(lines);
-    expect(props.targets.city === undefined).toBe(lines.city === null);
+    expect(props.targets.city).toBeDefined();
   });
 
   test("the crew Where card renders its address as body text, reads its container, and underlines Open in Maps at rest", () => {

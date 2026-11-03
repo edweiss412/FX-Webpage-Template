@@ -23,7 +23,7 @@ import { entryId } from "@/lib/search/entryId";
 import { showSection } from "@/lib/showSections/registry";
 import { shouldHideGenericOptional } from "@/lib/visibility/emptyState";
 import { transportTileVisible } from "@/lib/visibility/scopeTiles";
-import { addressEndsWithCity, streetFromAddress, venueDisplay } from "@/lib/venue/venueLocation";
+import { streetFromAddress, venueDisplay } from "@/lib/venue/venueLocation";
 
 /**
  * Card titles (the search `group`) and `data-card-id`s (the search region). The
@@ -73,10 +73,10 @@ export type VenueWhereProps = {
  * blank-address FXAV venue ("Four Seasons Hotel Chicago") still shows a clean
  * "Chicago" city line WITHOUT printing the city twice. streetFromAddress drops
  * the city tail from the address; an address that was only the city yields no
- * street line. An address that still ends in the city as its locality (the sheet
- * wrote it without a comma before the city) yields no city line, so the city is
- * never printed twice; a street merely named for the city ("120 E Chicago Ave")
- * keeps it.
+ * street line. An address that names the city without a comma before it ("120 E
+ * Delaware Pl Chicago, IL 60611") keeps its city line too: two rules that tried
+ * to drop the repeat each dropped a real locality, so the repeat is accepted (PR
+ * B UI gate row 12).
  *
  * Values are passed as resolved: the body hides a sentinel line (`sentinels:
  * "hide"`), and that line gets no target here, by the same predicate. Targets are
@@ -85,17 +85,8 @@ export type VenueWhereProps = {
  */
 export function venueWhereProps(venue: Venue): VenueWhereProps {
   if (!venue) return { name: null, address: null, city: null, targets: {} };
-  const { name, city: resolvedCity } = venueDisplay(venue);
-  const address = streetFromAddress(venue.address, resolvedCity);
-  // The address line already shows the city as its locality when the sheet wrote
-  // it without its own comma segment ("120 E Delaware Pl Chicago, IL 60611"),
-  // which streetFromAddress cannot strip: a city line under it would repeat it (PR
-  // B invariant-8 gate, row 12). A street named for the city is not its locality
-  // (whole-diff review round 1, B1).
-  const city =
-    resolvedCity !== null && address !== null && addressEndsWithCity(address, resolvedCity)
-      ? null
-      : resolvedCity;
+  const { name, city } = venueDisplay(venue);
+  const address = streetFromAddress(venue.address, city);
   const group = showSection("venue").label;
   const seen = new Map<string, number>();
   const target = (value: string | null): string | undefined =>

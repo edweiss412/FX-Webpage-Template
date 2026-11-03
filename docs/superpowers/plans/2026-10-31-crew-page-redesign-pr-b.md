@@ -319,7 +319,7 @@ Step 2, green per spec line 306: `components/crew/AgendaScheduleBlock.tsx` moves
 
 Run on 2026-11-02 against HEAD `3e1e65e8a`, on the PR B diff (`git diff origin/main..HEAD -- app components`). Both halves ran with their setup gates: the context load of `PRODUCT.md` and `DESIGN.md`, then the register read. The critique ran as two isolated assessments (design review; detector and browser evidence) and scored 28/40. The audit ran in its own context and scored 14/20. Measured on a production build at 320, 390, 768, 1024 and 1280, light and dark, on the crew route, the admin preview route and the admin popup, with the seeded shows plus a temporary agenda file and nameless contact on one show (removed afterwards by `pnpm db:seed`). After merging the passes: 0 P0, 2 P1, 7 P2, 12 P3. The admin popup was unchanged throughout: `adminSectionDom` 90/90, the goldens and the section-header PNGs untouched.
 
-Both P1s and 15 rows in all were fixed in-branch through crew-side props, holding the admin goldens byte-identical. Three P2s are deferred in `DEFERRED.md` with their triggers, and three P3s are accepted as designed.
+Both P1s and 14 rows in all were fixed in-branch through crew-side props, holding the admin goldens byte-identical. Three P2s are deferred in `DEFERRED.md` with their triggers, three P3s are accepted as designed, and one P3 (row 12) was accepted after review.
 
 | #   | Pass | Tier | Where | Finding | Disposition |
 | --- | ---- | ---- | ----- | ------- | ----------- |
@@ -334,7 +334,7 @@ Both P1s and 15 rows in all were fixed in-branch through crew-side props, holdin
 | 9 | audit | P2 | `lib/crew/sectionPeek.ts` | Server-only body modules (11.3 KB) shipped in the crew client chunk. | Fixed, 8be7b8931 and 4f37e1fea: the peek reads JSX-free helper modules. |
 | 10 | both | P3 | `components/crew/sections/BillingSection.tsx` | "No budget details on file yet." under "Billing & docs". | Fixed, 235b74356: "No billing details on file yet." |
 | 11 | critique | P3 | `components/show-panels/ContactsBody.tsx`, `components/atoms/Avatar.tsx` | A nameless contact's "?" avatar disc. | Accepted: the audit ruled it technically fine (aria-hidden, 7.26:1, actions named by kind). |
-| 12 | both | P3 | `VenueBody.tsx` city line | The bare city line repeats the city already in the address. | Fixed, 79d1538bc. |
+| 12 | both | P3 | `VenueBody.tsx` city line | The bare city line repeats the city already in the address. | Accepted after review: a word match (round 1) and a state-and-ZIP rule (round 2) each dropped real locality, so the city line always shows; the repeated city is cosmetic. |
 | 13 | both | P3 | `ContactsBody.tsx`, `ContactsSection.tsx` | An admin-voice fallback ("No contacts parsed.") was reachable on crew. | Fixed, 527e53d8e and 4f37e1fea: the section's own empty state, and the peek counts only rendered contacts. |
 | 14 | critique | P3 | `HotelCardBody.tsx`, crew Hotels at 320 | Several reservations nest cards three levels deep. | Fixed, 235b74356: crew stays render flat with a divider. |
 | 15 | critique | P3 | `FieldRowList.tsx` | Colon keys ("PROPOSAL:") on crew. | Fixed, 235b74356. |

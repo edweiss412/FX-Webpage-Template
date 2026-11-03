@@ -297,31 +297,6 @@ export function streetFromAddress(
 }
 
 /**
- * Whether an address, as displayed, ends in `city` as its locality: the city's
- * words close the address, followed by at most a state and a ZIP.
- *
- *   - "120 E Delaware Pl Chicago, IL 60611" + "Chicago"  → true
- *   - "4 Pier Rd new york NY"               + "New York" → true   (any case; no comma)
- *   - "120 E Chicago Ave"                   + "Chicago"  → false  (a street word, not the locality)
- *   - "5555 N River Rd Chicagoland Plaza"   + "Chicago"  → false
- *
- * The state is two capital letters, so a street suffix written in title case
- * ("Pl", "Ct") is never read as one. Limit: an all-capitals address whose street
- * ends in a two-letter suffix right after the city's name ("100 CHICAGO CT")
- * reads as that city's locality.
- */
-export function addressEndsWithCity(address: string, city: string): boolean {
-  const words = city.trim();
-  if (words === "") return false;
-  // Case-sensitive on purpose: the state must be capitals (see above).
-  const beforeStateAndZip = address
-    .trim()
-    .replace(/(?:[\s,]+[A-Z]{2})?(?:[\s,]+\d{5}(?:-\d{4})?)?[\s,.]*$/u, "");
-  const escaped = escapeRegExp(words).replace(/\s+/g, "\\s+");
-  return new RegExp(`(?:^|[\\s,])${escaped}$`, "iu").test(beforeStateAndZip);
-}
-
-/**
  * The collapsed-card Venue row value: the venue name (primary) and a best-effort
  * city (secondary). City comes from a structured address first (cityFromAddress);
  * when the address yields nothing, the city is split off the venue NAME via a

@@ -1299,8 +1299,10 @@ describe("venue", () => {
     transportation: null,
   }));
   /**
-   * The city as a word of the street and as a comma-segment locality: the street
-   * line drops the locality and the city keeps its own line (review round 1, B1).
+   * The city line shows whenever a city resolves, even beside an address that
+   * repeats it (UI gate row 12, accepted after review rounds 1 and 2, B1), and
+   * the index carries the same lines. A street named for the city, its locality
+   * a comma segment the street drops:
    */
   const cityInStreet = variant(fullContent, "venueCityInStreet", (d) => ({
     ...d,
@@ -1314,8 +1316,21 @@ describe("venue", () => {
       },
     },
   }));
-  /** The city as the address's own locality, with no comma before it: no city line. */
-  const cityInlineLocality = variant(fullContent, "venueCityInlineLocality", (d) => ({
+  /** A street named for the city with an uppercase suffix that reads like a state. */
+  const cityUppercaseSuffix = variant(fullContent, "venueCityUppercaseSuffix", (d) => ({
+    ...d,
+    show: {
+      ...d.show,
+      venue: {
+        ...d.show.venue!,
+        name: "Four Seasons Hotel",
+        address: "120 E Chicago PL",
+        city: "Chicago",
+      },
+    },
+  }));
+  /** An address that repeats the city with no comma before it: the city line stays. */
+  const cityRepeated = variant(fullContent, "venueCityRepeated", (d) => ({
     ...d,
     show: {
       ...d.show,
@@ -1330,7 +1345,8 @@ describe("venue", () => {
   const local = [
     cityAndMaps,
     cityInStreet,
-    cityInlineLocality,
+    cityUppercaseSuffix,
+    cityRepeated,
     diagramForms,
     transportFailed,
     sentinels,
@@ -1409,10 +1425,16 @@ describe("venue", () => {
         "venueCityInStreet renders the street without its locality and a Chicago city line",
         whereLines(root).join("|") === "Four Seasons Hotel|120 E Chicago Ave|Chicago",
       ),
-    venueCityInlineLocality: (root) =>
+    venueCityUppercaseSuffix: (root) =>
       premiseHolds(
-        "venueCityInlineLocality renders the whole address and no city line",
-        whereLines(root).join("|") === "Four Seasons Hotel|120 E Delaware Pl Chicago, IL 60611",
+        "venueCityUppercaseSuffix renders the whole street and a Chicago city line",
+        whereLines(root).join("|") === "Four Seasons Hotel|120 E Chicago PL|Chicago",
+      ),
+    venueCityRepeated: (root) =>
+      premiseHolds(
+        "venueCityRepeated renders the whole address and a Chicago city line",
+        whereLines(root).join("|") ===
+          "Four Seasons Hotel|120 E Delaware Pl Chicago, IL 60611|Chicago",
       ),
     venueDiagramForms: (root) =>
       premiseHolds(
