@@ -22,6 +22,22 @@
  * The checks read the TypeScript AST, not text, so a hook name inside a string
  * or a comment is not a call. Each rule is proven live on planted sources below
  * before it is applied to the tree.
+ *
+ * What counts as a hook call or a context read is the ordinary ways to write one:
+ * - a context read: `useContext` or `createContext` named anywhere; React's `use`,
+ *   imported from "react" (aliased or not; the import is the violation, so every
+ *   bare call to it is covered) or read off a React namespace
+ *   (`React.use`, or `R.use` after `import * as R from "react"`); `X.Consumer`;
+ *   `contextType`;
+ * - a hook call: a call to a `use<Upper>` name, bare or as a member
+ *   (`React.useState`), or to a local name an import binds to a `use<Upper>`
+ *   export (`import { useState as state }`).
+ * Threat fence: this guards against ordinary authoring mistakes. Deliberate
+ * obfuscation is out of scope and is a documented limit, not a gap: a computed
+ * member (`React["use"]`), a renaming destructure off a namespace
+ * (`const { use: read } = React`), a default import that renames a hook module's
+ * default export, a hook re-exported under another name through a second module,
+ * and `require`.
  */
 import { existsSync, readdirSync, readFileSync, statSync } from "node:fs";
 import { dirname, join, relative, resolve } from "node:path";
@@ -109,6 +125,55 @@ function calleeName(call: ts.CallExpression): string | null {
   return null;
 }
 
+const HOOK_NAME = /^use[A-Z0-9]/;
+
+/** The bindings a file's imports create that the rules read. */
+type ImportBindings = {
+  /** Names bound to the "react" module itself: default and namespace imports, plus `React`. */
+  reactNamespaces: Set<string>;
+  /** Local names bound to React's `use`. */
+  reactUse: Set<string>;
+  /** Local names bound to a hook-named export, by imported name (`state` -> `useState`). */
+  hookAliases: Map<string, string>;
+};
+
+function importBindings(sf: ts.SourceFile): ImportBindings {
+  const out: ImportBindings = {
+    reactNamespaces: new Set(["React"]),
+    reactUse: new Set(),
+    hookAliases: new Map(),
+  };
+  for (const stmt of sf.statements) {
+    if (!ts.isImportDeclaration(stmt) || !ts.isStringLiteral(stmt.moduleSpecifier)) continue;
+    const fromReact = stmt.moduleSpecifier.text === "react";
+    const clause = stmt.importClause;
+    if (clause === undefined) continue;
+    if (fromReact && clause.name !== undefined) out.reactNamespaces.add(clause.name.text);
+    const named = clause.namedBindings;
+    if (named === undefined) continue;
+    if (ts.isNamespaceImport(named)) {
+      if (fromReact) out.reactNamespaces.add(named.name.text);
+      continue;
+    }
+    for (const el of named.elements) {
+      const imported = (el.propertyName ?? el.name).text;
+      if (fromReact && imported === "use") out.reactUse.add(el.name.text);
+      if (HOOK_NAME.test(imported)) out.hookAliases.set(el.name.text, imported);
+    }
+  }
+  return out;
+}
+
+/** `R.use` where `R` names the "react" module. */
+function isReactUseMember(node: ts.Node, bindings: ImportBindings): boolean {
+  return (
+    ts.isPropertyAccessExpression(node) &&
+    node.name.text === "use" &&
+    ts.isIdentifier(node.expression) &&
+    bindings.reactNamespaces.has(node.expression.text)
+  );
+}
+
 /** Whether a repo module is server-only: a `"use server"` module or one importing `server-only`. */
 function isServerOnlyModule(file: string): boolean {
   const sf = parse(file, readFileSync(join(ROOT, file), "utf8"));
@@ -137,14 +202,35 @@ function boundaryViolations(
     out.push(`${file}: module-level "use client" outside the leaf accept-list`);
   }
 
+  const bindings = importBindings(sf);
+  for (const local of bindings.reactUse) {
+    out.push(`${file}: reads context (imports React's use as ${local})`);
+  }
+
   const visit = (node: ts.Node): void => {
-    if (ts.isIdentifier(node) && (node.text === "useContext" || node.text === "createContext")) {
+    if (
+      ts.isIdentifier(node) &&
+      (node.text === "useContext" || node.text === "createContext" || node.text === "contextType")
+    ) {
       out.push(`${file}: reads context (${node.text})`);
     }
-    if (ts.isCallExpression(node) && !opts.leaf) {
-      const name = calleeName(node);
-      if (name !== null && /^use[A-Z0-9]/.test(name)) {
-        out.push(`${file}: hook call ${name}() in a body file`);
+    if (ts.isPropertyAccessExpression(node) && node.name.text === "Consumer") {
+      out.push(`${file}: reads context (${node.getText(sf)})`);
+    }
+    if (isReactUseMember(node, bindings)) {
+      out.push(`${file}: reads context (${node.getText(sf)})`);
+    }
+    if (ts.isCallExpression(node)) {
+      // A bare call to React's `use` needs its import, which is the violation above.
+      const callee = node.expression;
+      if (!opts.leaf) {
+        const name = calleeName(node);
+        const aliased = ts.isIdentifier(callee) ? bindings.hookAliases.get(callee.text) : undefined;
+        if (name !== null && HOOK_NAME.test(name)) {
+          out.push(`${file}: hook call ${name}() in a body file`);
+        } else if (aliased !== undefined) {
+          out.push(`${file}: hook call ${name}() (${aliased}) in a body file`);
+        }
       }
     }
     ts.forEachChild(node, visit);
@@ -219,11 +305,44 @@ export function Body({ x }: { x: ReactNode }) { return <div>{x}</div>; }`),
     }
   });
 
-  test("a hook call fails in a body, bare or namespaced, and passes in a leaf", () => {
+  test("React's use() and the other ordinary context reads fail in a body and in a leaf", () => {
+    for (const src of [
+      `import { use } from "react"; export function B({ c }) { return use(c); }`,
+      `import { use as read } from "react"; export function B({ c }) { return read(c); }`,
+      `import React from "react"; export function B({ c }) { return React.use(c); }`,
+      `import * as R from "react"; export function B({ c }) { return R.use(c); }`,
+      `export function B({ c }) { return React.use(c); }`,
+      `export function B({ C }) { return <C.Consumer>{(v) => v}</C.Consumer>; }`,
+      `import { Component } from "react"; export class B extends Component { static contextType = C; }`,
+    ]) {
+      expect(
+        body(src).some((v) => v.includes("reads context")),
+        src,
+      ).toBe(true);
+      expect(
+        leaf(src).some((v) => v.includes("reads context")),
+        src,
+      ).toBe(true);
+    }
+    // A `use` that is not React's is not a context read: a local function, another
+    // module's export, a method on a non-React object.
+    for (const src of [
+      `const use = (x: number) => x; export const n = use(1);`,
+      `import { use } from "./mine"; export const n = use(1);`,
+      `export function B(app: { use(x: number): void }) { app.use(1); return null; }`,
+    ]) {
+      expect(body(src), src).toEqual([]);
+    }
+  });
+
+  test("a hook call fails in a body, bare, namespaced or aliased, and passes in a leaf", () => {
     for (const src of [
       `import { useId } from "react"; export function B() { const id = useId(); return id; }`,
       `import React from "react"; export function B() { React.useState(0); return null; }`,
+      `import * as R from "react"; export function B() { R.useState(0); return null; }`,
       `import { useThing } from "./thing"; export function B() { useThing(); return null; }`,
+      `import { useState as state } from "react"; export function B() { state(0); return null; }`,
+      `import { useThing as thing } from "./thing"; export function B() { thing(); return null; }`,
     ]) {
       expect(
         body(src).some((v) => v.includes("hook call")),
