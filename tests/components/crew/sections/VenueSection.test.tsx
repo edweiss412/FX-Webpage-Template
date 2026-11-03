@@ -154,15 +154,16 @@ test("Facilities renders the .kvrow FactRows with dock/parking/wifi mini-icons (
   }
 });
 
-// The "Where" card renders Venue / City / Address as discrete rows (geocoding-at-ingest
-// follow-up). venueDisplay resolves the city; streetFromAddress drops the redundant
-// city tail from the Address value so it isn't printed twice.
-function dd(where: Element, label: string): string | null {
-  const dt = Array.from(where.querySelectorAll("dt")).find((el) => el.textContent === label);
-  return dt ? (dt.nextElementSibling?.textContent ?? null) : null;
+// The Venue panel (crew page redesign PR B, Task 5: the shared Venue body)
+// renders the venue name, the street and the city as separate lines
+// (geocoding-at-ingest follow-up). venueDisplay resolves the city;
+// streetFromAddress drops the redundant city tail from the street so it isn't
+// printed twice. Each line is one search target, in render order.
+function lines(where: Element): string[] {
+  return [...where.querySelectorAll("[data-search-target]")].map((el) => el.textContent ?? "");
 }
 
-test("Where card renders discrete Venue / City / Address rows from a structured address", () => {
+test("the Venue panel renders the name, the street and the city as separate lines from a structured address", () => {
   const data = makeShowForViewer({
     show: { venue: { name: "Center", address: "350 Fifth Ave, New York, NY 10118" } },
   });
@@ -176,15 +177,13 @@ test("Where card renders discrete Venue / City / Address rows from a structured 
     />,
   );
   const where = container.querySelector('[data-testid="venue-where"]')!;
-  // Mock `.card-head .ico` parity: the Where card carries its leading glyph.
-  expect(where.querySelector('[data-slot="section-card-icon"] svg')).not.toBeNull();
-  expect(dd(where, "Venue")).toBe("Center");
-  expect(dd(where, "City")).toBe("New York");
-  // Address shows the street only — the city/state tail is stripped (no double-print).
-  expect(dd(where, "Address")).toBe("350 Fifth Ave");
+  // Mock `.card-head .ico` parity: the panel card carries its leading glyph.
+  expect(where.querySelector('[data-slot="panel-card-chip"] svg')).not.toBeNull();
+  // The street only: the city/state tail is stripped (no double-print).
+  expect(lines(where)).toEqual(["Center", "350 Fifth Ave", "New York"]);
 });
 
-test("Where card omits the City + Address rows when nothing is derivable (comma-less, no city)", () => {
+test("the Venue panel omits the city line when nothing is derivable (comma-less, no city)", () => {
   const data = makeShowForViewer({
     show: { venue: { name: "Center", address: "Pier 94" } },
   });
@@ -198,16 +197,14 @@ test("Where card omits the City + Address rows when nothing is derivable (comma-
     />,
   );
   const where = container.querySelector('[data-testid="venue-where"]')!;
-  expect(dd(where, "Venue")).toBe("Center");
-  expect(dd(where, "City")).toBeNull(); // no City row
-  // No city to strip → Address shows the comma-less value verbatim.
-  expect(dd(where, "Address")).toBe("Pier 94");
+  // No city to strip → the street line shows the comma-less value verbatim.
+  expect(lines(where)).toEqual(["Center", "Pier 94"]);
 });
 
 // The gap this fixes: a blank-address, city-in-NAME FXAV venue used to render NO Where
-// card at all (it was address-only). It now surfaces Venue + City (name city-stripped,
-// no Address row).
-test("Where card surfaces name + city for a blank-address, city-in-name venue", () => {
+// card at all (it was address-only). It now surfaces the name (city-stripped) and the
+// city, and no street line.
+test("the Venue panel surfaces name + city for a blank-address, city-in-name venue", () => {
   const data = makeShowForViewer({
     show: { venue: { name: "Four Seasons Hotel Chicago", address: "" } },
   });
@@ -222,9 +219,7 @@ test("Where card surfaces name + city for a blank-address, city-in-name venue", 
   );
   const where = container.querySelector('[data-testid="venue-where"]')!;
   expect(where).not.toBeNull(); // the card now renders (previously omitted)
-  expect(dd(where, "Venue")).toBe("Four Seasons Hotel");
-  expect(dd(where, "City")).toBe("Chicago");
-  expect(dd(where, "Address")).toBeNull(); // blank address → no Address row
+  expect(lines(where)).toEqual(["Four Seasons Hotel", "Chicago"]);
 });
 
 test("the SPLIT branch hands the gallery a narrow thumbnail `sizes`; the full-width branch hands it none", () => {

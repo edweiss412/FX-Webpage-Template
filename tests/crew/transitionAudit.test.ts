@@ -156,6 +156,30 @@ const WIDE_NAV = "components/crew/CrewWideNav.tsx";
 const QUICK_FACTS = "components/crew/CrewQuickFacts.tsx";
 const ALL_SECTIONS = "components/crew/CrewAllSections.tsx";
 const HOME = "components/crew/sections/HomeSection.tsx";
+// PR B plan Task 4: the shared section bodies and the crew Billing section.
+const BILLING = "components/crew/sections/BillingSection.tsx";
+const PANEL_CARD = "components/show-panels/PanelCard.tsx";
+const FIELD_ROWS = "components/show-panels/FieldRowList.tsx";
+const BILLING_BODY = "components/show-panels/BillingBody.tsx";
+// PR B plan Task 5: the shared Venue body.
+const VENUE_BODY = "components/show-panels/VenueBody.tsx";
+// PR B plan Task 6: the shared Crew roster body.
+const CREW_BODY = "components/show-panels/CrewBody.tsx";
+// PR B plan Task 7: the shared Contacts body and the crew Contacts section.
+const CONTACTS_BODY = "components/show-panels/ContactsBody.tsx";
+const CONTACTS = "components/crew/sections/ContactsSection.tsx";
+// PR B plan Task 8: the shared hotel card and Transport bodies (admin side first;
+// the crew page renders them from Task 9) and the identity chip both use.
+const HOTEL_CARD_BODY = "components/show-panels/HotelCardBody.tsx";
+const TRANSPORT_BODY = "components/show-panels/TransportBody.tsx";
+const MINI_AVATAR = "components/show-panels/MiniAvatar.tsx";
+// PR B plan Task 9: the crew Hotels and Transport sections that replace Travel.
+const HOTELS = "components/crew/sections/HotelsSection.tsx";
+const TRANSPORT = "components/crew/sections/TransportSection.tsx";
+// PR B plan Task 10: the crew Agenda section. Its shared block,
+// components/show-panels/AgendaScheduleBlock.tsx, moved from components/crew/
+// with its own audit (tests/components/agendaTransitionAudit.test.tsx).
+const AGENDA = "components/crew/sections/AgendaSection.tsx";
 
 const COMPACT_E2E = "tests/e2e/crew-section-toggle.spec.ts";
 const WIDE_E2E = "tests/e2e/crew-wide-nav.spec.ts";
@@ -534,7 +558,18 @@ const ROWS: Record<number, Row> = {
     e2e: [
       [
         COMPACT_E2E,
-        "compound: a refresh that takes Budget from a previewed lead closes the Budget sheet to home without animation and leaves no Budget value on the page",
+        "compound: a refresh that takes Billing from a previewed lead closes the Billing sheet to home without animation and leaves no Billing value on the page",
+      ],
+      // PR B Task 10: the content-driven half of the row, which an Agenda with no
+      // agenda file made reachable (entitled, unlisted, still built), and the
+      // entitlement half again over that section.
+      [
+        COMPACT_E2E,
+        "agenda: a refresh that removes the open Agenda section's content keeps the sheet open on its empty state, in place, while the list drops Agenda",
+      ],
+      [
+        COMPACT_E2E,
+        "agenda: a refresh after which the previewed viewer's dates are suppressed closes the Agenda sheet to home and leaves no agenda line on the page",
       ],
     ],
     unit: [
@@ -813,6 +848,212 @@ const CONDITIONAL_RENDERS: Record<string, { presences: number; renders: Conditio
         match: '{model.notesOverflow === 1 ? "more note" : "more notes"}',
         treatment: T.serverPresence,
       },
+    ],
+  },
+  // PR B plan Task 4 (meta-test inventory): every conditional block in a new
+  // file is a server render, instant (spec §7, last row).
+  [BILLING]: {
+    presences: 0,
+    renders: [
+      // The fetch-failure block and the section's empty state, each an early return.
+      {
+        match: 'return <SectionTileError domain="financials" />;',
+        treatment: T.serverPresence,
+      },
+      { match: 'return (\n<div data-testid="section-empty">', treatment: T.serverPresence },
+    ],
+  },
+  [PANEL_CARD]: {
+    presences: 0,
+    renders: [{ match: "{actions !== undefined ? (", treatment: T.serverPresence }],
+  },
+  [FIELD_ROWS]: {
+    presences: 0,
+    renders: [
+      // The key's colon: none for the crew (`keyColon: false`, PR B invariant-8 gate
+      // row 15), else plain for a row without a target, else outside search text.
+      // Two conditionals start on that line, the outer and the nested one.
+      {
+        match: "{!keyColon ? null : r.searchTarget === undefined ? (",
+        count: 2,
+        treatment: T.serverPresence,
+      },
+    ],
+  },
+  [BILLING_BODY]: {
+    presences: 0,
+    renders: [{ match: "return shown.length === 0 ? (", treatment: T.serverPresence }],
+  },
+  [VENUE_BODY]: {
+    presences: 0,
+    renders: [
+      { match: "{nameLine ? (", treatment: T.serverPresence },
+      { match: "{addressLine || cityLine ? (", treatment: T.serverPresence },
+      { match: "{addressLine ? (", treatment: T.serverPresence },
+      { match: "{cityLine ? (", treatment: T.serverPresence },
+      { match: "{dockLine ? (", treatment: T.serverPresence },
+    ],
+  },
+  [CREW_BODY]: {
+    presences: 0,
+    renders: [
+      // A row with no identity and no action: no row.
+      {
+        match: "if (identity === null && actions.length === 0) return null;",
+        treatment: T.serverPresence,
+      },
+      { match: "{member.name !== null && rowChips.length === 0 ? (", treatment: T.serverPresence },
+      { match: "{rowChips.length > 0 ? (", treatment: T.serverPresence },
+      { match: "{member.you ? (", treatment: T.serverPresence },
+      { match: "{member.lead ? (", treatment: T.serverPresence },
+      {
+        match: '{partialAs === "chip" && hasText(member.partial) ? (',
+        treatment: T.serverPresence,
+      },
+      { match: "{line ? (", treatment: T.serverPresence },
+      { match: '{actionsPlacement === "end" ? (', treatment: T.serverPresence },
+      // The admin's attention-hosting row or the plain row.
+      { match: "return member.underRow != null ? (", treatment: T.serverPresence },
+      { match: "{members.length === 0 ? (", treatment: T.serverPresence },
+      { match: "{hidden > 0 ? overflow(hidden) : null}", treatment: T.serverPresence },
+    ],
+  },
+  [CONTACTS_BODY]: {
+    presences: 0,
+    renders: [
+      // A row with no name and nothing to tap: no row.
+      { match: "if (d === null) return null;", treatment: T.serverPresence },
+      { match: "{d.name !== null ? (", treatment: T.serverPresence },
+      { match: "d.actions.length > 0 ? (", treatment: T.serverPresence },
+      { match: "d.notes !== null ? (", treatment: T.serverPresence },
+      // The admin's end-of-row actions or the crew's actions under the identity.
+      { match: 'return actionsPlacement === "end" ? (', treatment: T.serverPresence },
+      // PR B invariant-8 gate row 20: the crew's actions under the identity until
+      // the crew threshold, at its row's end from it (a prop, decided on the server).
+      { match: ') : actionsPlacement === "below-until-split" ? (', treatment: T.serverPresence },
+      { match: "{notesLine === null ? (", treatment: T.serverPresence },
+      { match: "{blocks.length === 0 ? (", treatment: T.serverPresence },
+      {
+        match: "{hidden > 0 && props.overflow !== undefined ? props.overflow(hidden) : null}",
+        treatment: T.serverPresence,
+      },
+    ],
+  },
+  [HOTEL_CARD_BODY]: {
+    presences: 0,
+    renders: [
+      // A stay end: "Not listed", a non-ISO value echoed, or the date stub.
+      { match: '{end.kind === "missing" ? (', treatment: T.serverPresence },
+      { match: ') : end.kind === "raw" ? (', treatment: T.serverPresence },
+      // PR B Task 9: without placeholders (crew) a blank name has no line, and the
+      // name block itself renders only when it holds a name or an address.
+      { match: "{name !== null || address ? (", treatment: T.serverPresence },
+      { match: "{name !== null ? (", treatment: T.serverPresence },
+      { match: "{address ? (", treatment: T.serverPresence },
+      // The stub renders when either end does; without placeholders a missing end
+      // and the connector beside it do not.
+      { match: "{checkIn !== null || checkOut !== null ? (", treatment: T.serverPresence },
+      { match: "{checkIn !== null ? (", treatment: T.serverPresence },
+      { match: "{checkIn !== null && checkOut !== null ? (", treatment: T.serverPresence },
+      { match: "{nights !== null ? (", treatment: T.serverPresence },
+      { match: '{nights} {nights === 1 ? "night" : "nights"}', treatment: T.serverPresence },
+      { match: "{checkOut !== null ? (", treatment: T.serverPresence },
+      { match: "{confirmation !== null || notes !== null ? (", treatment: T.serverPresence },
+      { match: "{confirmation !== null ? (", treatment: T.serverPresence },
+      { match: "{notes !== null ? (", treatment: T.serverPresence },
+      { match: "{names.length > 0 ? (", treatment: T.serverPresence },
+    ],
+  },
+  [TRANSPORT_BODY]: {
+    presences: 0,
+    renders: [
+      // A contact cell: the name, then each of phone and email as a link or plain text.
+      { match: "{name !== null ? (", treatment: T.serverPresence },
+      { match: "{phone !== null ? (", treatment: T.serverPresence },
+      { match: "telHref !== null ? (", treatment: T.serverPresence },
+      { match: "{email !== null ? (", treatment: T.serverPresence },
+      { match: "mailtoHref !== null ? (", treatment: T.serverPresence },
+      { match: "{cellCount > 0 ? (", treatment: T.serverPresence },
+      { match: "{driver !== null ? (", treatment: T.serverPresence },
+      { match: "{loadout !== null ? (", treatment: T.serverPresence },
+      { match: "{vehicleCell !== null ? (", treatment: T.serverPresence },
+      { match: "{vehicleCell.vehicle !== null ? (", treatment: T.serverPresence },
+      { match: "{parking !== null ? (", treatment: T.serverPresence },
+      { match: "{routeLegs.length > 0 ? (", treatment: T.serverPresence },
+      // PR B Task 9: a crew leg kept without a stage draws no stage line.
+      { match: "{leg.stage !== null ? (", treatment: T.serverPresence },
+      { match: "{leg.when ? (", treatment: T.serverPresence },
+      { match: "{leg.names.length > 0 ? (", treatment: T.serverPresence },
+      { match: "{notes !== null ? (", treatment: T.serverPresence },
+      // PR B invariant-8 gate rows 1, 2 and 8: the crew route's vertical segment
+      // between two legs, the crew's "With" riders line, and a leg's dated part in
+      // a <time>. Each is decided by props on the server.
+      { match: "{contained && i < routeLegs.length - 1 ? (", treatment: T.serverPresence },
+      { match: 'riders === "with" ? (', treatment: T.serverPresence },
+      { match: "if (leg.time === undefined) return leg.when;", treatment: T.serverPresence },
+    ],
+  },
+  [MINI_AVATAR]: { presences: 0, renders: [] },
+  [HOTELS]: {
+    presences: 0,
+    renders: [
+      // The admin-only fetch-failure block, the section's empty state, the card.
+      {
+        match: '{hotelFetchFailed ? <SectionTileError domain="hotel" /> : null}',
+        treatment: T.serverPresence,
+      },
+      { match: "{!hasHotels && !hotelFetchFailed ? (", treatment: T.serverPresence },
+      { match: "{hasHotels ? (", treatment: T.serverPresence },
+    ],
+  },
+  [TRANSPORT]: {
+    presences: 0,
+    renders: [
+      // The fetch-failure block, Your flight (moved verbatim from Travel), the
+      // section's empty state and the Transport card.
+      {
+        match: '{transportFetchFailed ? <SectionTileError domain="transportation" /> : null}',
+        treatment: T.serverPresence,
+      },
+      { match: "{showFlight ? (", treatment: T.serverPresence },
+      { match: "{row.structured ? (", treatment: T.serverPresence },
+      { match: "{dateLabel || isNext ? (", treatment: T.serverPresence },
+      { match: "{dateLabel ? <span>{dateLabel}</span> : null}", treatment: T.serverPresence },
+      { match: "{isNext ? (", treatment: T.serverPresence },
+      { match: "{carrier ? (", treatment: T.serverPresence },
+      { match: "{carrier && route ? (", treatment: T.serverPresence },
+      { match: "{seg.depTime && seg.arrTime ? (", treatment: T.serverPresence },
+      { match: "{conf ? (", treatment: T.serverPresence },
+      { match: "{flight.confirmation !== null ? (", treatment: T.serverPresence },
+      { match: "{allHidden && !transportFetchFailed ? (", treatment: T.serverPresence },
+      { match: "{panel !== null && hasTransport ? (", treatment: T.serverPresence },
+    ],
+  },
+  [CONTACTS]: {
+    presences: 0,
+    renders: [
+      // The admin-only fetch-failure block, the section's empty state, the card.
+      {
+        match: '{contactsFetchFailed ? <SectionTileError domain="contacts" /> : null}',
+        treatment: T.serverPresence,
+      },
+      { match: "{!hasContacts && !contactsFetchFailed ? (", treatment: T.serverPresence },
+      { match: "{hasContacts ? (", treatment: T.serverPresence },
+      // The overflow line's plural.
+      {
+        match: '{hidden === 1 ? "more contact" : "more contacts"}',
+        treatment: T.serverPresence,
+      },
+    ],
+  },
+  [AGENDA]: {
+    presences: 0,
+    renders: [
+      // No section for a viewer whose dates are suppressed, the empty state when the
+      // show has no agenda file, and each link's structured block.
+      { match: "if (suppressesDates(dateRestriction)) return null;", treatment: T.serverPresence },
+      { match: 'return (\n<div data-testid="section-empty">', treatment: T.serverPresence },
+      { match: "block === null ? null : (", treatment: T.serverPresence },
     ],
   },
 };

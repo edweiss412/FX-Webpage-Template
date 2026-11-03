@@ -245,7 +245,7 @@ describe("clause 4: group headings are represented", () => {
   });
 
   it("a card that renders only its title has no target, so its heading is not owed an entry", () => {
-    // Venue "Where" with only the Maps link, or Show crew / Key contacts whose
+    // Venue "Where" with only the Maps link, or the Crew roster / Key contacts whose
     // every row hid itself: past skipped controls, the card renders only its title.
     const WHERE = `<div data-card-id="venue-where">
       <h2 data-search-group="">Where</h2>

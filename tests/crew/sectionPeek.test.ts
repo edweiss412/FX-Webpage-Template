@@ -26,6 +26,7 @@ import type {
 import { venueDisplay } from "@/lib/venue/venueLocation";
 import { isPackListVisibleToday, todayIsoInShowTimezone } from "@/lib/visibility/packList";
 import { financialsVisible, transportTileVisible } from "@/lib/visibility/scopeTiles";
+import { premise } from "@/tests/_shared/premise";
 import { makeShowForViewer } from "../fixtures/showForViewer";
 
 type Member = ShowForViewer["crewMembers"][number];
@@ -119,6 +120,38 @@ function transport(schedule: TransportScheduleEntry[]): TransportationRow {
   };
 }
 
+/** The venue contacts the Contacts section lists (never the client contact). */
+const CONTACTS: ShowForViewer["contacts"] = [
+  { kind: "venue", name: "Vic Venue", email: null, phone: "555-0120", notes: null },
+  { kind: "in_house_av", name: null, email: "av@venue.example", phone: null, notes: null },
+];
+
+/** One agenda day of the structured schedule, with `n` sessions. */
+function agendaDay(label: string, n: number) {
+  return {
+    dayLabel: label,
+    date: null,
+    sessions: Array.from({ length: n }, (_, i) => ({
+      time: `${9 + i}:00 AM`,
+      title: `Session ${i + 1}`,
+      room: null,
+      tracks: [],
+      drift: null,
+    })),
+  };
+}
+
+/** An agenda PDF with a file and, when given days, a high-confidence schedule. */
+function agendaLink(fileId: string, days?: ReturnType<typeof agendaDay>[]) {
+  return {
+    label: "AGENDA",
+    fileId,
+    ...(days !== undefined
+      ? { extracted: { confidence: "high" as const, corrections: 0, extractorVersion: 2, days } }
+      : {}),
+  };
+}
+
 /** A show where every section has something to peek at. */
 function fullShow(): ShowForViewer {
   return makeShowForViewer({
@@ -127,11 +160,13 @@ function fullShow(): ShowForViewer {
       venue: { name: "Grand Hall", address: "1 Plaza Way" },
       dates: { travelIn: TRAVEL_IN, set: SET_DAY, showDays: SHOW_DAYS, travelOut: TRAVEL_OUT },
       schedule_phases: PHASES,
+      agenda_links: [agendaLink("agenda-full", [agendaDay("Day 1", 2), agendaDay("Day 2", 1)])],
     },
     hotelReservations: [reservation({})],
     transportation: transport([...CONTENT_LEGS, BLANK_LEG]),
     pullSheet: Array.from({ length: 14 }, (_, i) => ({ caseLabel: `Case ${i + 1}`, items: [] })),
     financials: { po: "PO-4471", proposal: null, invoice: null, invoice_notes: null },
+    contacts: CONTACTS,
   });
 }
 
@@ -195,6 +230,43 @@ describe("sectionPeek (peek, spec §4.6)", () => {
     expect(peek("crew", solo, crew("c-plain"))).toBe("1 person");
   });
 
+  it("peek: contacts counts the contacts the Contacts section lists, never the client contact, null at zero", () => {
+    const client = { name: "Dana Clientside", phone: "555-0100", email: null };
+    const show = makeShowForViewer({
+      crewMembers: ROSTER,
+      contacts: CONTACTS,
+      show: { client_contact: client },
+    });
+    expect(peek("contacts", show, crew("c-plain"))).toBe(`${CONTACTS.length} contacts`);
+    const solo = makeShowForViewer({ crewMembers: ROSTER, contacts: [CONTACTS[0]!] });
+    expect(peek("contacts", solo, crew("c-plain"))).toBe("1 contact");
+    // A client contact alone is not a contact the section lists.
+    const clientOnly = makeShowForViewer({
+      crewMembers: ROSTER,
+      contacts: [],
+      show: { client_contact: client },
+    });
+    expect(peek("contacts", clientOnly, ADMIN)).toBeNull();
+  });
+
+  it("peek: contacts counts only the contacts the section renders a row for, so it never counts over the section's empty state (gate row 13's peer)", () => {
+    // Two contacts the Contacts body drops: a sentinel name with a digit-less phone,
+    // and a nameless contact whose only email is a sentinel. The section shows
+    // "No contacts on file yet." for them, so the peek must say nothing.
+    const unrenderable: ShowForViewer["contacts"] = [
+      { kind: "venue", name: "TBD", email: null, phone: "ask at desk", notes: null },
+      { kind: "in_house_av", name: null, email: "N/A", phone: null, notes: null },
+    ];
+    const none = makeShowForViewer({ crewMembers: ROSTER, contacts: unrenderable });
+    expect(peek("contacts", none, crew("c-plain"))).toBeNull();
+    // POSITIVE CONTROL: one renderable contact among them is counted, the others not.
+    const one = makeShowForViewer({
+      crewMembers: ROSTER,
+      contacts: [...unrenderable, CONTACTS[0]!],
+    });
+    expect(peek("contacts", one, crew("c-plain"))).toBe("1 contact");
+  });
+
   it("peek: gear counts a pack list only on the days its phase and stage gates show it", () => {
     const show = fullShow();
     const cases = show.pullSheet!.length;
@@ -227,7 +299,9 @@ describe("sectionPeek (peek, spec §4.6)", () => {
     }
   });
 
-  it("peek: a transport leg never feeds the travel peek for a viewer the transport gate excludes", () => {
+  it("peek: a transport leg never feeds the Transport peek for a viewer the transport gate excludes, and never the Hotels peek", () => {
+    // PR B Task 9: Travel's peek ("<hotel> · N rides") split into the Hotels peek
+    // (the hotel part) and the Transport peek (the rides part).
     const withTransport = fullShow();
     const withoutTransport = fullShow();
     withoutTransport.transportation = null;
@@ -245,38 +319,74 @@ describe("sectionPeek (peek, spec §4.6)", () => {
       });
     };
 
-    // Excluded: the leg count is gone, and the peek is exactly the transport-free one.
+    // Excluded: no ride count, exactly the transport-free peek; the hotel is the Hotels peek's.
     expect(gate(crew("c-plain"))).toBe(false);
-    expect(peek("travel", withTransport, crew("c-plain"))).toBe(
-      peek("travel", withoutTransport, crew("c-plain")),
+    expect(peek("transport", withTransport, crew("c-plain"))).toBeNull();
+    expect(peek("transport", withTransport, crew("c-plain"))).toBe(
+      peek("transport", withoutTransport, crew("c-plain")),
     );
-    expect(peek("travel", withTransport, crew("c-plain"))).toBe(hotel);
+    expect(peek("hotels", withTransport, crew("c-plain"))).toBe(hotel);
 
     // Positive control: the admin and a rider on a leg see the legs the section renders,
-    // which leaves out the all-sentinel leg.
+    // which leaves out the all-sentinel leg; the Hotels peek is the same either way.
     expect(withTransport.transportation!.schedule).toHaveLength(CONTENT_LEGS.length + 1);
     for (const viewer of [ADMIN, crew("c-rider")]) {
       expect(gate(viewer)).toBe(true);
-      expect(peek("travel", withTransport, viewer)).toBe(`${hotel} · ${CONTENT_LEGS.length} rides`);
-      expect(peek("travel", withTransport, viewer)).not.toBe(
-        peek("travel", withoutTransport, viewer),
+      expect(peek("transport", withTransport, viewer)).toBe(`${CONTENT_LEGS.length} rides`);
+      expect(peek("transport", withTransport, viewer)).not.toBe(
+        peek("transport", withoutTransport, viewer),
       );
+      expect(peek("hotels", withTransport, viewer)).toBe(hotel);
     }
   });
 
-  it("peek: travel names a single hotel, counts several, and skips a sentinel name", () => {
+  it("peek: hotels names a single hotel, counts several, and skips a sentinel name, with no transport row", () => {
     const two = fullShow();
     two.transportation = null;
     two.hotelReservations = [
       reservation({ ordinal: 2, hotel_name: "Second Lodge" }),
       reservation({ ordinal: 1 }),
     ];
-    expect(peek("travel", two, crew("c-plain"))).toBe(`${two.hotelReservations.length} hotels`);
+    expect(peek("hotels", two, crew("c-plain"))).toBe(`${two.hotelReservations.length} hotels`);
 
     const sentinel = fullShow();
     sentinel.transportation = null;
     sentinel.hotelReservations = [reservation({ hotel_name: "TBA" })];
-    expect(peek("travel", sentinel, crew("c-plain"))).toBeNull();
+    expect(peek("hotels", sentinel, crew("c-plain"))).toBeNull();
+  });
+
+  it("peek: hotels names a single hotel, counts several, skips a sentinel name, and is withheld under date suppression (PR B Task 9)", () => {
+    const show = fullShow();
+    const name = show.hotelReservations[0]!.hotel_name!;
+    // The transport row never feeds the Hotels peek, for any viewer.
+    for (const viewer of [ADMIN, crew("c-rider"), crew("c-plain")])
+      expect(peek("hotels", show, viewer), viewer.kind).toBe(name);
+    const two = fullShow();
+    two.hotelReservations = [
+      reservation({ ordinal: 2, hotel_name: "Second Lodge" }),
+      reservation({ ordinal: 1 }),
+    ];
+    expect(peek("hotels", two, crew("c-plain"))).toBe("2 hotels");
+    const sentinel = fullShow();
+    sentinel.hotelReservations = [reservation({ hotel_name: "TBA" })];
+    expect(peek("hotels", sentinel, crew("c-plain"))).toBeNull();
+    expect(peek("hotels", show, crew("c-asterisk"))).toBeNull();
+  });
+
+  it("peek: transport counts the rides its body shows a viewer the gate admits, a stageless leg included, and nothing for another (PR B Task 9)", () => {
+    const show = fullShow();
+    show.transportation = transport([
+      ...CONTENT_LEGS,
+      BLANK_LEG,
+      { stage: "", date: null, time: "6:30 PM", assigned_names: ["Riley Rider"] },
+    ]);
+    for (const viewer of [ADMIN, crew("c-rider")])
+      expect(peek("transport", show, viewer), viewer.kind).toBe(`${CONTENT_LEGS.length + 1} rides`);
+    expect(peek("transport", show, crew("c-plain"))).toBeNull();
+    // The hotel never feeds the Transport peek.
+    const noLegs = fullShow();
+    noLegs.transportation = transport([]);
+    expect(peek("transport", noLegs, ADMIN)).toBeNull();
   });
 
   it("peek: no date reaches a peek for a date-suppressed viewer", () => {
@@ -332,13 +442,56 @@ describe("sectionPeek (peek, spec §4.6)", () => {
     );
   });
 
-  it("peek: budget shows the PO only to a viewer financialsVisible admits", () => {
+  it("peek: agenda counts the sessions its structured schedule shows, across documents, and nothing when it shows none (PR B Task 10)", () => {
+    const two = fullShow();
+    two.show.agenda_links = [
+      agendaLink("agenda-a", [agendaDay("Day 1", 2), agendaDay("Day 2", 1)]),
+      agendaLink("agenda-b", [agendaDay("Day 1", 3)]),
+      // A link with no file renders nothing, so its schedule never counts.
+      {
+        label: "AGENDA",
+        url: "https://example.test/agenda",
+        extracted: agendaLink("agenda-url", [agendaDay("Day 1", 5)]).extracted!,
+      },
+    ];
+    const sessions = two.show.agenda_links
+      .filter((l) => Boolean(l.fileId))
+      .flatMap((l) => l.extracted?.days ?? [])
+      .flatMap((d) => d.sessions).length;
+    premise("sessions across the file links", sessions, 1);
+    expect(peek("agenda" as CrewSectionId, two, crew("c-plain"))).toBe(`${sessions} sessions`);
+
+    const one = fullShow();
+    one.show.agenda_links = [agendaLink("agenda-one", [agendaDay("Day 1", 1)])];
+    expect(peek("agenda" as CrewSectionId, one, crew("c-plain"))).toBe("1 session");
+
+    // A button with no structured schedule: the section shows no session to count.
+    const bare = fullShow();
+    bare.show.agenda_links = [agendaLink("agenda-bare")];
+    expect(peek("agenda" as CrewSectionId, bare, crew("c-plain"))).toBeNull();
+    // A low-confidence extraction renders embed-only, so it counts nothing either.
+    const low = fullShow();
+    low.show.agenda_links = [
+      {
+        ...agendaLink("agenda-low"),
+        extracted: {
+          confidence: "low",
+          corrections: 0,
+          extractorVersion: 2,
+          days: [agendaDay("Day 1", 4)],
+        },
+      },
+    ];
+    expect(peek("agenda" as CrewSectionId, low, crew("c-plain"))).toBeNull();
+  });
+
+  it("peek: billing shows the PO only to a viewer financialsVisible admits", () => {
     const show = fullShow();
     const po = show.financials!.po!;
     for (const viewer of [ADMIN, crew("c-lead"), crew("c-plain")]) {
       const ctx = resolveViewerContext(viewer, project(show, viewer));
       const entitled = financialsVisible(ctx.viewerFlags, ctx.isAdmin);
-      expect(peek("budget", show, viewer), JSON.stringify(viewer)).toBe(
+      expect(peek("billing", show, viewer), JSON.stringify(viewer)).toBe(
         entitled ? `PO ${po}` : null,
       );
     }
@@ -346,15 +499,15 @@ describe("sectionPeek (peek, spec §4.6)", () => {
     expect(financialsVisible(plain.viewerFlags, plain.isAdmin)).toBe(false);
   });
 
-  it("peek: budget is null when the financials fetch failed or the PO is a sentinel", () => {
+  it("peek: billing is null when the financials fetch failed or the PO is a sentinel", () => {
     const failed = fullShow();
     failed.tileErrors = { financials: "financials read failed" };
     expect(failed.financials?.po).toBeTruthy();
-    expect(peek("budget", failed, crew("c-lead"))).toBeNull();
+    expect(peek("billing", failed, crew("c-lead"))).toBeNull();
 
     const sentinel = fullShow();
     sentinel.financials = { po: "N/A", proposal: null, invoice: null, invoice_notes: null };
-    expect(peek("budget", sentinel, crew("c-lead"))).toBeNull();
+    expect(peek("billing", sentinel, crew("c-lead"))).toBeNull();
   });
 
   it("peek: every section's peek is null, never placeholder text, when its source is empty or a sentinel", () => {
@@ -376,7 +529,7 @@ describe("sectionPeek (peek, spec §4.6)", () => {
       ["sentinel", sentinel],
     ] as const) {
       const peeks = allPeeks(show, ADMIN);
-      expect(peeks.map((p) => p.id)).toContain("budget");
+      expect(peeks.map((p) => p.id)).toContain("billing");
       for (const { id, peek: line } of peeks) expect(line, `${name} ${id}`).toBeNull();
     }
 

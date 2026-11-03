@@ -143,8 +143,9 @@ describe("crew viewer", () => {
       data: fullContent.data,
       viewer: CREW,
       today: MATRIX_TODAY,
-      budgetVisible: fullContent.budgetVisible,
+      billingVisible: fullContent.billingVisible,
       staticPreview: false,
+      sections: fullContent.sections,
     });
     premise("fullContent index entries", expected.entries.length, 0);
     premise(
@@ -189,8 +190,9 @@ describe("previews", () => {
         data: fullContent.data,
         viewer: ADMIN_PREVIEW,
         today: MATRIX_TODAY,
-        budgetVisible: fullContent.budgetVisible,
+        billingVisible: fullContent.billingVisible,
         staticPreview: false,
+        sections: fullContent.sections,
       }),
     );
   });

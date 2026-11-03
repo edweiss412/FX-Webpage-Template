@@ -193,6 +193,8 @@ test.beforeAll(async ({ browser }) => {
     [
       ...mutantSources,
       `@source "${join(REPO_ROOT, "components", "admin")}";`,
+      // The shared section bodies the admin popup renders (crew page redesign PR B).
+      `@source "${join(REPO_ROOT, "components", "show-panels")}";`,
       `@source "${join(REPO_ROOT, "components", "messages")}";`,
       `@source "${join(REPO_ROOT, "components", "crew", "primitives")}";`,
       `@source "${join(REPO_ROOT, "components", "layout")}";`,

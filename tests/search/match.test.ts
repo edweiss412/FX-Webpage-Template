@@ -266,11 +266,11 @@ describe("repeat removal (spec §5.5)", () => {
   it("keeps the Today line when its twin is not a hit for this query", () => {
     const { index, prepared } = adHoc(
       { section: "today", group: "Tonight", label: "Hotel", value: "Hyatt" },
-      { section: "travel", group: "Hotels", label: "Hotel", value: "Hyatt" },
+      { section: "hotels", group: "Hotels", label: "Hotel", value: "Hyatt" },
     );
-    const [today, travel] = index.entries;
+    const [today, hotels] = index.entries;
     expect(ids(searchIndex(prepared, "tonight"))).toEqual([today!.id]);
-    expect(ids(searchIndex(prepared, "hyatt"))).toEqual([travel!.id]);
+    expect(ids(searchIndex(prepared, "hyatt"))).toEqual([hotels!.id]);
   });
 
   it("compares after trimming and collapsing whitespace only", () => {
@@ -337,21 +337,21 @@ describe("order (spec §5.5)", () => {
     expect(best).toEqual([2, 2, 1.2]);
   });
 
-  it("uses [...BASE_SECTION_IDS, budget] for ties, budget last", () => {
+  it('uses ["today", ...CREW_SECTION_IDS] for ties, billing last', () => {
     const { prepared } = adHoc(
-      { section: "budget", value: "Dock fee" },
+      { section: "billing", value: "Dock fee" },
       { section: "gear", value: "Dock cart" },
       { section: "today", value: "Dock open" },
-      { section: "travel", value: "Dock pickup" },
+      { section: "transport", value: "Dock pickup" },
     );
     const sections = searchIndex(prepared, "dock").sections.map((s) => s.section);
-    expect(sections).toEqual(["today", "travel", "gear", "budget"]);
+    expect(sections).toEqual(["today", "transport", "gear", "billing"]);
   });
 
   it("counts every row it returns in total", () => {
     const result = searchIndex(fixture, "chicago");
     expect(result.total).toBe(hits(result).length);
-    expect(result.sections.map((s) => s.section)).toEqual(["venue", "travel"]);
+    expect(result.sections.map((s) => s.section)).toEqual(["venue", "hotels"]);
   });
 
   it("returns only sections with hits, and nothing for an empty index", () => {

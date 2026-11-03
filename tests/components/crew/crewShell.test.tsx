@@ -12,9 +12,9 @@
  *   - Test 19-port  the Footer report props differ by viewer kind exactly as
  *     _ShowBody.tsx does (admin_preview → surface=admin + preview surfaceId +
  *     crewPreview autocapture; crew → surface=crew, no override id, no preview).
- *   - Test 8  the preview-as Budget gate: a NON-LEAD previewed crew asking for
- *     ?s=budget lands on "today" (Budget not entered, no Budget tab); a LEAD
- *     previewed crew (or a real admin) reaches "budget".
+ *   - Test 8  the preview-as Billing gate: a NON-LEAD previewed crew asking for
+ *     ?s=budget (the old id, now an alias) lands on "today" (Billing not entered,
+ *     no Billing row); a LEAD previewed crew (or a real admin) reaches "billing".
  *   - Test 16  the projection-alert upsert is section-independent and carries
  *     the render's OWN unfiltered tileErrors keys (sorted), the constant
  *     message, sheet_name === show.title, and no viewer/version identifiers;
@@ -75,7 +75,7 @@ vi.mock("@/components/crew/CrewPass", () => ({
 
 // Task 11 wires the REAL section components into CrewShell's dispatcher. This
 // suite pins the shell's producer/wiring contracts (fail-closed, alert,
-// realtime-bridge, footer report props, budget gate, identityChip, status pill)
+// realtime-bridge, footer report props, billing gate, identityChip, status pill)
 // against hand-built thin fixtures whose `show` omits fields the real sections
 // dereference (e.g. `agenda_links`). Section CONTENT is out of scope here (it is
 // pinned by the section unit tests + crewShellSections.test.tsx), so each section
@@ -105,8 +105,11 @@ vi.mock("@/components/crew/sections/ScheduleSection", () => ({
 vi.mock("@/components/crew/sections/VenueSection", () => ({
   VenueSection: sectionMarker("section-venue"),
 }));
-vi.mock("@/components/crew/sections/TravelSection", () => ({
-  TravelSection: sectionMarker("section-travel"),
+vi.mock("@/components/crew/sections/HotelsSection", () => ({
+  HotelsSection: sectionMarker("section-hotels"),
+}));
+vi.mock("@/components/crew/sections/TransportSection", () => ({
+  TransportSection: sectionMarker("section-transport"),
 }));
 vi.mock("@/components/crew/sections/CrewSection", () => ({
   CrewSection: sectionMarker("section-crew"),
@@ -114,8 +117,8 @@ vi.mock("@/components/crew/sections/CrewSection", () => ({
 vi.mock("@/components/crew/sections/GearSection", () => ({
   GearSection: sectionMarker("section-gear"),
 }));
-vi.mock("@/components/crew/sections/BudgetSection", () => ({
-  BudgetSection: sectionMarker("section-budget"),
+vi.mock("@/components/crew/sections/BillingSection", () => ({
+  BillingSection: sectionMarker("section-billing"),
 }));
 
 vi.mock("@/components/realtime/ShowRealtimeBridge", () => ({
@@ -196,7 +199,7 @@ function crewRow(id: string, role: string, roleFlags: CrewRow["roleFlags"]): Cre
 
 /**
  * Build a well-formed projection. `crewMembers` defaults to a LEAD + a hand so
- * the preview-as Budget gate can pick either id. `crewMembersOverride` lets a
+ * the preview-as Billing gate can pick either id. `crewMembersOverride` lets a
  * test inject the malformed (non-array) shape.
  */
 function makeData(opts?: {
@@ -335,13 +338,13 @@ describe("CrewShell Footer report-prop contract (Test 19-port)", () => {
 });
 
 // ============================================================================
-// Test 8 — preview-as Budget gate (single financialsVisible authority)
+// Test 8 — preview-as Billing gate (single financialsVisible authority)
 // ============================================================================
-describe("CrewShell Budget gate is the financialsVisible authority (Test 8)", () => {
-  const budgetRow = () =>
-    screen.getByTestId("crew-all-sections").querySelector('[data-section="budget"]');
+describe("CrewShell Billing gate is the financialsVisible authority (Test 8)", () => {
+  const billingRow = () =>
+    screen.getByTestId("crew-all-sections").querySelector('[data-section="billing"]');
 
-  it("admin previewing a NON-LEAD crew + ?s=budget → today (Budget not entered, no Budget tab)", async () => {
+  it("admin previewing a NON-LEAD crew + ?s=budget → today (Billing not entered, no Billing row)", async () => {
     await renderShell({
       data: makeData(),
       viewer: { kind: "admin_preview", crewMemberId: HAND_ID },
@@ -350,32 +353,32 @@ describe("CrewShell Budget gate is the financialsVisible authority (Test 8)", ()
     });
     // The open section lives in the CrewSections controller (review R1 [MED]):
     // ?s=budget resolves to home, so no sheet is open, and the list offers no
-    // Budget row.
+    // Billing row.
     expect(screen.queryByRole("dialog")).toBeNull();
     expect(screen.getByTestId("crew-all-sections")).toBeTruthy();
-    expect(budgetRow()).toBeNull();
+    expect(billingRow()).toBeNull();
   });
 
-  it("admin previewing a LEAD crew + ?s=budget → budget", async () => {
+  it("admin previewing a LEAD crew + ?s=budget (the alias) → billing", async () => {
     await renderShell({
       data: makeData(),
       viewer: { kind: "admin_preview", crewMemberId: LEAD_ID },
       showId: "show-gate",
       rawSection: "budget",
     });
-    expect(screen.getByRole("dialog").getAttribute("data-section")).toBe("budget");
-    expect(budgetRow()).not.toBeNull();
+    expect(screen.getByRole("dialog").getAttribute("data-section")).toBe("billing");
+    expect(billingRow()).not.toBeNull();
   });
 
-  it("real admin + ?s=budget → budget", async () => {
+  it("real admin + ?s=billing → billing", async () => {
     await renderShell({
       data: makeData(),
       viewer: adminViewer,
       showId: "show-gate",
-      rawSection: "budget",
+      rawSection: "billing",
     });
-    expect(screen.getByRole("dialog").getAttribute("data-section")).toBe("budget");
-    expect(budgetRow()).not.toBeNull();
+    expect(screen.getByRole("dialog").getAttribute("data-section")).toBe("billing");
+    expect(billingRow()).not.toBeNull();
   });
 });
 

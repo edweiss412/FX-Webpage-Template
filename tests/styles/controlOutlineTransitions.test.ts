@@ -226,16 +226,20 @@ describe("§15 table 3: every Family A field stays instant (derived)", () => {
 });
 
 /**
- * §15 table 3, last row: "the three `step3ReviewSections` visuals ... single-state;
+ * §15 table 3, last row: "the two `step3ReviewSections` visuals ... single-state;
  * no state pair exists; instant by construction".
  *
  * Four until 2026-08-28, when the diagram tile's chrome moved off its <Image>
  * onto the anchor that forms the tile box, taking that image out of the
  * painted-child family by design
  * (docs/superpowers/specs/2026-08-28-diagram-tile-chrome-consistency.md §5).
+ * Three until 2026-11-01, when the crew roster's call and email squares moved
+ * into the shared Crew body (components/show-panels/CrewBody.tsx, crew page
+ * redesign PR B Task 6) as the one square its call, text and email actions
+ * share.
  *
  * DERIVED for the same reason as Family A, and scoped the same way §15's own row
- * is: by FILE. The four were originally cited by line, and every one of those
+ * is: by FILE, the step-3 file and the shared bodies it renders from. The four were originally cited by line, and every one of those
  * line numbers had already drifted by the time this was written — three merges
  * from main moved them. A file-scoped derivation says the same thing and cannot
  * go stale.
@@ -246,23 +250,52 @@ describe("§15 table 3: every Family A field stays instant (derived)", () => {
  */
 describe("§15 table 3: the step-3 single-state visuals stay instant (derived)", () => {
   const SWEPT = /border-(text-faint|control-outline-tinted)/;
+  const STEP3 = "components/admin/wizard/step3ReviewSections.tsx";
+  /**
+   * The step-3 file plus every shared section body it renders from
+   * (components/show-panels/, crew page redesign PR B), read off its own import
+   * lines: a visual that moved into a body is still a step-3 visual, and
+   * deriving the files from the imports means the next body to move is covered
+   * the commit it is imported.
+   */
+  const STEP3_FILES = new Set([
+    STEP3,
+    ...[
+      ...readFileSync(join(ROOT, STEP3), "utf8").matchAll(
+        /from "@\/(components\/show-panels\/[A-Za-z]+)"/g,
+      ),
+    ].map((m) => `${m[1]}.tsx`),
+  ]);
   const visuals = scanInteractiveElements(ROOT, { textEntry: true, paintedChildren: true }).filter(
     (el) =>
-      el.file === "components/admin/wizard/step3ReviewSections.tsx" &&
+      STEP3_FILES.has(el.file) &&
       el.admittedAs === "painted-child" &&
       allStrings(el).some((str) => SWEPT.test(str)),
   );
 
-  it("the derivation finds the three visuals §15 names", () => {
-    // Exactly three, and the count IS the claim here: §15 says "the three", so a
-    // fourth appearing is a change to the inventory rather than a passing test —
-    // and so is a second one disappearing. The count was four until the diagram
+  it("the derivation reads the shared bodies the step-3 file imports", () => {
+    // The widening is the claim, so it is proven on the file that carries a
+    // moved visual: without it the roster's call, text and email square is lost.
+    premise("the step-3 file imports shared bodies", STEP3_FILES.size, 1);
+    expect(STEP3_FILES).toContain("components/show-panels/CrewBody.tsx");
+    // And the contacts' call and email square, which left with the Contacts body (Task 7).
+    expect(STEP3_FILES).toContain("components/show-panels/ContactsBody.tsx");
+  });
+
+  it("the derivation finds the two visuals §15 names", () => {
+    // Exactly two, and the count IS the claim here: §15 says "the two", so a
+    // third appearing is a change to the inventory rather than a passing test —
+    // and so is one disappearing. The count was four until the diagram
     // tile's chrome moved off its <Image> and onto the anchor that forms the tile
     // box, which took that image out of the painted-child family by design
     // (docs/superpowers/specs/2026-08-28-diagram-tile-chrome-consistency.md §5).
     // The anchor does not replace it: an interactive control is admitted as
-    // itself, never as a painted child, so it cannot enter this filter.
-    expect(visuals.map((el) => `${el.line} <${el.tag}>`)).toHaveLength(3);
+    // itself, never as a painted child, so it cannot enter this filter. It was
+    // three until the crew roster's call and email squares, two JSX sites, moved
+    // into the shared Crew body as one site that its call, text and email
+    // actions map through (PR B Task 6); the contacts' square is the other, in the
+    // shared Contacts body since PR B Task 7, still one site.
+    expect(visuals.map((el) => `${el.file}:${el.line} <${el.tag}>`)).toHaveLength(2);
   });
 
   it("§15's prose states the same count this derivation returns", () => {

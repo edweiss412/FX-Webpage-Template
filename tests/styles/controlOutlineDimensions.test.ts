@@ -76,10 +76,15 @@ const PAIRS: ReadonlyArray<{
     childClass: "size-8",
   },
   {
-    label: "step3 contact icon: 32px visual inside the 44px link",
-    file: "components/admin/wizard/step3ReviewSections.tsx",
-    anchor: "aria-label={`${action} ${displayName}`}",
-    window: 500,
+    // The admin popup's contact links render from the shared Contacts body since
+    // crew page redesign PR B Task 7 (the anchor moved with them; same property).
+    label: "contacts body contact icon: 32px visual inside the 44px link",
+    file: "components/show-panels/ContactsBody.tsx",
+    anchor: "aria-label={`${verb} ${d.heading}`}",
+    // 700, not 500: since the PR B invariant-8 gate (row 17) the square carries two
+    // arms (the admin's and the crew's) and the link a crew-only `group` prefix, so
+    // the square's arms close ~530 and ~640 characters past the anchor. Still one control.
+    window: 700,
     parentClass: "size-tap-min",
     childMarker: "place-items-center",
     childClass: "size-8",

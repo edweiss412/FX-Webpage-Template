@@ -595,7 +595,23 @@ export const DISPOSITION_RULES: DispositionRule[] = [
     // preview route through `path`. Same disposition: a crew page. The skeleton
     // case's two loads moved to crew-page.spec.ts (round 2, 2C-1) and still count
     // here. Re-derived from the failure's own count (27 candidates).
-    expectedCount: 27,
+    // 29 since the crew page redesign PR B's Task 4: the billing alias cases load
+    // the preview route through a `path` variable, once in crew-section-toggle.spec.ts
+    // (loadPath) and once in crew-wide-nav.spec.ts (loadWide). Same disposition: a
+    // crew page. Re-derived from the failure's own count (29 candidates).
+    // 31 since PR B's Task 9: the hotels/transport blocks load crew routes through a
+    // `path` variable again, once in crew-section-toggle.spec.ts (loadPath) and once
+    // in crew-wide-nav.spec.ts (loadWide). Same disposition: a crew page. Re-derived
+    // from the failure's own count (31 candidates).
+    // 33 since PR B's Task 10: the agenda blocks load crew routes through a `path`
+    // variable again, once in crew-section-toggle.spec.ts (loadPath) and once in
+    // crew-wide-nav.spec.ts (loadIn). Same disposition: a crew page. Re-derived from
+    // the failure's own count (33 candidates).
+    // 34 since PR B's invariant-8 gate repairs (rows 1 and 3): the transport
+    // route-fit cases in crew-section-toggle.spec.ts load the share route through a
+    // `path` variable at each width. Same disposition: a crew page. Re-derived from
+    // the failure's own count (34 candidates).
+    expectedCount: 34,
     match: (c) =>
       !c.file.startsWith("tests/e2e/published-review-modal.") &&
       !/\bcrewPage\.goto\(/.test(c.matchLineText) &&
@@ -692,7 +708,24 @@ export const DISPOSITION_RULES: DispositionRule[] = [
     // and crew-wide-nav.spec.ts's Today search reveal case (UI-gate re-run P1-1)
     // builds it for the wide and compact legs. Re-derived from the failure's own
     // count (22 candidates).
-    expectedCount: 22,
+    // 25 since the crew page redesign PR B's Task 4: the billing alias cases build the
+    // preview-as path for a seeded lead and crew member (`preview(name)` in
+    // crew-section-toggle.spec.ts and crew-wide-nav.spec.ts), and the panel card
+    // geometry case in crew-page.spec.ts loads the lead's preview route. Re-derived
+    // from the failure's own count (25 candidates).
+    // 26 since Task 5: the Venue panel's body-under-its-header case in crew-page.spec.ts
+    // loads a crew member's preview route. Re-derived from the failure's own count (26
+    // candidates).
+    // 27 since Task 6: the roster role-line case in crew-page.spec.ts ("crew: at
+    // <width>px ...") loads the seeded lead's preview route. Re-derived from the
+    // failure's own count (27 candidates).
+    // 28 since Task 9: the hotels/transport compact block builds the preview-as path
+    // for its seeded viewers (`preview(name)` in crew-section-toggle.spec.ts).
+    // Re-derived from the failure's own count (28 candidates).
+    // 29 since Task 10: the agenda compact block builds the preview-as path for its
+    // seeded viewers (`previewOf(seeded, name)` in crew-section-toggle.spec.ts).
+    // Re-derived from the failure's own count (29 candidates).
+    expectedCount: 29,
     match: (c) =>
       !isTestTitle(c.matchLineText) &&
       !/^\["\/admin\/show\//.test(c.matchLineText) &&
@@ -864,7 +897,17 @@ export const DISPOSITION_RULES: DispositionRule[] = [
     // "after a nav jump to Venue, a Today search reveal leaves the URL at home"
     // case reloads the crew route to prove the reload stays home. Re-derived from
     // the failure's own count (25 candidates).
-    expectedCount: 25,
+    // 27 since the crew page redesign PR B's Task 4: crew-section-toggle.spec.ts's
+    // billing alias cases step Back and Forward over a crew-route entry (goBack,
+    // goForward). Re-derived from the failure's own count (27 candidates).
+    // 29 since PR B's Task 9: the s=travel case steps Back and Forward over a
+    // crew-route entry the same way. Re-derived from the failure's own count (29
+    // candidates).
+    // 33 since PR B's Task 10: the two agenda history cases (an entry carrying
+    // s=agenda with no content, and a date-suppressed viewer's popstate to it) step
+    // Back and Forward over a crew-route entry the same way. Re-derived from the
+    // failure's own count (33 candidates).
+    expectedCount: 33,
     match: (c) =>
       [
         "admin-nav-layout-dimensions.spec.ts",

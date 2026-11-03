@@ -217,7 +217,13 @@ export const CENSUS: readonly CensusRow[] = [
   // 5307 -> 5375 on feat/warning-card-fixes Task 17 (the chrome's jump fields and the
   // card section jump above it); located by its own report-toggle testid.
   // 5375 -> 5395 on feat/warning-card-fixes (UI gate P3: jump targets named by their own heading or title); located by its own element (5-line context match).
-  { file: "components/admin/wizard/step3ReviewSections.tsx", line: 5395 },
+  // 5395 -> 5381 on feat/crew-page-redesign-pr-b Task 2 (seven lucide imports moved to lib/showSections/registry.ts, its one import landed, and STEP3_SECTION_GROUPS became one line, all above it); located by its own element (5-line context match).
+  // 5381 -> 5360 on feat/crew-page-redesign-pr-b Task 4 (FieldRowList and its eyebrow constants moved to components/show-panels/FieldRowList.tsx, two imports landed, and OpsBreakdown's empty-state ternary became one BillingBody line, all above it); located by its own element (5-line context match).
+  // 5360 -> 5329 on feat/crew-page-redesign-pr-b Task 5 (the cell eyebrow class moved to components/show-panels/FieldRowList.tsx, the Truck import left, two imports landed, and VenueBreakdown's Where core became one VenueBody call, all above it); located by its own element (5-line context match).
+  // 5329 -> 5282 on feat/crew-page-redesign-pr-b Task 6 (CrewBreakdown's member list became one CrewBody call, its rows and their call and email anchors moved to components/show-panels/CrewBody.tsx, and one import landed, all above it); located by its own element (5-line context match).
+  // 5282 -> 5201 on feat/crew-page-redesign-pr-b Task 7 (contentRows moved to components/show-panels/FieldRowList.tsx and contactBlocks with ContactsBreakdown's list and its call and email anchors to components/show-panels/ContactsBody.tsx, one import landed and the unused Avatar import left, all above it); located by its own element (5-line context match).
+  // 5201 -> 4859 on feat/crew-page-redesign-pr-b Task 8 (MiniAvatar moved to components/show-panels/MiniAvatar.tsx, nightsBetween to components/show-panels/HotelCardBody.tsx, and TransportBody with its cells and contact anchors to components/show-panels/TransportBody.tsx, three lucide and four helper imports left and two imports landed, and HotelCard's markup with its date stub became one HotelCardBody call, all above it); located by its own element (5-line context match).
+  { file: "components/admin/wizard/step3ReviewSections.tsx", line: 4859 },
   // spec §4.2 row 19 — spec cites 4178; live 4213, same reason as row 18 plus
   // the 2026-08-25 tinted-plate comment above `ArchivedTabRescanNeeded`
   // Line moved 4424 -> 4443 on 2026-08-27 by this arc's own Task 4, which added 27 lines
@@ -281,7 +287,13 @@ export const CENSUS: readonly CensusRow[] = [
   // 5389 -> 5457 on feat/warning-card-fixes Task 17, same cause; located by its own
   // report-submit testid.
   // 5457 -> 5477 on feat/warning-card-fixes (UI gate P3: jump targets named by their own heading or title); located by its own element (5-line context match).
-  { file: "components/admin/wizard/step3ReviewSections.tsx", line: 5477 },
+  // 5477 -> 5463 on feat/crew-page-redesign-pr-b Task 2 (seven lucide imports moved to lib/showSections/registry.ts, its one import landed, and STEP3_SECTION_GROUPS became one line, all above it); located by its own element (5-line context match).
+  // 5463 -> 5442 on feat/crew-page-redesign-pr-b Task 4 (FieldRowList and its eyebrow constants moved to components/show-panels/FieldRowList.tsx, two imports landed, and OpsBreakdown's empty-state ternary became one BillingBody line, all above it); located by its own element (5-line context match).
+  // 5442 -> 5411 on feat/crew-page-redesign-pr-b Task 5 (the cell eyebrow class moved to components/show-panels/FieldRowList.tsx, the Truck import left, two imports landed, and VenueBreakdown's Where core became one VenueBody call, all above it); located by its own element (5-line context match).
+  // 5411 -> 5364 on feat/crew-page-redesign-pr-b Task 6 (CrewBreakdown's member list became one CrewBody call, its rows and their call and email anchors moved to components/show-panels/CrewBody.tsx, and one import landed, all above it); located by its own element (5-line context match).
+  // 5364 -> 5283 on feat/crew-page-redesign-pr-b Task 7 (contentRows moved to components/show-panels/FieldRowList.tsx and contactBlocks with ContactsBreakdown's list and its call and email anchors to components/show-panels/ContactsBody.tsx, one import landed and the unused Avatar import left, all above it); located by its own element (5-line context match).
+  // 5283 -> 4941 on feat/crew-page-redesign-pr-b Task 8 (MiniAvatar moved to components/show-panels/MiniAvatar.tsx, nightsBetween to components/show-panels/HotelCardBody.tsx, and TransportBody with its cells and contact anchors to components/show-panels/TransportBody.tsx, three lucide and four helper imports left and two imports landed, and HotelCard's markup with its date stub became one HotelCardBody call, all above it); located by its own element (5-line context match).
+  { file: "components/admin/wizard/step3ReviewSections.tsx", line: 4941 },
   // spec §4.2 row 20 — reset chip on `bg-surface-raised` (§4.3)
   // 728 -> 821 on the diagram-failure-retry arc, which inserted the retry state,
   // the in-flight overlay and the availability sweep above this chip; then

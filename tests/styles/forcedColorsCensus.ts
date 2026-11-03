@@ -653,4 +653,21 @@ export const COLLAPSE_CENSUS: readonly CollapseCensusRow[] = [
     reason:
       "its colliding pair is identical: two render paths resolving to the same class string, so nothing differs",
   },
+  {
+    // Added by feat/crew-page-redesign-pr-b's invariant-8 gate repair (row 17): the
+    // roster's drawn call/text/email square. Located by its own element, the square
+    // inside the action <a>.
+    site: "components/show-panels/CrewBody.tsx:239",
+    disposition: "not-a-state",
+    reason:
+      "the two paths are the admin's square and the crew's, chosen by the `actionTone` prop and fixed for that mount (the admin popup passes none, the crew roster passes \"text\"), not two user-visible states; each keeps its border-text-faint outline",
+  },
+  {
+    // Added with the roster's twin (row 17): the contacts' drawn call/email square.
+    // :275 -> :142 when the contacts display rule moved to contactsBlocks.ts (row 13's
+    // peer); located by its own element, the square inside the action <a>.
+    site: "components/show-panels/ContactsBody.tsx:142",
+    disposition: "not-a-state",
+    reason: "same: the admin's square and the crew's, fixed per mount by `actionTone`",
+  },
 ];

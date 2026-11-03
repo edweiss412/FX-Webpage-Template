@@ -45,11 +45,14 @@ vi.mock("@/components/shared/ReportModal", () => ({
 const LABEL: Record<SectionId, string> = {
   today: "Today",
   schedule: "Schedule",
+  agenda: "Agenda",
   venue: "Venue",
-  travel: "Travel",
+  hotels: "Hotels",
+  transport: "Transport",
   crew: "Crew",
+  contacts: "Contacts",
   gear: "Gear",
-  budget: "Budget",
+  billing: "Billing & docs",
 };
 
 const CREW_REPORT: CardReportContext = {
@@ -238,10 +241,18 @@ describe("chips (spec §6.3)", () => {
     renderResults(zebra);
     search("zebra");
     // The wide nav exactly as the controller feeds it (components/crew/CrewSections.tsx):
-    // "Today", then the membership `crewSectionsFor` returns, Budget included for an admin.
+    // "Today", then the membership `crewSectionsFor` returns, Billing included for an admin
+    // and Agenda for a show with an agenda file (PR B Task 10).
     const items = [
       { id: "today" as const, label: CREW_TODAY_LABEL },
-      ...crewSectionsFor(makeShowForViewer(), { viewerFlags: [], isAdmin: true }),
+      ...crewSectionsFor(
+        makeShowForViewer({ show: { agenda_links: [{ label: "AGENDA", fileId: "agenda-file" }] } }),
+        {
+          viewerFlags: [],
+          isAdmin: true,
+          dateRestriction: { kind: "none" },
+        },
+      ),
     ];
     const { container } = render(
       <CrewWideNav items={items} active="today" hrefFor={(id) => `?s=${id}`} />,
@@ -250,7 +261,8 @@ describe("chips (spec §6.3)", () => {
     const chipSections = chips()
       .map((c) => c.getAttribute("data-section"))
       .filter((s): s is SectionId => s !== null && s !== "all");
-    expect(chipSections).toHaveLength(7);
+    // Every section the zebra index has a line in, which is every key of LABEL.
+    expect(chipSections).toHaveLength(Object.keys(LABEL).length);
     for (const section of chipSections) {
       const chip = chips().find((c) => c.getAttribute("data-section") === section)!;
       const chipLabel = chip.querySelector("[data-chip-label]")!.textContent;
@@ -375,8 +387,12 @@ describe("copy (spec §6.4, §6.5)", () => {
     ).toBeNull();
 
     search("confirmation");
-    const flight = entryWhere({ section: "travel", group: "Your flight", label: "Confirmation" });
-    const hotel = entryWhere({ section: "travel", group: "Hotels", label: "Confirmation" });
+    const flight = entryWhere({
+      section: "transport",
+      group: "Your flight",
+      label: "Confirmation",
+    });
+    const hotel = entryWhere({ section: "hotels", group: "Hotels", label: "Confirmation" });
     expect(
       within(rowFor(flight)).getByRole("button", { name: "Copy flight confirmation" }),
     ).toBeInTheDocument();
@@ -416,8 +432,12 @@ describe("copy (spec §6.4, §6.5)", () => {
     expect(value(entryWhere({ section: "gear", group: "Other" }))).not.toHaveClass(codeClass);
 
     search("confirmation");
-    const flight = entryWhere({ section: "travel", group: "Your flight", label: "Confirmation" });
-    const hotel = entryWhere({ section: "travel", group: "Hotels", label: "Confirmation" });
+    const flight = entryWhere({
+      section: "transport",
+      group: "Your flight",
+      label: "Confirmation",
+    });
+    const hotel = entryWhere({ section: "hotels", group: "Hotels", label: "Confirmation" });
     expect(value(flight)).toHaveClass(codeClass);
     expect(value(hotel)).toHaveClass(codeClass);
   });
@@ -485,7 +505,7 @@ describe("copy (spec §6.4, §6.5)", () => {
     renderResults({
       entries: buildEntries([
         {
-          section: "travel",
+          section: "hotels",
           region: "travel-hotels",
           group: "Hotels",
           label: "Booking",
@@ -493,7 +513,7 @@ describe("copy (spec §6.4, §6.5)", () => {
           copy: { kind: "flightConfirmation", text: "ZK4410" },
         },
         {
-          section: "travel",
+          section: "transport",
           region: "travel-flight",
           group: "Your flight",
           label: "Booking",

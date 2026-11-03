@@ -28,7 +28,7 @@ const GUARDED_FILES: Array<{ path: string; label: string }> = [
     label: "agendaAdminPreview (client-bundled builder)",
   },
   {
-    path: "components/crew/AgendaScheduleBlock.tsx",
+    path: "components/show-panels/AgendaScheduleBlock.tsx",
     label: "AgendaScheduleBlock (client-bundled presenter)",
   },
   {

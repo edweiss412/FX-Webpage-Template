@@ -38,11 +38,12 @@ import { join } from "node:path";
 
 import { test, expect, type Locator, type Page } from "@playwright/test";
 import { DRAG_DISMISS_THRESHOLD_PX } from "@/components/shared/sheetConstants";
-import { CREW_SECTION_LABELS, type CrewSectionId } from "@/lib/crew/crewSections";
-import { BASE_SECTION_IDS } from "@/lib/crew/resolveActiveSection";
+import { CREW_MOVED_IDS, CREW_SECTION_LABELS, type CrewSectionId } from "@/lib/crew/crewSections";
+import { CREW_SECTION_IDS } from "@/lib/crew/resolveActiveSection";
+import { showSection, type ShowSectionId } from "@/lib/showSections/registry";
 import { refreshFromServer, renderFresh } from "./helpers/crewRefresh";
 import { ADMIN_FIXTURE } from "./helpers/fixtures";
-import { setRoleFlagsLocked } from "./helpers/lockedCrewRestriction";
+import { setDateRestrictionLocked, setRoleFlagsLocked } from "./helpers/lockedCrewRestriction";
 import { updateShowLocked } from "./helpers/lockedShowCopy";
 import { deleteSeededShow, seedShowWithCrew } from "./helpers/seedShowWithCrew";
 import { signInAs, signOut } from "./helpers/signInAs";
@@ -58,11 +59,15 @@ const SHOW_DAY_N_INSTANT = "2026-04-21T12:00:00Z";
 
 const TOL = 0.5;
 
-/** Every PR A section an admin opens, in nav order (spec §5.1). */
-const ADMIN_SECTIONS: CrewSectionId[] = [
-  ...BASE_SECTION_IDS.flatMap((id) => (id === "today" ? [] : [id])),
-  "budget",
-];
+/**
+ * Every section an admin is listed on the Waldorf seed, in nav order (spec §5.1,
+ * `CREW_SECTION_IDS`): all of them but Agenda, which is listed only when the show
+ * has an agenda link with a file (PR B plan, decision 1), and the Waldorf
+ * fixture's parsed agenda_links is empty. Its Agenda is entitled and unlisted.
+ */
+const ADMIN_SECTIONS: CrewSectionId[] = CREW_SECTION_IDS.filter(
+  (id) => (id as string) !== "agenda",
+);
 
 type Rect = {
   top: number;
@@ -318,8 +323,8 @@ test.describe("crew compact home and section sheet (spec §5.2)", () => {
     page,
   }) => {
     await load(page, ""); // the home entry carries no `s`, so Back/close must land without one
-    await row(page, "travel").click();
-    await expect(sheetDialog(page)).toHaveAttribute("data-section", "travel");
+    await row(page, "hotels").click();
+    await expect(sheetDialog(page)).toHaveAttribute("data-section", "hotels");
 
     await page.reload({ waitUntil: "domcontentloaded" });
     await expect(page.getByTestId("crew-shell-sections")).toHaveAttribute(
@@ -327,13 +332,13 @@ test.describe("crew compact home and section sheet (spec §5.2)", () => {
       "true",
       { timeout: 30_000 },
     );
-    await expect(sheetDialog(page)).toHaveAttribute("data-section", "travel");
+    await expect(sheetDialog(page)).toHaveAttribute("data-section", "hotels");
     expect(
       await page.evaluate(() => (history.state as { crewSheet?: boolean } | null)?.crewSheet),
       "a reload keeps the pushed entry's marker",
     ).toBe(true);
 
-    await page.getByRole("button", { name: closeName("travel") }).click();
+    await page.getByRole("button", { name: closeName("hotels") }).click();
     await expect(sheetDialog(page)).toHaveCount(0);
     await expect.poll(() => new URL(page.url()).searchParams.get("s")).toBeNull();
     await expect(page.getByTestId("crew-all-sections")).toBeVisible();
@@ -341,7 +346,7 @@ test.describe("crew compact home and section sheet (spec §5.2)", () => {
 
   test("sheet: the close button is named Close plus the section name", async ({ page }) => {
     await load(page, "?s=today");
-    for (const id of ["gear", "budget"] as const) {
+    for (const id of ["gear", "billing"] as const) {
       await row(page, id).click();
       const close = sheetDialog(page).getByRole("button", { name: closeName(id) });
       await expect(close).toBeVisible();
@@ -821,7 +826,7 @@ test.describe("crew compact compound transitions (spec §7, plan Task 12)", () =
     }
   });
 
-  test("compound: a refresh that takes Budget from a previewed lead closes the Budget sheet to home without animation and leaves no Budget value on the page", async ({
+  test("compound: a refresh that takes Billing from a previewed lead closes the Billing sheet to home without animation and leaves no Billing value on the page", async ({
     page,
   }) => {
     const FINANCIALS = {
@@ -831,7 +836,7 @@ test.describe("crew compact compound transitions (spec §7, plan Task 12)", () =
       invoice_notes: "Compound invoice note 5515",
     };
     const seeded = await seedShowWithCrew({
-      title: "Compound Budget Show",
+      title: "Compound Billing Show",
       dates: DATES,
       crew: [{ name: "Compound Lead", role: "TD", roleFlags: ["LEAD"] }],
       internal: { financials: FINANCIALS },
@@ -849,7 +854,7 @@ test.describe("crew compact compound transitions (spec §7, plan Task 12)", () =
         route.fulfill({ status: 503, contentType: "application/json", body: "{}" }),
       );
       await loadPath(page, `/admin/show/${seeded.slug}/preview/${lead.id}`);
-      await openFromRow(page, "budget");
+      await openFromRow(page, "billing");
       // Positive control: the values this case searches for are on the page now.
       const before = await renderedPage(page);
       for (const v of Object.values(FINANCIALS)) expect(before, v).toContain(v);
@@ -867,7 +872,7 @@ test.describe("crew compact compound transitions (spec §7, plan Task 12)", () =
           back();
         };
       });
-      // Every DOM change from here on: is the Budget row still listed, is the sheet still mounted.
+      // Every DOM change from here on: is the Billing row still listed, is the sheet still mounted.
       await page.evaluate(() => {
         const log: Array<{ row: boolean; sheet: boolean }> = [];
         (window as unknown as { __compoundLog: typeof log }).__compoundLog = log;
@@ -875,7 +880,7 @@ test.describe("crew compact compound transitions (spec §7, plan Task 12)", () =
           log.push({
             row:
               document.querySelector(
-                '[data-testid="crew-all-sections"] [data-section="budget"]',
+                '[data-testid="crew-all-sections"] [data-section="billing"]',
               ) !== null,
             sheet: document.querySelector('[data-testid="crew-section-sheet"]') !== null,
           });
@@ -886,7 +891,7 @@ test.describe("crew compact compound transitions (spec §7, plan Task 12)", () =
       await setRoleFlagsLocked(seeded.driveFileId, lead.id, []);
       await refreshFromServer(page);
 
-      await expect(row(page, "budget")).toHaveCount(0);
+      await expect(row(page, "billing")).toHaveCount(0);
       await expect(page.getByTestId("crew-section-sheet")).toHaveCount(0);
       await expect.poll(() => new URL(page.url()).searchParams.get("s")).toBeNull();
       await expect(page.getByTestId("crew-all-sections")).toBeVisible();
@@ -901,11 +906,11 @@ test.describe("crew compact compound transitions (spec §7, plan Task 12)", () =
       );
       expect(
         log.some((e) => !e.row),
-        "PREMISE: the observer saw the Budget row leave",
+        "PREMISE: the observer saw the Billing row leave",
       ).toBe(true);
       expect(
         log.filter((e) => !e.row && e.sheet),
-        "the sheet left in the same commit as the Budget row: no exit slide holding the old body",
+        "the sheet left in the same commit as the Billing row: no exit slide holding the old body",
       ).toEqual([]);
       const after = await renderedPage(page);
       for (const v of Object.values(FINANCIALS)) expect(after, v).not.toContain(v);
@@ -962,7 +967,8 @@ test.describe("crew compact compound transitions (spec §7, plan Task 12)", () =
     });
     try {
       await loadPath(page, `/show/${seeded.slug}/${seeded.shareToken}`);
-      await openFromRow(page, "schedule");
+      // The agenda's own section since PR B Task 10 (spec §6.2 `agenda` row).
+      await openFromRow(page, "agenda");
       await sheetDialog(page)
         .getByRole("button", { name: /View agenda/ })
         .click();
@@ -975,7 +981,8 @@ test.describe("crew compact compound transitions (spec §7, plan Task 12)", () =
 
       await expect(page.getByTestId("agenda-embed")).toHaveCount(0);
       await expect(page.getByTestId("agenda-sheet")).toHaveCount(0);
-      await expect(sheetDialog(page)).toHaveAttribute("data-section", "schedule");
+      // Agenda left the list with its content, and stays open on its fresh state.
+      await expect(sheetDialog(page)).toHaveAttribute("data-section", "agenda");
       // Focus was in the viewer, which left the page: it is back in the sheet,
       // not on <body> behind an inert page (whole-diff review round 2, 2A-R2-1).
       await expect
@@ -1006,7 +1013,7 @@ test.describe("crew compact compound transitions (spec §7, plan Task 12)", () =
     });
     try {
       await loadPath(page, `/show/${seeded.slug}/${seeded.shareToken}`);
-      await openFromRow(page, "schedule");
+      await openFromRow(page, "agenda");
       const trigger = sheetDialog(page).getByRole("button", { name: /View agenda/ });
       await activate(page, trigger);
       await expect(page.getByTestId("agenda-sheet")).toBeVisible();
@@ -1014,7 +1021,7 @@ test.describe("crew compact compound transitions (spec §7, plan Task 12)", () =
       await page.keyboard.press("Escape");
 
       await expect(page.getByTestId("agenda-sheet")).toHaveCount(0);
-      await expect(sheetDialog(page)).toHaveAttribute("data-section", "schedule");
+      await expect(sheetDialog(page)).toHaveAttribute("data-section", "agenda");
       await expect.poll(() => focusInsideSheet(page)).toBe(true);
       await expect(trigger).toBeFocused();
     } finally {
@@ -1248,4 +1255,958 @@ test.describe("crew compact compound transitions (spec §7, plan Task 12)", () =
       theme,
     );
   });
+});
+
+/**
+ * PR B plan Task 4: `budget` became `billing`, with `budget` kept as a legacy
+ * alias (spec §5.1 "Legacy ids"). Old links keep opening the section for a lead
+ * and land home for anyone the gate excludes; Back and Forward over an entry that
+ * still carries the old value reopen Billing without stripping it. A seeded show
+ * of its own: a lead holding financials and a crew member who is not one, each
+ * viewed through the admin preview route (the harness rule "Viewer per case").
+ */
+test.describe("billing: the budget alias, compact (PR B Task 4)", () => {
+  test.setTimeout(180_000);
+
+  const FINANCIALS = {
+    po: "PO-ALIAS-6604",
+    proposal: "Proposal alias 3317",
+    invoice: "Invoice alias 7720",
+    invoice_notes: "Alias invoice note 2281",
+  };
+  let seeded: Awaited<ReturnType<typeof seedShowWithCrew>>;
+
+  test.beforeAll(async () => {
+    seeded = await seedShowWithCrew({
+      title: "Billing Alias Show",
+      dates: {
+        travelIn: "2026-04-19",
+        set: "2026-04-20",
+        showDays: ["2026-04-21", "2026-04-22"],
+        travelOut: "2026-04-23",
+      },
+      crew: [
+        { name: "Alias Lead", role: "TD", roleFlags: ["LEAD"] },
+        { name: "Alias Crew", role: "A1" },
+      ],
+      internal: { financials: FINANCIALS },
+    });
+  });
+
+  test.afterAll(async () => {
+    if (seeded) await deleteSeededShow(seeded.driveFileId);
+  });
+
+  test.beforeEach(async ({ page }) => {
+    await page.clock.setFixedTime(new Date(SHOW_DAY_N_INSTANT));
+    await signOut(page);
+    await signInAs(page, ADMIN_FIXTURE);
+    await page.setExtraHTTPHeaders({
+      "X-Screenshot-Frozen-Now": SHOW_DAY_N_INSTANT,
+      Authorization: `Bearer ${TEST_AUTH_SECRET}`,
+    });
+  });
+
+  function preview(name: string): string {
+    const member = seeded.crew.find((c) => c.name === name);
+    if (!member) throw new Error(`no seeded crew member ${name}`);
+    return `/admin/show/${seeded.slug}/preview/${member.id}`;
+  }
+
+  async function loadPath(page: Page, path: string): Promise<void> {
+    const res = await page.goto(path, { waitUntil: "domcontentloaded" });
+    expect(res?.status(), `${path} must render`).toBe(200);
+    await expect(page.getByTestId("crew-shell-sections")).toHaveAttribute(
+      "data-crew-controller-ready",
+      "true",
+      { timeout: 30_000 },
+    );
+  }
+
+  test("billing: ?s=budget opens the Billing sheet for a lead preview on initial load", async ({
+    page,
+  }) => {
+    await loadPath(page, `${preview("Alias Lead")}?s=budget`);
+    await expect(sheetDialog(page)).toHaveAttribute("data-section", "billing");
+    await expect(sheetDialog(page)).toHaveAccessibleName(CREW_SECTION_LABELS.billing);
+    const section = sheetDialog(page).getByTestId("section-billing");
+    await expect(section).toBeVisible();
+    for (const value of Object.values(FINANCIALS)) await expect(section).toContainText(value);
+  });
+
+  test("billing: Back then Forward over an in-app entry carrying s=budget closes and reopens Billing", async ({
+    page,
+  }) => {
+    await loadPath(page, preview("Alias Lead"));
+    await row(page, "billing").click();
+    await expect(sheetDialog(page)).toHaveAttribute("data-section", "billing");
+    await settleOpen(page);
+    // The pushed entry now carries the old value, as an old in-app link left it.
+    await page.evaluate(() => {
+      const url = new URL(window.location.href);
+      url.searchParams.set("s", "budget");
+      window.history.replaceState(window.history.state, "", url);
+    });
+
+    await page.goBack();
+    await expect(sheetDialog(page)).toHaveCount(0);
+    await expect.poll(() => new URL(page.url()).searchParams.get("s")).toBeNull();
+
+    await page.goForward();
+    await expect(sheetDialog(page)).toHaveAttribute("data-section", "billing");
+    await expect(sheetDialog(page).getByTestId("section-billing")).toContainText(FINANCIALS.po);
+    // An alias the viewer may open is not stripped (a canonicalized alias is kept).
+    await expect.poll(() => new URL(page.url()).searchParams.get("s")).toBe("budget");
+  });
+
+  test("billing: a non-lead's ?s=budget and ?s=billing land home with no Billing value", async ({
+    page,
+  }) => {
+    for (const s of ["budget", "billing"]) {
+      await loadPath(page, `${preview("Alias Crew")}?s=${s}`);
+      await expect(sheetDialog(page), s).toHaveCount(0);
+      await expect(page.getByTestId("crew-all-sections"), s).toBeVisible();
+      await expect(row(page, "billing"), s).toHaveCount(0);
+      const html = await page.content();
+      for (const value of Object.values(FINANCIALS))
+        expect(html, `${s}: ${value}`).not.toContain(value);
+    }
+    // Positive control: the lead's page carries every value.
+    await loadPath(page, `${preview("Alias Lead")}?s=billing`);
+    const html = await page.content();
+    for (const value of Object.values(FINANCIALS)) expect(html, value).toContain(value);
+  });
+});
+
+/**
+ * PR B plan Task 9: Travel became two sections, Hotels and Transport, with
+ * `travel` kept as a legacy alias of `hotels` (spec §5.1 "Legacy ids"), as Task 4
+ * kept `budget` for `billing`. An old link opens Hotels; Back and Forward over an
+ * entry that still carries `s=travel` reopen Hotels without stripping it.
+ * Transport is listed for an admin, for a viewer the transport gate admits and for
+ * a viewer with a flight of their own, and its sheet shows the crew-only "Your
+ * flight" card above the transport body only the gate admits. A seeded show of its
+ * own; a plain admin on the share route, every crew identity through the admin
+ * preview route (the harness rule "Viewer per case").
+ *
+ * The new ids are spelled as strings here and their labels read from the show
+ * section registry, which is where a moved section's label comes from
+ * (`isCrewMovedSection` in lib/crew/crewSections.ts): these cases are written
+ * before the crew id union carries `hotels` and `transport`, and typecheck on
+ * both trees.
+ */
+test.describe("hotels and transport: the travel alias and the transport gate, compact (PR B Task 9)", () => {
+  test.setTimeout(180_000);
+
+  const HOTELS_LABEL = showSection("hotels").label;
+  const TRANSPORT_LABEL = showSection("transport").label;
+
+  /** 2026-04-21 is a Tuesday: the leg's time line below names it. */
+  const LEG_DAY = "2026-04-21";
+  /** On the leg: the transport gate admits her by name. */
+  const RIDER = { name: "Rhea Rider", role: "A1" };
+  /** A flight of her own and no leg: Transport is listed for her flight alone. */
+  const FLYER = {
+    name: "Fiona Flyer",
+    role: "V1",
+    flightInfo: "QF77 4/19 AA2201 LGA - ORD 9:05am - 10:50am",
+  };
+  /** No flight and no leg: no Transport. */
+  const GROUNDED = { name: "Gus Grounded", role: "L1" };
+  /** Days unconfirmed, so every date of hers is suppressed; on the leg too. */
+  const UNCONFIRMED = {
+    name: "Uma Unconfirmed",
+    role: "A2",
+    dateRestriction: { kind: "unknown_asterisk", days: null } as const,
+  };
+  /** Stay dates outside the show's own days, so no show date can stand in for them. */
+  const HOTEL = {
+    ordinal: 1,
+    hotelName: "Larkspur Harbor Hotel",
+    hotelAddress: "88 Quay Street",
+    checkIn: "2026-04-18",
+    checkOut: "2026-04-24",
+    confirmationNo: "LHH-60417",
+    notes: "Late checkout approved for the crew",
+    names: [RIDER.name, FLYER.name, GROUNDED.name, UNCONFIRMED.name],
+  };
+  const HOTEL_DATES = [HOTEL.checkIn, HOTEL.checkOut];
+  const LEG = {
+    stage: "Shuttle to the venue",
+    date: LEG_DAY,
+    time: "2:00pm",
+    assigned_names: [RIDER.name, UNCONFIRMED.name],
+  };
+  const TRANSPORT = {
+    driverName: "Marta Kestrel",
+    driverPhone: "215-555-0177",
+    vehicle: "White Transit 350",
+    licensePlate: "KTR5521",
+    parking: "Lot C behind the loading dock",
+    notes: "Call the driver from baggage claim",
+    loadoutName: "Lou Dockhand",
+    loadoutPhone: "215-555-0190",
+    schedule: [LEG],
+  };
+  /** Every transport value a viewer the gate excludes must not receive. */
+  const TRANSPORT_FIELDS = [
+    TRANSPORT.driverName,
+    TRANSPORT.driverPhone,
+    TRANSPORT.vehicle,
+    TRANSPORT.licensePlate,
+    TRANSPORT.parking,
+    TRANSPORT.notes,
+    TRANSPORT.loadoutName,
+    TRANSPORT.loadoutPhone,
+    LEG.stage,
+  ];
+
+  let seeded: Awaited<ReturnType<typeof seedShowWithCrew>>;
+
+  test.beforeAll(async () => {
+    seeded = await seedShowWithCrew({
+      title: "Hotels Transport Split Show",
+      dates: {
+        travelIn: "2026-04-19",
+        set: "2026-04-20",
+        showDays: [LEG_DAY, "2026-04-22"],
+        travelOut: "2026-04-23",
+      },
+      crew: [RIDER, FLYER, GROUNDED, UNCONFIRMED],
+      hotelReservations: [HOTEL],
+      transportation: TRANSPORT,
+    });
+  });
+
+  test.afterAll(async () => {
+    if (seeded) await deleteSeededShow(seeded.driveFileId);
+  });
+
+  test.beforeEach(async ({ page }) => {
+    await page.clock.setFixedTime(new Date(SHOW_DAY_N_INSTANT));
+    await signOut(page);
+    await signInAs(page, ADMIN_FIXTURE);
+    await page.setExtraHTTPHeaders({
+      "X-Screenshot-Frozen-Now": SHOW_DAY_N_INSTANT,
+      Authorization: `Bearer ${TEST_AUTH_SECRET}`,
+    });
+  });
+
+  /** The share route, where the signed-in admin views the show as an admin. */
+  function share(): string {
+    return `/show/${seeded.slug}/${seeded.shareToken}`;
+  }
+
+  function preview(name: string): string {
+    const member = seeded.crew.find((c) => c.name === name);
+    if (!member) throw new Error(`no seeded crew member ${name}`);
+    return `/admin/show/${seeded.slug}/preview/${member.id}`;
+  }
+
+  async function loadPath(page: Page, path: string): Promise<void> {
+    const res = await page.goto(path, { waitUntil: "domcontentloaded" });
+    expect(res?.status(), `${path} must render`).toBe(200);
+    await expect(page.getByTestId("crew-shell-sections")).toHaveAttribute(
+      "data-crew-controller-ready",
+      "true",
+      { timeout: 30_000 },
+    );
+  }
+
+  /** An "All sections" row, by an id spelled as a string (see the block comment). */
+  function listRow(page: Page, id: string): Locator {
+    return page.getByTestId("crew-all-sections").locator(`[data-section="${id}"]`);
+  }
+
+  /** The page's server response: the HTML document (its inline RSC included) and the RSC payload. */
+  async function payloadOf(page: Page, path: string): Promise<string> {
+    const html = await page.request.get(path);
+    expect(html.status(), `${path} HTML`).toBe(200);
+    const rsc = await page.request.get(path, { headers: { RSC: "1" } });
+    expect(rsc.status(), `${path} RSC`).toBe(200);
+    const rscBody = await rsc.text();
+    // PREMISE: the RSC request returned the flight payload, not the document again.
+    expect(rscBody.startsWith("<!DOCTYPE"), `${path} RSC answered with HTML`).toBe(false);
+    return `${await html.text()}\n${rscBody}`;
+  }
+
+  test("hotels: ?s=travel opens the Hotels sheet on initial load, the stay whole", async ({
+    page,
+  }) => {
+    await loadPath(page, `${share()}?s=travel`);
+    await expect(sheetDialog(page)).toHaveAttribute("data-section", "hotels");
+    await expect(sheetDialog(page)).toHaveAccessibleName(HOTELS_LABEL);
+    const section = sheetDialog(page).getByTestId("section-hotels");
+    await expect(section).toBeVisible();
+    const card = section.locator('[data-card-id="travel-hotels"]');
+    await expect(card.getByRole("heading", { level: 3, name: HOTELS_LABEL })).toBeVisible();
+    const stay = card.getByTestId("crew-panel-hotel-card");
+    await expect(stay).toHaveCount(1);
+    for (const value of [HOTEL.hotelName, HOTEL.hotelAddress, HOTEL.confirmationNo, HOTEL.notes])
+      await expect(stay, value).toContainText(value);
+    await expect(
+      stay.getByTestId("hotel-stay-check-in").locator(`time[datetime="${HOTEL.checkIn}"]`),
+    ).toHaveCount(1);
+    await expect(
+      stay.getByTestId("hotel-stay-check-out").locator(`time[datetime="${HOTEL.checkOut}"]`),
+    ).toHaveCount(1);
+    // One section replaced by two: no Travel body is left on the page.
+    await expect(page.getByTestId("section-travel")).toHaveCount(0);
+  });
+
+  test("hotels: Back then Forward over an in-app entry carrying s=travel closes and reopens Hotels", async ({
+    page,
+  }) => {
+    await loadPath(page, share());
+    await listRow(page, "hotels").click();
+    await expect(sheetDialog(page)).toHaveAttribute("data-section", "hotels");
+    await settleOpen(page);
+    // The pushed entry now carries the old value, as an old in-app link left it.
+    await page.evaluate(() => {
+      const url = new URL(window.location.href);
+      url.searchParams.set("s", "travel");
+      window.history.replaceState(window.history.state, "", url);
+    });
+
+    await page.goBack();
+    await expect(sheetDialog(page)).toHaveCount(0);
+    await expect.poll(() => new URL(page.url()).searchParams.get("s")).toBeNull();
+
+    await page.goForward();
+    await expect(sheetDialog(page)).toHaveAttribute("data-section", "hotels");
+    await expect(sheetDialog(page).getByTestId("section-hotels")).toContainText(HOTEL.hotelName);
+    // An alias the viewer may open is not stripped (a canonicalized alias is kept).
+    await expect.poll(() => new URL(page.url()).searchParams.get("s")).toBe("travel");
+  });
+
+  test("transport: a flight-only viewer sees Transport listed with Your flight alone, and the HTML and RSC payload carry no transport field (preview route)", async ({
+    page,
+  }) => {
+    await loadPath(page, preview(FLYER.name));
+    await expect(listRow(page, "transport")).toBeVisible();
+    await listRow(page, "transport").click();
+    await expect(sheetDialog(page)).toHaveAttribute("data-section", "transport");
+    await expect(sheetDialog(page)).toHaveAccessibleName(TRANSPORT_LABEL);
+    const section = sheetDialog(page).getByTestId("section-transport");
+    const flight = section.locator('[data-card-id="travel-flight"]');
+    await expect(flight.getByText("Your flight", { exact: true }).first()).toBeVisible();
+    await expect(flight.getByTestId("travel-flight")).toContainText("AA2201");
+    // The flight card is the only card: the transport body is the gate's, and the gate
+    // does not admit her.
+    const cardIds = await section
+      .locator("[data-card-id]")
+      .evaluateAll((els) => [...new Set(els.map((el) => el.getAttribute("data-card-id")))]);
+    expect(cardIds).toEqual(["travel-flight"]);
+    await expect(section.locator('[data-card-id="travel-getting-there"]')).toHaveCount(0);
+
+    const flyer = await payloadOf(page, preview(FLYER.name));
+    // PREMISE: the payload is this viewer's page with the Transport body in it, so a
+    // missing field is withheld, not unrendered.
+    expect(flyer).toContain("AA2201");
+    expect(flyer).toContain(HOTEL.hotelName);
+    expect(flyer).toContain('data-testid="section-transport"');
+    expect(TRANSPORT_FIELDS.filter((f) => flyer.includes(f))).toEqual([]);
+    // POSITIVE CONTROL: a viewer the gate admits, on the leg, gets every field.
+    const rider = await payloadOf(page, preview(RIDER.name));
+    expect(rider).toContain('data-card-id="travel-getting-there"');
+    expect(TRANSPORT_FIELDS.filter((f) => !rider.includes(f))).toEqual([]);
+  });
+
+  test("transport: a viewer with no flight and no leg has no Transport row, and ?s=transport lands home (preview route)", async ({
+    page,
+  }) => {
+    for (const search of ["", "?s=transport"]) {
+      await loadPath(page, `${preview(GROUNDED.name)}${search}`);
+      // PREMISE: the list carries Task 9's ids, so a missing Transport row is the gate's doing.
+      await expect(listRow(page, "hotels"), search).toBeVisible();
+      await expect(listRow(page, "transport"), search).toHaveCount(0);
+      await expect(sheetDialog(page), search).toHaveCount(0);
+      await expect(page.getByTestId("crew-all-sections"), search).toBeVisible();
+      // Not entitled, so no Transport body is built for this viewer at all.
+      await expect(page.getByTestId("section-transport"), search).toHaveCount(0);
+      const html = await page.content();
+      for (const f of TRANSPORT_FIELDS) expect(html, `${search}: ${f}`).not.toContain(f);
+    }
+  });
+
+  test("hotels: a date-suppressed viewer's Hotels sheet shows the stay without its dates, and the HTML and RSC payload carry no hotel date (preview route)", async ({
+    page,
+  }) => {
+    await loadPath(page, `${preview(UNCONFIRMED.name)}?s=hotels`);
+    await expect(sheetDialog(page)).toHaveAttribute("data-section", "hotels");
+    const stay = sheetDialog(page)
+      .getByTestId("section-hotels")
+      .getByTestId("crew-panel-hotel-card");
+    await expect(stay).toHaveCount(1);
+    await expect(stay).toContainText(HOTEL.hotelName);
+    await expect(stay.getByTestId("hotel-stay-check-in")).toHaveCount(0);
+    await expect(stay.getByTestId("hotel-stay-check-out")).toHaveCount(0);
+    await expect(stay.locator("time")).toHaveCount(0);
+    const suppressed = await payloadOf(page, preview(UNCONFIRMED.name));
+    // PREMISE: the payload is this viewer's page with the stay in it.
+    expect(suppressed).toContain(HOTEL.hotelName);
+    expect(HOTEL_DATES.filter((d) => suppressed.includes(d))).toEqual([]);
+
+    // POSITIVE CONTROL: an unrestricted viewer on the same stay gets both dates.
+    await loadPath(page, `${preview(RIDER.name)}?s=hotels`);
+    const open = sheetDialog(page)
+      .getByTestId("section-hotels")
+      .getByTestId("crew-panel-hotel-card");
+    await expect(
+      open.getByTestId("hotel-stay-check-in").locator(`time[datetime="${HOTEL.checkIn}"]`),
+    ).toHaveCount(1);
+    await expect(
+      open.getByTestId("hotel-stay-check-out").locator(`time[datetime="${HOTEL.checkOut}"]`),
+    ).toHaveCount(1);
+    const rider = await payloadOf(page, preview(RIDER.name));
+    expect(HOTEL_DATES.filter((d) => !rider.includes(d))).toEqual([]);
+  });
+
+  test("transport: a leg's time line reads leaves, its short date and its time, and drops the date for a date-suppressed viewer", async ({
+    page,
+  }) => {
+    await loadPath(page, `${share()}?s=transport`);
+    await expect(sheetDialog(page)).toHaveAttribute("data-section", "transport");
+    const card = sheetDialog(page)
+      .getByTestId("section-transport")
+      .locator('[data-card-id="travel-getting-there"]');
+    await expect(card.getByRole("heading", { level: 3, name: TRANSPORT_LABEL })).toBeVisible();
+    for (const cell of ["Driver", "Load out", "Vehicle", "Parking"])
+      await expect(card, cell).toContainText(cell);
+    await expect(card).toContainText(LEG.stage);
+    await expect(card).toContainText(TRANSPORT.notes);
+    // "2:00pm" through normalizeMeridiem, on Tuesday April 21, the date in a <time>
+    // (spec line 419 as amended by the PR B invariant-8 gate, row 8).
+    await expect(card).toContainText("leaves Tue Apr 21, 2:00 PM");
+    await expect(card.locator(`time[datetime="${LEG_DAY}"]`)).toHaveText("Tue Apr 21, 2:00 PM");
+
+    // On the leg with her days unconfirmed: the gate admits her, the weekday is withheld.
+    await loadPath(page, `${preview(UNCONFIRMED.name)}?s=transport`);
+    await expect(sheetDialog(page)).toHaveAttribute("data-section", "transport");
+    const suppressed = sheetDialog(page)
+      .getByTestId("section-transport")
+      .locator('[data-card-id="travel-getting-there"]');
+    await expect(suppressed).toContainText(LEG.stage);
+    await expect(suppressed).toContainText("leaves 2:00 PM");
+    await expect(suppressed).not.toContainText("Tue");
+  });
+
+  test("hotels and transport: every PR A section id opens its section, or the home, for an admin", async ({
+    page,
+  }) => {
+    // The historical union at lib/crew/resolveActiveSection.ts:1 as of 7e927e927,
+    // each with the sheet it opens now (null: the home, no sheet).
+    const PR_A_IDS: ReadonlyArray<readonly [string, string | null]> = [
+      ["today", null],
+      ["schedule", "schedule"],
+      ["venue", "venue"],
+      ["travel", "hotels"],
+      ["crew", "crew"],
+      ["gear", "gear"],
+      ["budget", "billing"],
+    ];
+    for (const [s, opens] of PR_A_IDS) {
+      await loadPath(page, `${share()}?s=${s}`);
+      if (opens === null) {
+        await expect(sheetDialog(page), s).toHaveCount(0);
+        await expect(page.getByTestId("crew-all-sections"), s).toBeVisible();
+      } else {
+        await expect(sheetDialog(page), s).toHaveAttribute("data-section", opens);
+        await expect(sheetDialog(page).getByTestId(`section-${opens}`), s).toBeVisible();
+      }
+    }
+  });
+});
+
+/**
+ * PR B plan Task 10: the agenda leaves the Schedule section for an Agenda section
+ * of its own (spec §6.2 `agenda` row). Agenda is entitled whenever the viewer's
+ * dates are not suppressed and listed only when the show has an agenda link with
+ * a file (plan decision 1), so it is the one section that can be entitled and
+ * unlisted: a refresh that removes its content keeps an open sheet on its empty
+ * state, a deep link or a history entry opens it with no row behind it, and a
+ * viewer whose dates are suppressed has neither the section nor any agenda line.
+ * Shows that a case mutates are seeded per case; a plain admin on the share
+ * route, every crew identity through the admin preview route.
+ *
+ * The id is spelled as a string and its label read from the show section
+ * registry, so these cases typecheck before the crew id union carries `agenda`.
+ */
+test.describe("agenda: the Agenda section, compact (PR B Task 10)", () => {
+  test.setTimeout(180_000);
+
+  const BASE_HEADERS = {
+    "X-Screenshot-Frozen-Now": SHOW_DAY_N_INSTANT,
+    Authorization: `Bearer ${TEST_AUTH_SECRET}`,
+  };
+  const DATES = {
+    travelIn: "2026-04-19",
+    set: "2026-04-20",
+    showDays: ["2026-04-21", "2026-04-22"],
+    travelOut: "2026-04-23",
+  };
+  const AGENDA_LABEL = showSection("agenda").label;
+  /** The one session line, distinctive enough that its absence means withheld. */
+  const SESSION_TITLE = "Zephyr keynote rehearsal";
+  const DAY_LABEL = "Tuesday, April 21, 2026";
+  /** One agenda PDF with a file and a high-confidence schedule, so the section lists. */
+  const AGENDA_LINKS = [
+    {
+      label: "AGENDA",
+      fileId: "agendaSectionE2E01",
+      extracted: {
+        confidence: "high",
+        corrections: 0,
+        extractorVersion: 2,
+        days: [
+          {
+            dayLabel: DAY_LABEL,
+            date: null,
+            sessions: [
+              {
+                time: "9:00 AM",
+                title: SESSION_TITLE,
+                room: "Ballroom A",
+                tracks: [],
+                drift: null,
+              },
+            ],
+          },
+        ],
+      },
+    },
+  ];
+  /** Dates confirmed: Agenda is hers whenever the show has one. */
+  const ADA = { name: "Ada Agenda", role: "A1" };
+  /** Days unconfirmed, so every date of hers is suppressed: no Agenda at all. */
+  const UNA = {
+    name: "Una Unconfirmed",
+    role: "A2",
+    dateRestriction: { kind: "unknown_asterisk", days: null } as const,
+  };
+
+  test.beforeEach(async ({ page }) => {
+    await page.clock.setFixedTime(new Date(SHOW_DAY_N_INSTANT));
+    await signOut(page);
+    await signInAs(page, ADMIN_FIXTURE);
+    await page.setExtraHTTPHeaders(BASE_HEADERS);
+  });
+
+  async function loadPath(page: Page, path: string): Promise<void> {
+    const res = await page.goto(path, { waitUntil: "domcontentloaded" });
+    expect(res?.status(), `${path} must render`).toBe(200);
+    await expect(page.getByTestId("crew-shell-sections")).toHaveAttribute(
+      "data-crew-controller-ready",
+      "true",
+      { timeout: 30_000 },
+    );
+  }
+
+  /** An "All sections" row, by an id spelled as a string (see the block comment). */
+  function listRow(page: Page, id: string): Locator {
+    return page.getByTestId("crew-all-sections").locator(`[data-section="${id}"]`);
+  }
+
+  function seedAgendaShow(title: string) {
+    return seedShowWithCrew({
+      title,
+      dates: DATES,
+      agendaLinks: AGENDA_LINKS as never,
+      crew: [ADA, UNA],
+    });
+  }
+
+  function previewOf(seeded: Awaited<ReturnType<typeof seedShowWithCrew>>, name: string): string {
+    const member = seeded.crew.find((c) => c.name === name);
+    if (!member) throw new Error(`no seeded crew member ${name}`);
+    return `/admin/show/${seeded.slug}/preview/${member.id}`;
+  }
+
+  /** The page's text and attributes, without the inline scripts that carry the first render's payload. */
+  function renderedPage(page: Page): Promise<string> {
+    return page.evaluate(() => {
+      const clone = document.body.cloneNode(true) as HTMLElement;
+      for (const el of clone.querySelectorAll("script, template")) el.remove();
+      return clone.outerHTML;
+    });
+  }
+
+  test("agenda: a refresh that removes the open Agenda section's content keeps the sheet open on its empty state, in place, while the list drops Agenda", async ({
+    page,
+  }) => {
+    const seeded = await seedAgendaShow("Agenda Refresh Show");
+    try {
+      await loadPath(page, `/show/${seeded.slug}/${seeded.shareToken}`);
+      await listRow(page, "agenda").click();
+      await expect(sheetDialog(page)).toHaveAttribute("data-section", "agenda");
+      await expect(sheetDialog(page)).toHaveAccessibleName(AGENDA_LABEL);
+      await settleOpen(page);
+      const section = sheetDialog(page).getByTestId("section-agenda");
+      await expect(section).toContainText(SESSION_TITLE);
+      // Mark the dialog and the body's crossfade wrapper: a remount or a re-keyed
+      // crossfade (an animation) would replace them, and the marks would be gone.
+      await page.evaluate(() => {
+        for (const sel of [
+          '[data-testid="crew-section-sheet-dialog"]',
+          '[data-testid="crew-section-transition"]',
+        ]) {
+          (document.querySelector(sel) as unknown as { __agenda?: true }).__agenda = true;
+        }
+      });
+
+      await renderFresh(page, BASE_HEADERS);
+      updateShowLocked(seeded.driveFileId, { agenda_links: [] });
+      await refreshFromServer(page);
+
+      await expect(listRow(page, "agenda")).toHaveCount(0);
+      await expect(sheetDialog(page)).toHaveAttribute("data-section", "agenda");
+      await expect(section.getByText("No agenda on file yet.", { exact: true })).toBeVisible();
+      await expect(section).not.toContainText(SESSION_TITLE);
+      const kept = await page.evaluate(() =>
+        [
+          '[data-testid="crew-section-sheet-dialog"]',
+          '[data-testid="crew-section-transition"]',
+        ].map(
+          (sel) =>
+            (document.querySelector(sel) as unknown as { __agenda?: true } | null)?.__agenda ===
+            true,
+        ),
+      );
+      expect(kept, "the same dialog and the same crossfade wrapper: updated in place").toEqual([
+        true,
+        true,
+      ]);
+      expect(new URL(page.url()).searchParams.get("s")).toBe("agenda");
+    } finally {
+      await deleteSeededShow(seeded.driveFileId);
+    }
+  });
+
+  test("agenda: ?s=agenda on a show with no agenda link opens the Agenda sheet on its empty state, with no Agenda row", async ({
+    page,
+  }) => {
+    // The Waldorf seed's parsed agenda_links is empty: its Agenda is entitled and unlisted.
+    const { slug, shareToken } = await lookupSlugAndToken();
+    await loadPath(page, `/show/${slug}/${shareToken}?s=agenda`);
+    await expect(sheetDialog(page)).toHaveAttribute("data-section", "agenda");
+    await expect(sheetDialog(page)).toHaveAccessibleName(AGENDA_LABEL);
+    await expect(
+      sheetDialog(page)
+        .getByTestId("section-agenda")
+        .getByText("No agenda on file yet.", { exact: true }),
+    ).toBeVisible();
+    // PREMISE: the list is rendered, and lists the sections around Agenda's slot.
+    await expect(listRow(page, "schedule")).toHaveCount(1);
+    await expect(listRow(page, "agenda")).toHaveCount(0);
+  });
+
+  test("agenda: Back then Forward over an in-app entry carrying s=agenda with no content reopens the Agenda sheet", async ({
+    page,
+  }) => {
+    const { slug, shareToken } = await lookupSlugAndToken();
+    await loadPath(page, `/show/${slug}/${shareToken}`);
+    await listRow(page, "venue").click();
+    await expect(sheetDialog(page)).toHaveAttribute("data-section", "venue");
+    await settleOpen(page);
+    // The pushed entry now names the unlisted Agenda, as an in-page link would.
+    await page.evaluate(() => {
+      const url = new URL(window.location.href);
+      url.searchParams.set("s", "agenda");
+      window.history.replaceState(window.history.state, "", url);
+    });
+
+    await page.goBack();
+    await expect(sheetDialog(page)).toHaveCount(0);
+    await expect.poll(() => new URL(page.url()).searchParams.get("s")).toBeNull();
+
+    await page.goForward();
+    await expect(sheetDialog(page)).toHaveAttribute("data-section", "agenda");
+    await expect(
+      sheetDialog(page)
+        .getByTestId("section-agenda")
+        .getByText("No agenda on file yet.", { exact: true }),
+    ).toBeVisible();
+    await expect.poll(() => new URL(page.url()).searchParams.get("s")).toBe("agenda");
+    await expect(listRow(page, "agenda")).toHaveCount(0);
+  });
+
+  test("agenda: a date-suppressed viewer's ?s=agenda lands home, and a popstate to it replaces s away (preview route)", async ({
+    page,
+  }) => {
+    const seeded = await seedAgendaShow("Agenda Suppressed Show");
+    try {
+      await loadPath(page, `${previewOf(seeded, UNA.name)}?s=agenda`);
+      await expect(sheetDialog(page)).toHaveCount(0);
+      await expect(page.getByTestId("crew-all-sections")).toBeVisible();
+      await expect(listRow(page, "agenda")).toHaveCount(0);
+      await expect(page.getByTestId("section-agenda")).toHaveCount(0);
+      expect(await renderedPage(page)).not.toContain(SESSION_TITLE);
+
+      await listRow(page, "venue").click();
+      await expect(sheetDialog(page)).toHaveAttribute("data-section", "venue");
+      await settleOpen(page);
+      await page.evaluate(() => {
+        const url = new URL(window.location.href);
+        url.searchParams.set("s", "agenda");
+        window.history.replaceState(window.history.state, "", url);
+      });
+      await page.goBack();
+      await expect(sheetDialog(page)).toHaveCount(0);
+      await page.goForward();
+      // Not entitled: the controller has no body to open and replaces s away.
+      await expect.poll(() => new URL(page.url()).searchParams.get("s")).toBeNull();
+      await expect(sheetDialog(page)).toHaveCount(0);
+      await expect(page.getByTestId("crew-all-sections")).toBeVisible();
+
+      // POSITIVE CONTROL: a viewer whose dates are confirmed opens Agenda on the same show.
+      await loadPath(page, `${previewOf(seeded, ADA.name)}?s=agenda`);
+      await expect(sheetDialog(page)).toHaveAttribute("data-section", "agenda");
+      await expect(sheetDialog(page).getByTestId("section-agenda")).toContainText(SESSION_TITLE);
+      await expect(listRow(page, "agenda")).toHaveCount(1);
+    } finally {
+      await deleteSeededShow(seeded.driveFileId);
+    }
+  });
+
+  test("agenda: a refresh after which the previewed viewer's dates are suppressed closes the Agenda sheet to home and leaves no agenda line on the page", async ({
+    page,
+  }) => {
+    const seeded = await seedAgendaShow("Agenda Lost Show");
+    const ada = seeded.crew.find((c) => c.name === ADA.name)!;
+    try {
+      // One refresh in flight, this case's own (the billing lost-entitlement case's reason).
+      await page.route("**/api/realtime/subscriber-token", (route) =>
+        route.fulfill({ status: 503, contentType: "application/json", body: "{}" }),
+      );
+      await loadPath(page, previewOf(seeded, ADA.name));
+      await listRow(page, "agenda").click();
+      await expect(sheetDialog(page)).toHaveAttribute("data-section", "agenda");
+      await settleOpen(page);
+      // Positive control: the lines this case searches for are on the page now.
+      const before = await renderedPage(page);
+      expect(before).toContain(SESSION_TITLE);
+      expect(before).toContain(DAY_LABEL);
+      await page.evaluate(() => {
+        const w = window as unknown as { __backs: number };
+        w.__backs = 0;
+        const back = history.back.bind(history);
+        history.back = () => {
+          w.__backs += 1;
+          back();
+        };
+      });
+
+      await renderFresh(page, BASE_HEADERS);
+      await setDateRestrictionLocked(seeded.driveFileId, ada.id, {
+        kind: "unknown_asterisk",
+        days: null,
+      });
+      await refreshFromServer(page);
+
+      await expect(listRow(page, "agenda")).toHaveCount(0);
+      await expect(page.getByTestId("crew-section-sheet")).toHaveCount(0);
+      await expect.poll(() => new URL(page.url()).searchParams.get("s")).toBeNull();
+      await expect(page.getByTestId("crew-all-sections")).toBeVisible();
+      expect(
+        await page.evaluate(() => (window as unknown as { __backs: number }).__backs),
+        "closed through history.back(), the pushed entry's close row",
+      ).toBe(1);
+      const after = await renderedPage(page);
+      expect(after).not.toContain(SESSION_TITLE);
+      expect(after).not.toContain(DAY_LABEL);
+    } finally {
+      await deleteSeededShow(seeded.driveFileId);
+    }
+  });
+
+  test("agenda: the list follows CREW_SECTION_IDS over the viewer's members, each moved id with its registry label", async ({
+    page,
+  }) => {
+    const seeded = await seedAgendaShow("Agenda Order Show");
+    try {
+      await loadPath(page, `/show/${seeded.slug}/${seeded.shareToken}`);
+      // An admin on a show with an agenda file is a member of every crew section.
+      const ids = await page
+        .getByTestId("crew-all-sections-row")
+        .evaluateAll((els) => els.map((e) => e.getAttribute("data-section")));
+      expect(ids).toEqual([...CREW_SECTION_IDS]);
+      expect(ids.indexOf("agenda")).toBe(ids.indexOf("schedule") + 1);
+      const moved: readonly string[] = CREW_MOVED_IDS;
+      for (const id of CREW_SECTION_IDS) {
+        const label = page.locator(`#crew-all-sections-label-${id}`);
+        if (moved.includes(id)) {
+          await expect(label, id).toHaveText(showSection(id as ShowSectionId).label);
+        } else {
+          // A section not yet moved keeps the crew's own label, which is not the registry's.
+          await expect(label, id).toHaveText(CREW_SECTION_LABELS[id]);
+        }
+      }
+      await expect(page.locator("#crew-all-sections-label-schedule")).not.toHaveText(
+        showSection("schedule").label,
+      );
+      // The moved set, pinned whole in this one place: the seven sections spec line
+      // 324 moves in PR B. Every other check reads CREW_MOVED_IDS, so this is what
+      // catches a section left out of it (it would keep its crew label and glyph).
+      expect([...moved].sort()).toEqual(
+        ["agenda", "billing", "contacts", "crew", "hotels", "transport", "venue"].sort(),
+      );
+    } finally {
+      await deleteSeededShow(seeded.driveFileId);
+    }
+  });
+});
+
+/**
+ * PR B invariant-8 UI gate rows 1 and 3: the crew Transport body on a phone and
+ * in the 446px sheet. The route was a horizontal rail at every width, so an
+ * eight-leg route gave each leg 24px at 320 and 44px in the 768 sheet, and its
+ * stage names and time lines painted over the next leg's (the gate's audit
+ * counted 20 overlapping text-box pairs at 320, 13 at 390 and 5 at 768). The
+ * cells went to three columns on a 560px window, which in the 768 sheet broke
+ * the driver's phone and email mid-token.
+ *
+ * The route here is the RPAS Central show's eight legs as the sheet lists them
+ * (fixtures/shows/raw/2026-03-rpas-central-four-seasons.md:59-66), with riders
+ * on two of them.
+ */
+test.describe("transport: the route and cells fit a phone and the sheet (gate rows 1, 3)", () => {
+  test.setTimeout(180_000);
+
+  const DRIVER = {
+    name: "Doug Larson",
+    phone: "917-331-4885",
+    email: "dlarson@fxav.net",
+  };
+  const ROUTE = [
+    { stage: "Rental Pickup", date: null, time: null, assigned_names: [] },
+    { stage: "Load at Warehouse", date: "2026-03-18", time: null, assigned_names: [] },
+    {
+      stage: "Pick Up Warehouse",
+      date: "2026-03-19",
+      time: "12:00 PM",
+      assigned_names: ["Rhea Rider"],
+    },
+    { stage: "Load In at Venue", date: "2026-03-23", time: "8:00 AM", assigned_names: [] },
+    { stage: "Pick Up Venue", date: "2026-03-25", time: "3:30 PM", assigned_names: [] },
+    {
+      stage: "Drop Off Warehouse",
+      date: "2026-03-26",
+      time: "8:00 PM",
+      assigned_names: ["Rhea Rider", "Gus Grounded"],
+    },
+    { stage: "Unload at Warehouse", date: "2026-03-27", time: null, assigned_names: [] },
+    { stage: "Rental Return", date: null, time: null, assigned_names: [] },
+  ];
+
+  let seeded: Awaited<ReturnType<typeof seedShowWithCrew>>;
+
+  test.beforeAll(async () => {
+    seeded = await seedShowWithCrew({
+      title: "Transport Route Fit Show",
+      dates: {
+        travelIn: "2026-03-18",
+        set: "2026-03-23",
+        showDays: ["2026-03-24", "2026-03-25"],
+        travelOut: "2026-03-26",
+      },
+      crew: [
+        { name: "Rhea Rider", role: "A1" },
+        { name: "Gus Grounded", role: "L1" },
+      ],
+      transportation: {
+        driverName: DRIVER.name,
+        driverPhone: DRIVER.phone,
+        driverEmail: DRIVER.email,
+        vehicle: "26' Box Truck",
+        parking: "Lot C behind the loading dock",
+        schedule: ROUTE,
+      },
+    });
+  });
+
+  test.afterAll(async () => {
+    if (seeded) await deleteSeededShow(seeded.driveFileId);
+  });
+
+  test.beforeEach(async ({ page }) => {
+    await page.clock.setFixedTime(new Date(SHOW_DAY_N_INSTANT));
+    await signOut(page);
+    await signInAs(page, ADMIN_FIXTURE);
+    await page.setExtraHTTPHeaders({
+      "X-Screenshot-Frozen-Now": SHOW_DAY_N_INSTANT,
+      Authorization: `Bearer ${TEST_AUTH_SECRET}`,
+    });
+  });
+
+  /**
+   * Pairs of text boxes in the route that paint over each other: every line box
+   * of every non-blank text node, compared across nodes, counted when they share
+   * more than a pixel each way. Two lines of one node never overlap, and
+   * neighbouring inline runs only touch.
+   */
+  async function routeOverlaps(route: Locator): Promise<{ pairs: string[]; boxes: number }> {
+    return route.evaluate((ol) => {
+      const boxes: { node: number; text: string; r: DOMRect }[] = [];
+      const walker = document.createTreeWalker(ol, NodeFilter.SHOW_TEXT);
+      let node = 0;
+      for (let n = walker.nextNode(); n !== null; n = walker.nextNode()) {
+        const text = (n as Text).data;
+        if (text.trim() === "") continue;
+        const range = document.createRange();
+        range.selectNodeContents(n);
+        for (const r of range.getClientRects())
+          if (r.width > 0 && r.height > 0) boxes.push({ node, text: text.trim(), r });
+        node += 1;
+      }
+      const pairs: string[] = [];
+      for (let i = 0; i < boxes.length; i += 1)
+        for (let j = i + 1; j < boxes.length; j += 1) {
+          const a = boxes[i]!;
+          const b = boxes[j]!;
+          if (a.node === b.node) continue;
+          const w = Math.min(a.r.right, b.r.right) - Math.max(a.r.left, b.r.left);
+          const h = Math.min(a.r.bottom, b.r.bottom) - Math.max(a.r.top, b.r.top);
+          if (w > 1 && h > 1) pairs.push(`"${a.text}" x "${b.text}"`);
+        }
+      return { pairs, boxes: boxes.length };
+    });
+  }
+
+  for (const width of [320, 390, 768]) {
+    test(`transport ${width}px: no text in the eight-leg route paints over another, and the driver's phone and email each hold one line`, async ({
+      page,
+    }) => {
+      await page.setViewportSize({ width, height: 900 });
+      const path = `/show/${seeded.slug}/${seeded.shareToken}?s=transport`;
+      const res = await page.goto(path, { waitUntil: "domcontentloaded" });
+      expect(res?.status(), `${path} must render`).toBe(200);
+      await expect(page.getByTestId("crew-shell-sections")).toHaveAttribute(
+        "data-crew-controller-ready",
+        "true",
+        { timeout: 30_000 },
+      );
+      await expect(sheetDialog(page)).toHaveAttribute("data-section", "transport");
+      await settleOpen(page);
+      const card = sheetDialog(page)
+        .getByTestId("section-transport")
+        .locator('[data-card-id="travel-getting-there"]');
+      const route = card.locator("ol");
+      // PREMISE: all eight legs rendered, so a zero below is about this route.
+      await expect(route.locator(":scope > li")).toHaveCount(ROUTE.length);
+      const { pairs, boxes } = await routeOverlaps(route);
+      expect(boxes, "text boxes measured").toBeGreaterThan(ROUTE.length);
+      expect(pairs).toEqual([]);
+
+      for (const value of [DRIVER.phone, DRIVER.email]) {
+        const text = card.getByText(value, { exact: true });
+        await expect(text, value).toBeVisible();
+        const lines = await text.evaluate((el) => {
+          const range = document.createRange();
+          range.selectNodeContents(el);
+          return new Set([...range.getClientRects()].map((r) => Math.round(r.top))).size;
+        });
+        expect(lines, `${value} at ${width}px`).toBe(1);
+      }
+    });
+  }
 });

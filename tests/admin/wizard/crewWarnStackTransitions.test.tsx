@@ -28,6 +28,20 @@ describe("CrewUnderRowStack — transition audit", () => {
     expect(region).not.toMatch(/motion\./);
   });
 
+  test("source-scan: the row that hosts the stack introduces no AnimatePresence / motion", () => {
+    // Since the crew page redesign PR B Task 6 the attention-hosting row is drawn
+    // by the shared Crew body (CrewBreakdown passes the stack in as its `underRow`
+    // slot), so the stack's placement lives in that file, around this slot.
+    const src = readFileSync(join(process.cwd(), "components/show-panels/CrewBody.tsx"), "utf8");
+    const start = src.indexOf("return member.underRow != null ? (");
+    expect(start).toBeGreaterThan(-1);
+    const end = src.indexOf("});", start);
+    const region = src.slice(start, end);
+    expect(region).toContain("{member.underRow}");
+    expect(region).not.toMatch(/AnimatePresence/);
+    expect(region).not.toMatch(/motion\./);
+  });
+
   test("the disclosure is a native <details> (instant, no animation wrapper)", () => {
     render(<CrewUnderRowStack nodes={[node("a"), node("b"), node("c")]} ckey="k" />);
     const more = screen.getByTestId("crew-warn-more-k");

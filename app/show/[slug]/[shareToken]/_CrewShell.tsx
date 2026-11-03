@@ -45,13 +45,16 @@ import { TerminalFailure } from "@/components/auth/TerminalFailure";
 import { CrewSections } from "@/components/crew/CrewSections";
 import { CrewSearchField } from "@/components/crew/search/CrewSearchField";
 import { CrewSearchProvider } from "@/components/crew/search/CrewSearchProvider";
-import { BudgetSection } from "@/components/crew/sections/BudgetSection";
+import { AgendaSection } from "@/components/crew/sections/AgendaSection";
+import { BillingSection } from "@/components/crew/sections/BillingSection";
+import { ContactsSection } from "@/components/crew/sections/ContactsSection";
+import { HotelsSection } from "@/components/crew/sections/HotelsSection";
 import { CrewSection } from "@/components/crew/sections/CrewSection";
 import { GearSection } from "@/components/crew/sections/GearSection";
 import { HomeSection } from "@/components/crew/sections/HomeSection";
 import { ScheduleSection } from "@/components/crew/sections/ScheduleSection";
-import { TravelSection } from "@/components/crew/sections/TravelSection";
 import { VenueSection } from "@/components/crew/sections/VenueSection";
+import { TransportSection } from "@/components/crew/sections/TransportSection";
 import { Footer } from "@/components/layout/Footer";
 import { Header } from "@/components/layout/Header";
 import { SavedCopySlot } from "@/components/offline/SavedCopySlot";
@@ -61,10 +64,14 @@ import { createTileRenderLedger } from "@/lib/crew/tileRenderLedger";
 import { sweepTileRenderAlerts } from "@/lib/crew/sweepTileRenderAlerts";
 import { upsertAdminAlert } from "@/lib/adminAlerts/upsertAdminAlert";
 import { log } from "@/lib/log";
-import { resolveActiveSection, type SectionId } from "@/lib/crew/resolveActiveSection";
+import {
+  CREW_SECTION_IDS,
+  resolveActiveSection,
+  type SectionId,
+} from "@/lib/crew/resolveActiveSection";
 import type { ShowForViewer, Viewer } from "@/lib/data/getShowForViewer";
 import { buildCardReportContext } from "@/lib/crew/cardReportContext";
-import { crewSectionEntries } from "@/lib/crew/crewSections";
+import { crewSectionEntitled, crewSectionEntries } from "@/lib/crew/crewSections";
 import { buildDayRowProps, buildPassProps } from "@/lib/crew/passModel";
 import { buildRunCardProps } from "@/lib/crew/runOfShowCard";
 import {
@@ -78,7 +85,6 @@ import { buildSearchIndex } from "@/lib/search/buildSearchIndex";
 import { nowDate } from "@/lib/time/now";
 import { selectRightNowState, type RightNowState } from "@/lib/time/rightNow";
 import { resolveShowTimezone } from "@/lib/time/showTimezone";
-import { financialsVisible } from "@/lib/visibility/scopeTiles";
 
 /**
  * Compact show-lifecycle label for the Header status pill (Task 14 / D-2 /
@@ -270,11 +276,18 @@ export async function CrewShell({
     throw err;
   }
 
-  // Single financialsVisible authority for the Budget gate — used identically by
-  // the section membership (`crewSectionsFor`) and resolveActiveSection
-  // (section + direct-URL).
-  const budgetVisible = financialsVisible(ctx.viewerFlags, ctx.isAdmin);
-  const activeSection = resolveActiveSection(rawSection, { budgetVisible });
+  // The entitled set: the home plus every section this viewer may see
+  // (`crewSectionEntitled`, the one predicate per gate, which `crewSectionsFor`
+  // reads too). `?s=` resolves against it, aliases first, and the shell builds a
+  // body for each of its ids below, listed or not (PR B plan, decision 1 rules a
+  // and b), so a direct URL opens exactly what a body exists for.
+  const entitled: ReadonlySet<SectionId> = new Set<SectionId>([
+    "today",
+    ...CREW_SECTION_IDS.filter((id) => crewSectionEntitled(id, data, ctx)),
+  ]);
+  const activeSection = resolveActiveSection(rawSection, entitled);
+  // The Billing search builder's own gate: the same entitlement.
+  const billingVisible = entitled.has("billing");
 
   // Render-time "today" reads through the request-scoped clock so screenshot
   // capture can pin it (M11 Phase C). Sections consume `today` in Phase 3. The
@@ -424,6 +437,17 @@ export async function CrewShell({
             cardReport={cardReport}
           />
         );
+      case "agenda":
+        return (
+          <AgendaSection
+            data={data}
+            viewer={viewer}
+            today={today}
+            showId={showId}
+            ledger={tileLedger}
+            cardReport={cardReport}
+          />
+        );
       case "venue":
         return (
           <VenueSection
@@ -435,9 +459,20 @@ export async function CrewShell({
             cardReport={cardReport}
           />
         );
-      case "travel":
+      case "hotels":
         return (
-          <TravelSection
+          <HotelsSection
+            data={data}
+            viewer={viewer}
+            today={today}
+            showId={showId}
+            ledger={tileLedger}
+            cardReport={cardReport}
+          />
+        );
+      case "transport":
+        return (
+          <TransportSection
             data={data}
             viewer={viewer}
             today={today}
@@ -457,6 +492,17 @@ export async function CrewShell({
             cardReport={cardReport}
           />
         );
+      case "contacts":
+        return (
+          <ContactsSection
+            data={data}
+            viewer={viewer}
+            today={today}
+            showId={showId}
+            ledger={tileLedger}
+            cardReport={cardReport}
+          />
+        );
       case "gear":
         return (
           <GearSection
@@ -468,9 +514,9 @@ export async function CrewShell({
             cardReport={cardReport}
           />
         );
-      case "budget":
+      case "billing":
         return (
-          <BudgetSection
+          <BillingSection
             data={data}
             viewer={viewer}
             today={today}
@@ -487,14 +533,13 @@ export async function CrewShell({
   // (spec §4.6), so the client never derives a peek from data it should not see.
   const sections = crewSectionEntries(data, { ...ctx, today });
 
-  // Entitled set = Today + the listed sections (`budget` iff financialsVisible,
-  // the same predicate as `budgetVisible`). The Budget body is BUILT only when
-  // entitled, so a non-lead never receives a Budget body in the payload
-  // (no-Budget-flash invariant §4.17 / Budget gate §4.1).
-  const entitled: SectionId[] = ["today", ...sections.map((s) => s.id)];
-  const sectionNodes = Object.fromEntries(entitled.map((id) => [id, renderOne(id)])) as Partial<
-    Record<SectionId, JSX.Element>
-  >;
+  // A body for every entitled id (`billing` iff financialsVisible), listed or
+  // not. The Billing body is BUILT only when entitled, so a non-lead never
+  // receives a Billing body in the payload (no-Budget-flash invariant §4.17 /
+  // financials gate §4.1).
+  const sectionNodes = Object.fromEntries(
+    [...entitled].map((id) => [id, renderOne(id)]),
+  ) as Partial<Record<SectionId, JSX.Element>>;
 
   // Crew show search (spec §2.4, §6.1, §9.2). The index is built here, once per
   // render, from the SAME inputs the section bodies above receive, so it holds
@@ -504,7 +549,14 @@ export async function CrewShell({
   // page: never for an admin (preview-as included) and never for the staged
   // preview (spec §7.1). The report row follows `cardReport`, which is null
   // under staticPreview (spec §6.7).
-  const searchIndex = buildSearchIndex({ data, viewer, today, budgetVisible, staticPreview });
+  const searchIndex = buildSearchIndex({
+    data,
+    viewer,
+    today,
+    billingVisible,
+    staticPreview,
+    sections: sections.map((s) => s.id),
+  });
   const missLogging = viewer.kind === "crew" && !staticPreview;
 
   // Post-response reconcile for TILE_SERVER_RENDER_FAILED. Registered
@@ -587,7 +639,7 @@ export async function CrewShell({
             <main data-testid="page-container">, the "All sections" card, the wide
             nav and stack, the section sheet and, while search is active, the
             search panel in place of the page body, all over the SERVER-RENDERED
-            `sectionNodes`. `initialSection` is the server-resolved, budget-gated
+            `sectionNodes`. `initialSection` is the server-resolved, billing-gated
             section (first paint: the sheet open, or the wide page scrolled to it);
             the controller only chooses where bodies show thereafter (freshness
             invariant). Header / ShowRealtimeBridge / Footer stay server-rendered

@@ -83,6 +83,7 @@ export type SeedHotelReservationInput = {
 export type SeedTransportationInput = {
   driverName?: string | null;
   driverPhone?: string | null;
+  driverEmail?: string | null;
   vehicle?: string | null;
   licensePlate?: string | null;
   color?: string | null;
@@ -349,11 +350,12 @@ export async function seedShowWithCrew(options: SeedShowWithCrewOptions = {}): P
     const t = options.transportation;
     statements.push(
       `insert into public.transportation
-         (show_id, driver_name, driver_phone, vehicle, license_plate, color, parking,
-          schedule, notes, loadout_name, loadout_phone)
+         (show_id, driver_name, driver_phone, driver_email, vehicle, license_plate, color,
+          parking, schedule, notes, loadout_name, loadout_phone)
        values
          (${sqlString(showId)}::uuid, ${sqlTextOrNull(t.driverName)},
-          ${sqlTextOrNull(t.driverPhone)}, ${sqlTextOrNull(t.vehicle)},
+          ${sqlTextOrNull(t.driverPhone)}, ${sqlTextOrNull(t.driverEmail)},
+          ${sqlTextOrNull(t.vehicle)},
           ${sqlTextOrNull(t.licensePlate)}, ${sqlTextOrNull(t.color)},
           ${sqlTextOrNull(t.parking)}, ${sqlString(JSON.stringify(t.schedule ?? []))}::jsonb,
           ${sqlTextOrNull(t.notes)}, ${sqlTextOrNull(t.loadoutName)},

@@ -1,4 +1,4 @@
-import { BASE_SECTION_IDS, type SectionId } from "@/lib/crew/resolveActiveSection";
+import { CREW_SECTION_IDS, type SectionId } from "@/lib/crew/resolveActiveSection";
 import { damerauLevenshtein } from "@/lib/parser/fuzzyMatch";
 import { SEARCH_ALIAS_GROUPS } from "@/lib/search/aliases";
 import { normalize, type Token } from "@/lib/search/normalize";
@@ -29,7 +29,8 @@ const STOP_WORDS = new Set(
   "a an the of is are where what when which who how my our for to at do does i me".split(" "),
 );
 const MIN_QUERY_CHARS = 2;
-const SECTION_ORDER: readonly SectionId[] = [...BASE_SECTION_IDS, "budget"];
+/** Ties keep page order: Today, then the sections in nav order. */
+const SECTION_ORDER: readonly SectionId[] = ["today", ...CREW_SECTION_IDS];
 
 /** Alias members split into their tokens once (members are stored normalized). */
 const ALIAS_MEMBER_TOKENS: readonly (readonly (readonly string[])[])[] = SEARCH_ALIAS_GROUPS.map(

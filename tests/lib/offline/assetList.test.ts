@@ -25,7 +25,7 @@ vi.mock("@/components/agenda/AgendaPdfViewer", () => ({ AgendaPdfViewer: () => n
 
 import { AgendaEmbed } from "@/components/agenda/AgendaEmbed";
 import { DiagramsTile } from "@/components/crew/DiagramsBlock";
-import { ScheduleSection } from "@/components/crew/sections/ScheduleSection";
+import { AgendaSection } from "@/components/crew/sections/AgendaSection";
 import { INITIAL_VISIBLE } from "@/components/diagrams/galleryLimits";
 import type { ShowForViewer, Viewer } from "@/lib/data/getShowForViewer";
 import { makeDiagramLoader } from "@/lib/images/diagramLoader";
@@ -281,18 +281,19 @@ describe("savedCopyAssetUrls: agendas", () => {
     expect(new Set(listed)).toEqual(opened);
   });
 
-  // The saved copy holds only what the viewer's own page renders. ScheduleSection
-  // withholds the agenda from a viewer whose days are unconfirmed (its
-  // unknown_asterisk privacy branch), so the list must too. Each case renders the
-  // section for the same data and viewer and compares.
+  // The saved copy holds only what the viewer's own page renders. The Agenda
+  // section (the agenda's home since crew page redesign PR B, Task 10; it was
+  // the Schedule section's) withholds the agenda from a viewer whose days are
+  // unconfirmed (its unknown_asterisk privacy branch), so the list must too. Each
+  // case renders the section for the same data and viewer and compares.
   test.each<[string, DateRestriction, boolean]>([
     ["an ordinary crew viewer", { kind: "none" }, true],
     ["a viewer with confirmed days", { kind: "explicit", days: [SHOW_DAYS[0]!] }, true],
     ["a viewer whose days are withheld", { kind: "unknown_asterisk", days: null }, false],
-  ])("lists exactly the agendas ScheduleSection renders for %s", (_label, restriction, shown) => {
+  ])("lists exactly the agendas AgendaSection renders for %s", (_label, restriction, shown) => {
     const data = restricted(showData(), restriction);
     render(
-      createElement(ScheduleSection, {
+      createElement(AgendaSection, {
         ...ledgerProp(),
         data,
         viewer: CREW_VIEWER,
@@ -302,7 +303,7 @@ describe("savedCopyAssetUrls: agendas", () => {
     );
     const opened = openedAgendaUrls();
     premiseHolds(
-      `ScheduleSection ${shown ? "renders" : "withholds"} agendas for this viewer`,
+      `AgendaSection ${shown ? "renders" : "withholds"} agendas for this viewer`,
       opened.size > 0 === shown,
     );
 

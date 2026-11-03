@@ -2,9 +2,10 @@
 /**
  * tests/components/scheduleAgendaPlacement.test.tsx (Task 15).
  *
- * Pins the agenda RELOCATION contract (spec §4.6 / §4.8):
- *   - the agenda affordance + structured schedule render in the SCHEDULE
- *     section, at the TOP (above the day-cards `schedule-grid`);
+ * Pins the agenda RELOCATION contract (spec §4.6 / §4.8), as moved again by the
+ * crew page redesign PR B, Task 10 (spec §6.2 `agenda` row):
+ *   - the agenda affordance + structured schedule render in the AGENDA section,
+ *     its own; the Schedule section renders neither (it kept its day cards);
  *   - the agenda is ABSENT from Venue/Diagrams;
  *   - a diagram-less + agenda-only show renders NO empty Diagrams block.
  */
@@ -18,6 +19,7 @@ vi.mock("@/components/agenda/AgendaPdfViewer", () => ({
   ),
 }));
 
+import { AgendaSection } from "@/components/crew/sections/AgendaSection";
 import { ScheduleSection } from "@/components/crew/sections/ScheduleSection";
 import { VenueSection } from "@/components/crew/sections/VenueSection";
 import { DiagramsTile } from "@/components/crew/DiagramsBlock";
@@ -62,8 +64,27 @@ const DATES = {
 
 afterEach(() => cleanup());
 
-describe("agenda placement — Schedule section (Task 15)", () => {
-  test("Schedule renders the agenda affordance AND the structured schedule, ABOVE the day-cards grid", () => {
+describe("agenda placement — its own section (Task 15, moved by PR B Task 10)", () => {
+  test("Agenda renders the agenda affordance AND the structured schedule", () => {
+    const { container } = render(
+      <AgendaSection
+        {...ledgerProp()}
+        data={makeShowForViewer({ show: { dates: DATES, agenda_links: AGENDA_LINKS } })}
+        viewer={VIEWER}
+        today={TODAY}
+        showId={SHOW_ID}
+      />,
+    );
+    const section = container.querySelector('[data-testid="section-agenda"]')!;
+    // Affordance present.
+    expect(
+      within(section as HTMLElement).getByRole("button", { name: /view agenda/i }),
+    ).toBeTruthy();
+    // Structured schedule present.
+    expect(section.querySelector('[data-testid="agenda-schedule"]')).not.toBeNull();
+  });
+
+  test("Schedule renders no agenda, even when the show has one, and keeps its day-cards grid", () => {
     const { container } = render(
       <ScheduleSection
         {...ledgerProp()}
@@ -74,22 +95,14 @@ describe("agenda placement — Schedule section (Task 15)", () => {
       />,
     );
     const section = container.querySelector('[data-testid="section-schedule"]')!;
-    // Affordance present.
-    expect(
-      within(section as HTMLElement).getByRole("button", { name: /view agenda/i }),
-    ).toBeTruthy();
-    // Structured schedule present.
-    const schedule = section.querySelector('[data-testid="agenda-schedule"]');
-    expect(schedule).not.toBeNull();
-    // Placement: the agenda area precedes the day-cards grid in document order.
-    const grid = section.querySelector('[data-testid="schedule-grid"]')!;
-    const order = schedule!.compareDocumentPosition(grid);
-    expect(order & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(section.querySelector('[data-testid="schedule-grid"]')).not.toBeNull();
+    expect(section.querySelector('[data-testid="agenda-schedule"]')).toBeNull();
+    expect(screen.queryByRole("button", { name: /view agenda/i })).toBeNull();
   });
 
-  test("no agenda links → no agenda area in Schedule", () => {
+  test("no agenda links → no agenda affordance or schedule in the Agenda section", () => {
     const { container } = render(
-      <ScheduleSection
+      <AgendaSection
         {...ledgerProp()}
         data={makeShowForViewer({ show: { dates: DATES, agenda_links: [] } })}
         viewer={VIEWER}

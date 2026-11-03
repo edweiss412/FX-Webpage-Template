@@ -212,10 +212,18 @@ describe("Wi-Fi split rows", () => {
     // Captured from the component BEFORE the split landed, with this exact
     // fixture. Equality here is the whole fail-soft contract: the raw row keeps
     // its label, its icon, its position and its markup.
-    const expected = readFileSync("tests/fixtures/venueSectionRawWifi.html", "utf8");
-    premise("the captured baseline is a real render", expected.length, 1000);
+    //
+    // Compared over the Facilities card, which holds every Wi-Fi row: the Where
+    // card above it moved onto the shared Venue body (crew page redesign PR B,
+    // Task 5), so the rest of the captured section is no longer this render.
+    const captured = readFileSync("tests/fixtures/venueSectionRawWifi.html", "utf8");
+    premise("the captured baseline is a real render", captured.length, 1000);
+    const baseline = document.createElement("template");
+    baseline.innerHTML = captured;
+    const expected =
+      baseline.content.querySelector('[data-testid="venue-facilities"]')?.outerHTML ?? "";
     premiseHolds(
-      "the baseline carries the raw internet value, so the comparison can see a change to it",
+      "the baseline's Facilities card carries the raw internet value, so the comparison can see a change to it",
       expected.includes(RAW_WIFI_VALUE),
     );
 
@@ -228,7 +236,7 @@ describe("Wi-Fi split rows", () => {
         showId={RAW_WIFI_SHOW_ID}
       />,
     );
-    expect(container.innerHTML).toBe(expected);
+    expect(container.querySelector('[data-testid="venue-facilities"]')?.outerHTML).toBe(expected);
   });
 
   /**

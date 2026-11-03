@@ -422,7 +422,13 @@ export const TAP_TARGET_CENSUS: readonly TapCensusRow[] = [
     // 4707 -> 4775 on feat/warning-card-fixes Task 17 (the chrome's jump fields and the
     // card section jump above it); the same tile `<a>`, located by that ref.
     // 4775 -> 4795 on feat/warning-card-fixes (UI gate P3: jump targets named by their own heading or title); located by its own element (5-line context match).
-    line: 4795,
+    // 4795 -> 4781 on feat/crew-page-redesign-pr-b Task 2 (seven lucide imports moved to lib/showSections/registry.ts, its one import landed, and STEP3_SECTION_GROUPS became one line, all above it); located by its own element (5-line context match).
+    // 4781 -> 4760 on feat/crew-page-redesign-pr-b Task 4 (FieldRowList and its eyebrow constants moved to components/show-panels/FieldRowList.tsx, two imports landed, and OpsBreakdown's empty-state ternary became one BillingBody line, all above it); located by its own element (5-line context match).
+    // 4760 -> 4729 on feat/crew-page-redesign-pr-b Task 5 (the cell eyebrow class moved to components/show-panels/FieldRowList.tsx, the Truck import left, two imports landed, and VenueBreakdown's Where core became one VenueBody call, all above it); located by its own element (5-line context match).
+    // 4729 -> 4682 on feat/crew-page-redesign-pr-b Task 6 (CrewBreakdown's member list became one CrewBody call, its rows and their call and email anchors moved to components/show-panels/CrewBody.tsx, and one import landed, all above it); located by its own element (5-line context match).
+    // 4682 -> 4601 on feat/crew-page-redesign-pr-b Task 7 (contentRows moved to components/show-panels/FieldRowList.tsx and contactBlocks with ContactsBreakdown's list and its call and email anchors to components/show-panels/ContactsBody.tsx, one import landed and the unused Avatar import left, all above it); located by its own element (5-line context match).
+    // 4601 -> 4259 on feat/crew-page-redesign-pr-b Task 8 (MiniAvatar moved to components/show-panels/MiniAvatar.tsx, nightsBetween to components/show-panels/HotelCardBody.tsx, and TransportBody with its cells and contact anchors to components/show-panels/TransportBody.tsx, three lucide and four helper imports left and two imports landed, and HotelCard's markup with its date stub became one HotelCardBody call, all above it); located by its own element (5-line context match).
+    line: 4259,
     tag: "a",
     category: "full-bleed",
     reason:

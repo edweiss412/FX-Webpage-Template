@@ -198,6 +198,24 @@ describe("clearIdentity", () => {
     });
     expect(cookieSet).toHaveBeenCalled();
   });
+
+  test("clearIdentityAndSkip carries an old s=travel as s=hotels, with gate=skip (PR B Task 9, decision 7)", async () => {
+    existingCookie = encodePickerCookie(
+      { v: 1, selections: { [SHOW_ID]: { id: CREW_ID, e: 1, t: 100 } } },
+      KEY,
+    );
+    const form = fd({ slug: SLUG, shareToken: TOKEN, showId: SHOW_ID });
+    form.set("s", "travel");
+    let digest = "";
+    try {
+      await clearIdentityAndSkip(form);
+    } catch (err) {
+      digest = (err as { digest?: string }).digest ?? "";
+    }
+    expect(digest.startsWith("NEXT_REDIRECT")).toBe(true);
+    expect(digest).toContain(`/show/${SLUG}/${TOKEN}?s=hotels&gate=skip`);
+    expect(digest).not.toContain("s=travel");
+  });
 });
 
 describe("clearIdentity telemetry — PICKER_IDENTITY_CLEARED", () => {

@@ -43,7 +43,24 @@ export const REQUIRED = {
   // 28 since the UI-gate re-run's P2-1 added "closing a deep-linked sheet with
   // Esc focuses its All sections row, on screen". Counted from the observed
   // mobile-safari run (28 passed).
-  "crew-section-toggle.spec.ts": 28,
+  // 31 since the crew page redesign PR B's Task 4 added three "billing" cases (?s=budget
+  // opens Billing for a lead preview, Back then Forward over an s=budget entry, a
+  // non-lead's ?s=budget and ?s=billing land home). Counted from the observed
+  // mobile-safari run. 38 since PR B's Task 9 added seven "hotels"/"transport"
+  // cases (?s=travel opens Hotels, Back then Forward over an s=travel entry, the
+  // flight-only viewer's Transport, the viewer with neither, the date-suppressed
+  // Hotels, the "leaves" time line, every PR A id). Counted from the observed
+  // mobile-safari run. 44 since PR B's Task 10 added six "agenda" cases (a refresh
+  // that removes the open Agenda's content, ?s=agenda with no content, Back then
+  // Forward over an s=agenda entry, a date-suppressed viewer's ?s=agenda and its
+  // popstate, a refresh that suppresses the previewed viewer's dates, the list
+  // order and labels); the two nested-dialog agenda cases moved from Schedule to
+  // Agenda in place. Re-derived from the wiring guard's live Playwright resolution (44).
+  // 47 since PR B's invariant-8 gate repairs (rows 1 and 3) added the transport
+  // route-fit case at 320, 390 and 768 (no text in the eight-leg route paints over
+  // another; the driver's phone and email each hold one line). Re-derived from the
+  // wiring guard's live Playwright resolution (47).
+  "crew-section-toggle.spec.ts": 47,
   "picker-flow.spec.ts": 7,
   "alert-action-links.spec.ts": 4,
   // 3 SFS-1 cases + 3 seeded agenda-fold cases.
@@ -99,7 +116,14 @@ export const REQUIRED = {
   // which CI ran only through two `-g` filters that never selected them (2C-1):
   // Who to call's action row, the card titles, and the six loading-skeleton cases.
   // Re-derived from the wiring guard's live Playwright resolution (51).
-  "crew-page.spec.ts": 51,
+  // 53 since the crew page redesign PR B's Task 4 added the crew panel card's header
+  // geometry case at 390px and 320px ("billing"). Counted from the observed
+  // mobile-safari run.
+  // 55 since Task 5 added the Venue panel's body-under-its-header case at 390px and
+  // 800px ("venue"). Counted from the observed mobile-safari run.
+  // 56 since Task 6 added the roster role-line case, one case over 390px and 320px
+  // ("crew"). Re-derived from the wiring guard's live Playwright resolution (56).
+  "crew-page.spec.ts": 56,
   // The crew page's wide layout (crew page redesign plan PR A, Task 6): eight cases,
   // desktop-chromium ALONE (its testMatch; the wide layout begins at 1024px). Nine
   // since Task 7 added the wide header case (search between title and chip).
@@ -121,8 +145,16 @@ export const REQUIRED = {
   // from the wiring guard's live Playwright resolution (25). Twenty-six since
   // round 3 (3A-2) added one (a search started from a scrolled section leaves the
   // nav on the section in view, with its bar). Re-derived from the wiring
-  // guard's live Playwright resolution (26).
-  "crew-wide-nav.spec.ts": 26,
+  // guard's live Playwright resolution (26). Twenty-eight since the crew page
+  // redesign PR B's Task 4 added two "billing" cases (?s=budget lands on Billing for
+  // a lead preview; a non-lead's ?s=budget and ?s=billing land at the top on Today).
+  // Counted from the observed desktop-chromium run. Thirty since PR B's Task 9 added
+  // two (?s=travel lands on Hotels; every PR A id lands on its section or Today).
+  // Counted from the observed desktop-chromium run. Thirty-two since PR B's Task 10
+  // added two "agenda" cases (the wide nav's order and labels, and the crossing into
+  // wide with an unlisted Agenda open from a scrolled page). Re-derived from the
+  // wiring guard's live Playwright resolution (32).
+  "crew-wide-nav.spec.ts": 32,
   // 9, and the number is the MATRIX rather than a multiple (plan
   // 2026-08-09-quick-wins-2 "e2e harness readiness"). theme-toggle runs two arms:
   //   arm (a) — 4 standalone-toggle cases, BOTH projects            = 8
@@ -166,8 +198,9 @@ export const REQUIRED = {
   // ("Total: 8 tests in 1 file"), not from arithmetic. Re-derive with --list after
   // adding or removing a case. 12 since review repair R1-F1 added two cases at each
   // viewport (a Today run-of-show result reveals its line after the viewer picked
-  // another day, and after the device clock passed midnight).
-  "crew-search.spec.ts": 12,
+  // another day, and after the device clock passed midnight). 14 since PR B's Task 9
+  // added one at each viewport (a hotel-name result reveals its line in Hotels).
+  "crew-search.spec.ts": 14,
   // The census, across mobile-safari + desktop-chromium. The checker enforces
   // `executed >= min`, so THE NUMBER IS THE GUARD: a row of 1 would let every
   // case but one skip while CI stayed green, which is exactly what the registry

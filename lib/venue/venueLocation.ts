@@ -266,14 +266,15 @@ function stripTrailingCity(name: string, city: string): string {
 }
 
 /**
- * The "street" portion of an address for display alongside a SEPARATE City row
- * (the crew "Where" cards render Venue / City / Address as discrete rows). The
- * trailing ", <city>, <state/zip>…" is removed so the city isn't shown twice:
+ * The "street" portion of an address for display alongside a SEPARATE city line
+ * (the crew Venue panel renders the name, the street and the city as separate
+ * lines). The trailing ", <city>, <state/zip>…" is removed so the city isn't shown
+ * twice:
  *
  *   - "120 E Delaware Pl, Chicago, IL 60611" + "Chicago" → "120 E Delaware Pl"
  *   - "Chicago, IL 60601"                    + "Chicago" → null  (no street; city-only)
  *   - "120 E Delaware Pl"                    + "Chicago" → "120 E Delaware Pl"  (city not a segment)
- *   - "" / null / "   "                      + anything  → null  (Address row reflows out)
+ *   - "" / null / "   "                      + anything  → null  (no street line)
  *
  * When `city` is null/absent or isn't a comma-segment of the address (e.g. the city
  * was derived from the venue NAME or geocoded with a blank address), the full trimmed

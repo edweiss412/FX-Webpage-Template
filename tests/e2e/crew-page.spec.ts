@@ -74,6 +74,7 @@ import {
   expectColumnsFollowSplit,
   splitContainerOf,
 } from "./helpers/crewSplitContainer";
+import { premise, premiseHolds } from "../_shared/premise";
 
 const SEED_DRIVE_FILE_ID = "seed-fixture:2026-04-asset-mgmt-cfo-coo-waldorf";
 
@@ -527,29 +528,45 @@ test.describe("crew redesign layout invariants (§4.9 / test 12)", () => {
     }
   });
 
-  // ── Invariant 2 — Crew two columns (Show crew | Key contacts) ──
-  // The split reads the body's CONTAINER, not the window (DESIGN.md §6): in the
-  // wide column (1024px) the two columns sit side by side at the 1.6fr/1fr
-  // ratio with `items-start` (natural height — the short "Key contacts" card is
-  // NOT stretched to the tall roster; 2026-06-21 owner amendment). In the
-  // section sheet they STACK, at 760px (the 480px panel) as at 390px.
-  test("inv2: Crew columns side-by-side (natural height) in the wide column, stacked in the sheet", async ({
+  // ── Invariant 2 — Crew and Contacts: one card spanning the section ──
+  // Until crew page redesign PR B Task 7 the Crew section held two columns (the
+  // roster | Key contacts) that split side by side in the wide column and stacked
+  // in the sheet. The contacts are their own section now (spec line 304), so each
+  // section holds ONE panel card. The failure mode carried over is the column
+  // geometry: a single card must span its section's body, never sit in a split
+  // track that leaves the rest of the row blank. Measured at the same three
+  // legs (the 1024px wide column, the 480px sheet at 760px, the 390px sheet),
+  // against the section root, every width derived.
+  test("inv2: the Crew and Contacts sections each hold one panel card spanning the section, in the wide column and the sheet", async ({
     page,
   }) => {
     for (const leg of SPLIT_LEGS) {
       await page.setViewportSize({ width: leg.width, height: 1000 });
-      await gotoSection(page, "crew");
-      const cols = page.getByTestId("crew-column");
-      const colCount = await cols.count();
-      expect(colCount, "crew section must render at least one crew-column").toBeGreaterThan(0);
-      if (colCount >= 2) {
-        // Height equality is deliberately NOT asserted (items-start).
-        await expectColumnsFollowSplit(cols.nth(0), cols.nth(1), {
-          split: leg.split,
-          container: leg.container,
-          label: `@${leg.width}px crew`,
-          tolPx: TOL,
-        });
+      for (const section of ["crew", "contacts"] as const) {
+        await gotoSection(page, section);
+        const root = page.getByTestId(`section-${section}`);
+        const cards = root.locator('[data-testid="crew-panel-card"]');
+        await expect(cards, `@${leg.width}px ${section}: exactly one panel card`).toHaveCount(1);
+        await expect(root.getByTestId("crew-column")).toHaveCount(0);
+        const sectionBox = await rectOf(root);
+        const card = await rectOf(cards.first());
+        expect(card.height, `@${leg.width}px ${section} card height`).toBeGreaterThan(1);
+        expect(
+          Math.abs(card.left - sectionBox.left),
+          `@${leg.width}px ${section} card starts at the section's left edge; card=${card.left} section=${sectionBox.left}`,
+        ).toBeLessThanOrEqual(TOL);
+        expect(
+          Math.abs(card.width - sectionBox.width),
+          `@${leg.width}px ${section} card spans the section's width; card=${card.width} section=${sectionBox.width}`,
+        ).toBeLessThanOrEqual(TOL);
+        // The section fills the body that bounds it (the size container the old
+        // two-column split read), so the card spans that body's content box too.
+        const container = await splitContainerOf(root);
+        expect(container.testid, `@${leg.width}px ${section}'s size container`).toBe(leg.container);
+        expect(
+          Math.abs(sectionBox.width - container.width),
+          `@${leg.width}px ${section} spans ${leg.container}'s content box; section=${sectionBox.width} body=${container.width}`,
+        ).toBeLessThanOrEqual(TOL);
       }
     }
   });
@@ -726,8 +743,8 @@ test.describe("crew redesign layout invariants (§4.9 / test 12)", () => {
     }
   });
 
-  // ── Invariant 7 — Two-column `split-wide` sections (schedule / venue / travel) ──
-  // Per the design mock these three sections are two columns when there is room
+  // ── Invariant 7 — Two-column `split-wide` sections (schedule / venue) ──
+  // Per the design mock these two sections are two columns when there is room
   // and a single stacked column when there is not, and "room" is the body's
   // CONTAINER (DESIGN.md §6): split in the wide column (1024px), stacked in the
   // section sheet at 760px (the 480px panel) and at 390px. Mirrors the Crew inv2
@@ -736,12 +753,14 @@ test.describe("crew redesign layout invariants (§4.9 / test 12)", () => {
   // column is NOT stretched to the taller left; 2026-06-21 owner amendment);
   // stacked, col 2 top ≥ col 1 bottom on a shared left edge.
   //
-  // Venue + Travel render the split only when BOTH columns have content (Schedule
+  // Venue renders the split only when BOTH columns have content (Schedule
   // always renders two: day cards + times/heads-up). When the seed yields a single
   // column the pair assertion is skipped (colCount < 2), exactly as inv2
   // does — the invariant is "IF two columns, they behave as split-wide," never
-  // "two columns MUST exist."
-  for (const section of ["schedule", "venue", "travel"] as const) {
+  // "two columns MUST exist." Travel left this list in crew page redesign PR B
+  // Task 9: its two columns became the Hotels and Transport sections, whose cards
+  // stack in one column at every width (the case after this loop).
+  for (const section of ["schedule", "venue"] as const) {
     test(`inv7: ${section} is split-wide 2-col in the wide column / stacked in the sheet`, async ({
       page,
     }) => {
@@ -772,6 +791,63 @@ test.describe("crew redesign layout invariants (§4.9 / test 12)", () => {
       }
     });
   }
+
+  // Invariant 7's Travel row, migrated (PR B Task 9). Travel split getting there
+  // and hotels side by side when there was room; they are now two sections, each a
+  // stack of cards, so the invariant they keep is the stacked half at EVERY leg,
+  // the wide column included: every card spans its section's width on one left
+  // edge, each below the one before it, and none has zero height. The failure
+  // mode is the same, a card that does not fill its column or overlaps another.
+  test("inv7: hotels and transport stack their cards in one column, each the section's width, at every width", async ({
+    page,
+  }) => {
+    for (const leg of SPLIT_LEGS) {
+      await page.setViewportSize({ width: leg.width, height: 1000 });
+      for (const section of ["hotels", "transport"] as const) {
+        await gotoSection(page, section);
+        const cards = await page.evaluate((id) => {
+          const root = document.querySelector(`[data-testid="section-${id}"]`);
+          if (root === null) return null;
+          const box = root.getBoundingClientRect();
+          return {
+            box: { left: box.left, width: box.width },
+            cards: [...root.querySelectorAll("[data-card-id]")].map((el) => {
+              const r = el.getBoundingClientRect();
+              return {
+                id: el.getAttribute("data-card-id"),
+                left: r.left,
+                width: r.width,
+                top: r.top,
+                bottom: r.bottom,
+                height: r.height,
+              };
+            }),
+          };
+        }, section);
+        expect(cards, `@${leg.width}px ${section}: the section rendered`).not.toBeNull();
+        expect(
+          cards!.cards.length,
+          `@${leg.width}px ${section}: at least one card`,
+        ).toBeGreaterThan(0);
+        cards!.cards.forEach((c, i) => {
+          const label = `@${leg.width}px ${section} ${c.id}`;
+          expect(
+            Math.abs(c.left - cards!.box.left),
+            `${label}: on the section's left edge`,
+          ).toBeLessThanOrEqual(TOL);
+          expect(
+            Math.abs(c.width - cards!.box.width),
+            `${label}: the section's width`,
+          ).toBeLessThanOrEqual(TOL);
+          expect(c.height, `${label}: non-zero height`).toBeGreaterThan(1);
+          if (i > 0)
+            expect(c.top, `${label}: below the card before it`).toBeGreaterThanOrEqual(
+              cards!.cards[i - 1]!.bottom - TOL,
+            );
+        });
+      }
+    }
+  });
 
   // ── Invariant 8 — No horizontal overflow at 390px + the page end is reachable ──
   // (impeccable dual-gate P0s.) Two contracts the redesign MUST hold on a real
@@ -3514,7 +3590,8 @@ test.describe("quick facts and card titles on the seeded show (moved from crew-l
       const gearAt320: string[] = [];
       for (const width of [320, 390]) {
         await page.setViewportSize({ width, height: 844 });
-        for (const section of ["schedule", "venue", "travel", "crew", "gear"]) {
+        // Travel's cards live in Hotels and Transport from PR B Task 9.
+        for (const section of ["schedule", "venue", "hotels", "transport", "crew", "gear"]) {
           await gotoSection(page, section);
           const titles = await readTitles('[data-testid="crew-section-sheet-body"]');
           seen += titles.length;
@@ -3816,4 +3893,345 @@ test.describe("crew loading skeleton — reserves the loaded page's geometry", (
         }
       });
     }
+});
+
+/**
+ * PR B plan Task 5: the shared Venue body sits INSIDE the crew panel card, under
+ * its header. The admin card's box holds the body alone, so there the body
+ * cancels the card's padding and bleeds to its edges; the crew card's box holds
+ * its header too, so the crew passes `bleed: false` and the body keeps to the
+ * padding. A body that bled here would ride up over the header, and from 640px,
+ * where the Maps link takes the right-hand column, over the header's actions.
+ * Measured at a phone width and at a compact width past that breakpoint.
+ */
+test.describe("venue: the Venue panel's body sits under its header (PR B Task 5)", () => {
+  test.setTimeout(180_000);
+
+  const TOL = 0.5;
+  let seeded: Awaited<ReturnType<typeof seedShowWithCrew>>;
+
+  test.beforeAll(async () => {
+    seeded = await seedShowWithCrew({
+      title: "Venue Panel Card Show",
+      dates: {
+        travelIn: "2026-04-19",
+        set: "2026-04-20",
+        showDays: ["2026-04-21", "2026-04-22"],
+        travelOut: "2026-04-23",
+      },
+      crew: [{ name: "Venue Viewer", role: "A1", roleFlags: [] }],
+      venue: {
+        name: "Grand Panel Hall",
+        address: "350 Fifth Ave, New York, NY 10118",
+        googleLink: "https://maps.google.com/?q=grand-panel-hall",
+      },
+    });
+  });
+
+  test.afterAll(async () => {
+    if (seeded) await deleteSeededShow(seeded.driveFileId);
+  });
+
+  for (const width of [390, 800]) {
+    test(`venue: at ${width}px the body and its Maps link lie inside the panel card, below its header`, async ({
+      page,
+    }) => {
+      await page.setViewportSize({ width, height: 844 });
+      await page.clock.setFixedTime(new Date(SHOW_DAY_N_INSTANT));
+      await signOut(page);
+      await signInAs(page, ADMIN_FIXTURE);
+      await page.setExtraHTTPHeaders({
+        "X-Screenshot-Frozen-Now": SHOW_DAY_N_INSTANT,
+        Authorization: `Bearer ${TEST_AUTH_SECRET}`,
+      });
+      const viewer = seeded.crew[0]!;
+      const res = await page.goto(`/admin/show/${seeded.slug}/preview/${viewer.id}?s=venue`, {
+        waitUntil: "domcontentloaded",
+      });
+      expect(res?.status()).toBe(200);
+      await expect(page.getByTestId("crew-shell-sections")).toHaveAttribute(
+        "data-crew-controller-ready",
+        "true",
+        { timeout: 30_000 },
+      );
+      const card = page
+        .getByTestId("crew-section-sheet-dialog")
+        .getByTestId("venue-where")
+        .getByTestId("crew-panel-card");
+      await expect(card).toBeVisible();
+      const link = card.getByRole("link", { name: /Open in Maps/ });
+      await expect(link).toBeVisible();
+      const box = await rectOf(card);
+      const header = await rectOf(card.locator('[data-slot="panel-card-header"]'));
+      const actions = await rectOf(card.locator('[data-slot="section-card-action"]'));
+      const body = await rectOf(card.getByTestId("venue-body"));
+      const maps = await rectOf(link);
+
+      expect(body.top, "the body starts below the header").toBeGreaterThanOrEqual(
+        header.bottom - TOL,
+      );
+      for (const [name, r] of [
+        ["body", body],
+        ["Maps link", maps],
+      ] as const) {
+        expect(r.left, `${name} left`).toBeGreaterThanOrEqual(box.left - TOL);
+        expect(r.right, `${name} right`).toBeLessThanOrEqual(box.right + TOL);
+        expect(r.bottom, `${name} bottom`).toBeLessThanOrEqual(box.bottom + TOL);
+      }
+      const apart =
+        maps.right <= actions.left + TOL ||
+        actions.right <= maps.left + TOL ||
+        maps.bottom <= actions.top + TOL ||
+        actions.bottom <= maps.top + TOL;
+      expect(apart, `Maps ${JSON.stringify(maps)} vs actions ${JSON.stringify(actions)}`).toBe(
+        true,
+      );
+    });
+  }
+});
+
+/**
+ * PR B plan Task 4: the crew panel card (spec §6.1 line 290) carries the admin
+ * card's 28px icon chip, an h3 label and the card's header actions. Class parity
+ * with the admin card is a Vitest case (tests/components/show-panels/
+ * panelCardParity.test.tsx); this is the laid-out half: the chip renders 28 by
+ * 28, the header row is at least the chip's height, and the actions never
+ * overlap the label, at the two compact widths every crew card must hold.
+ */
+test.describe("billing: the crew panel card's header geometry (PR B Task 4)", () => {
+  test.setTimeout(180_000);
+
+  const TOL = 0.5;
+  let seeded: Awaited<ReturnType<typeof seedShowWithCrew>>;
+
+  test.beforeAll(async () => {
+    seeded = await seedShowWithCrew({
+      title: "Billing Panel Card Show",
+      dates: {
+        travelIn: "2026-04-19",
+        set: "2026-04-20",
+        showDays: ["2026-04-21", "2026-04-22"],
+        travelOut: "2026-04-23",
+      },
+      crew: [{ name: "Panel Lead", role: "TD", roleFlags: ["LEAD"] }],
+      internal: {
+        financials: {
+          po: "PO-PANEL-1180",
+          proposal: "Panel proposal",
+          invoice: "Panel invoice",
+          invoice_notes: "Panel invoice note",
+        },
+      },
+    });
+  });
+
+  test.afterAll(async () => {
+    if (seeded) await deleteSeededShow(seeded.driveFileId);
+  });
+
+  for (const width of [390, 320]) {
+    test(`billing: at ${width}px the panel card's chip is 28 by 28, its header row at least the chip's height, and its actions clear the label`, async ({
+      page,
+    }) => {
+      await page.setViewportSize({ width, height: 844 });
+      await page.clock.setFixedTime(new Date(SHOW_DAY_N_INSTANT));
+      await signOut(page);
+      await signInAs(page, ADMIN_FIXTURE);
+      await page.setExtraHTTPHeaders({
+        "X-Screenshot-Frozen-Now": SHOW_DAY_N_INSTANT,
+        Authorization: `Bearer ${TEST_AUTH_SECRET}`,
+      });
+      const lead = seeded.crew[0]!;
+      const res = await page.goto(`/admin/show/${seeded.slug}/preview/${lead.id}?s=billing`, {
+        waitUntil: "domcontentloaded",
+      });
+      expect(res?.status()).toBe(200);
+      await expect(page.getByTestId("crew-shell-sections")).toHaveAttribute(
+        "data-crew-controller-ready",
+        "true",
+        { timeout: 30_000 },
+      );
+      const card = page
+        .getByTestId("crew-section-sheet-dialog")
+        .getByTestId("section-billing")
+        .getByTestId("crew-panel-card");
+      await expect(card).toBeVisible();
+      const chip = await rectOf(card.locator('[data-slot="panel-card-chip"]'));
+      const header = await rectOf(card.locator('[data-slot="panel-card-header"]'));
+      const label = await rectOf(card.locator("h3"));
+      const actions = await rectOf(card.locator('[data-slot="section-card-action"]'));
+
+      expect(Math.abs(chip.width - 28), `chip width ${chip.width}`).toBeLessThanOrEqual(TOL);
+      expect(Math.abs(chip.height - 28), `chip height ${chip.height}`).toBeLessThanOrEqual(TOL);
+      expect(header.height, "header row vs chip").toBeGreaterThanOrEqual(chip.height - TOL);
+      expect(label.width, "the label is laid out").toBeGreaterThan(0);
+      expect(actions.width, "the actions are laid out").toBeGreaterThan(0);
+      const apart =
+        label.right <= actions.left + TOL ||
+        actions.right <= label.left + TOL ||
+        label.bottom <= actions.top + TOL ||
+        actions.bottom <= label.top + TOL;
+      expect(apart, `label ${JSON.stringify(label)} vs actions ${JSON.stringify(actions)}`).toBe(
+        true,
+      );
+    });
+  }
+});
+
+/**
+ * PR B plan Task 6 (BL-CREW-ROLE-LINE-RAW-TRUNCATED, BL-CREW-SECTION-GLYPH-ICONS):
+ * on the seeded Waldorf roster the longest role keeps its trailing position code
+ * at the two compact widths, and the row's actions are drawn icons.
+ *
+ * A clipping claim, so it carries the harness rule's overflow premise: the role
+ * cannot fit one line at a tested width (its Range spans at least two line
+ * boxes), and then the Range over its last word lies inside the role's own box
+ * and inside every ancestor whose overflow is not visible. Under that premise
+ * `truncate`, `max-h-[1lh] overflow-hidden` and `line-clamp-1` on the role line
+ * each hide the last word. The roster's actions sit under the identity, so at
+ * 390px the role has the card's width less the avatar and may fit one line; the
+ * premise is therefore the pass case's: the role wraps at SOME tested width, and
+ * the containment holds at every one. The code is the last token of the longest
+ * seeded role, read from the database, never typed here.
+ */
+test.describe("crew: the roster's role line keeps its position code (PR B Task 6)", () => {
+  test.setTimeout(180_000);
+
+  const TOL = 0.5;
+
+  test("crew: at 390px and 320px the longest role's trailing position code is not cut, and the row's actions are drawn icons", async ({
+    page,
+  }) => {
+    const seeded = await lookupSeededShow();
+    // not-subject-to-meta: test-local fixture lookup (see lookupSeededShow).
+    const { data: crew, error } = await admin
+      .from("crew_members")
+      .select("id, role")
+      .eq("show_id", seeded.showId);
+    if (error) throw new Error(`crew role line: crew lookup FAILED: ${error.message}`);
+    const role = [...(crew ?? [])]
+      .map((c) => (typeof c.role === "string" ? c.role.trim() : ""))
+      .sort((a, b) => b.length - a.length)[0];
+    if (!role) throw new Error("crew role line: the seed needs a crew member with a role");
+    const code = role.split(/\s+/).at(-1)!;
+    premiseHolds(
+      `the longest seeded role "${role}" ends in a position code`,
+      /^[A-Z]+\d+$/.test(code),
+    );
+
+    await page.clock.setFixedTime(new Date(SHOW_DAY_N_INSTANT));
+    await signOut(page);
+    await signInAs(page, ADMIN_FIXTURE);
+    await page.setExtraHTTPHeaders({
+      "X-Screenshot-Frozen-Now": SHOW_DAY_N_INSTANT,
+      Authorization: `Bearer ${TEST_AUTH_SECRET}`,
+    });
+    const lead = seeded.leadCrewId;
+
+    const readings = [];
+    for (const width of [390, 320]) {
+      await page.setViewportSize({ width, height: 844 });
+      const res = await page.goto(`/admin/show/${seeded.slug}/preview/${lead}?s=crew`, {
+        waitUntil: "domcontentloaded",
+      });
+      expect(res?.status()).toBe(200);
+      await expect(page.getByTestId("crew-shell-sections")).toHaveAttribute(
+        "data-crew-controller-ready",
+        "true",
+        { timeout: 30_000 },
+      );
+      const card = page
+        .getByTestId("crew-section-sheet-dialog")
+        .getByTestId("section-crew")
+        .locator('[data-card-id="crew-roster"]')
+        .first();
+      await expect(card).toBeVisible();
+      await expect(card).toContainText(role);
+      // The sheet's open transition has settled once the card's box stops moving.
+      await rectOf(card);
+
+      const read = await card.evaluate(
+        (root, { role, code }) => {
+          // The role line: the deepest element whose text is exactly the role.
+          const line = [...root.querySelectorAll<HTMLElement>("*")].find(
+            (el) =>
+              el.textContent?.trim() === role &&
+              ![...el.children].some((c) => c.textContent?.trim() === role),
+          );
+          if (!line) return null;
+          line.scrollIntoView({ block: "center" });
+          const whole = document.createRange();
+          whole.selectNodeContents(line);
+          const tops = new Set(
+            [...whole.getClientRects()].filter((r) => r.width > 0.5).map((r) => Math.round(r.top)),
+          );
+          const walker = document.createTreeWalker(line, NodeFilter.SHOW_TEXT);
+          let last: { node: Text; at: number } | null = null;
+          for (let n = walker.nextNode(); n !== null; n = walker.nextNode()) {
+            const at = (n as Text).data.lastIndexOf(code);
+            if (at >= 0) last = { node: n as Text, at };
+          }
+          if (!last) return null;
+          const word = document.createRange();
+          word.setStart(last.node, last.at);
+          word.setEnd(last.node, last.at + code.length);
+          const rect = (r: DOMRect) => ({
+            top: r.top,
+            left: r.left,
+            right: r.right,
+            bottom: r.bottom,
+          });
+          const clips: { what: string; box: ReturnType<typeof rect> }[] = [
+            { what: "the role line", box: rect(line.getBoundingClientRect()) },
+          ];
+          for (let el = line.parentElement; el !== null; el = el.parentElement) {
+            const s = getComputedStyle(el);
+            if (s.overflowX !== "visible" || s.overflowY !== "visible") {
+              const id = el.getAttribute("data-testid") ?? el.tagName.toLowerCase();
+              clips.push({
+                what: `the clipping ancestor ${id}`,
+                box: rect(el.getBoundingClientRect()),
+              });
+            }
+          }
+          const row = line.closest("li");
+          const links = row ? [...row.querySelectorAll("a")] : [];
+          return {
+            lines: tops.size,
+            word: rect(word.getBoundingClientRect()),
+            clips,
+            links: links.length,
+            linksWithSvg: links.filter((a) => a.querySelector("svg") !== null).length,
+            rowText: row?.textContent ?? "",
+          };
+        },
+        { role, code },
+      );
+      expect(read, `the role line and its last word were found at ${width}px`).not.toBeNull();
+      readings.push({ width, ...read! });
+    }
+
+    // PREMISE: the role cannot fit one line at some tested width, so a one-line cut
+    // there would hide its code.
+    premise(
+      `"${role}" spans line boxes at 390px or 320px (${readings.map((r) => `${r.width}px: ${r.lines}`).join(", ")})`,
+      Math.max(...readings.map((r) => r.lines)),
+      1,
+    );
+    for (const r of readings) {
+      for (const { what, box } of r.clips) {
+        const where = `${r.width}px: "${code}" ${JSON.stringify(r.word)} vs ${what} ${JSON.stringify(box)}`;
+        expect(r.word.left, where).toBeGreaterThanOrEqual(box.left - TOL);
+        expect(r.word.right, where).toBeLessThanOrEqual(box.right + TOL);
+        expect(r.word.top, where).toBeGreaterThanOrEqual(box.top - TOL);
+        expect(r.word.bottom, where).toBeLessThanOrEqual(box.bottom + TOL);
+      }
+    }
+
+    for (const r of readings) {
+      premise(`the role's row carries contact actions at ${r.width}px`, r.links, 0);
+      expect(r.linksWithSvg, `every action draws an svg icon at ${r.width}px`).toBe(r.links);
+      expect(r.rowText, `no glyph stands in for an icon at ${r.width}px`).not.toMatch(/[☎✉]/);
+    }
+  });
 });

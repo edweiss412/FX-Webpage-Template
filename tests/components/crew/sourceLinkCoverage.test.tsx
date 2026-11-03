@@ -28,7 +28,7 @@
  * that is either a CARD_REGION_MAP key (→ must carry the helper-derived link) or
  * an OUT_OF_SCOPE_CARDS id (→ must carry no link).
  *
- * The seven sections are rendered REAL (synchronous Server Components resolved by
+ * The nine sections are rendered REAL (synchronous Server Components resolved by
  * a synchronous render — WrappedSection invokes its `render()` inline). The
  * crew client islands read matchMedia, which jsdom lacks — stub it (mirrors
  * crewShellSections.test.tsx).
@@ -36,12 +36,15 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { cleanup, render } from "@testing-library/react";
 
+import { ContactsSection } from "@/components/crew/sections/ContactsSection";
 import { CrewSection } from "@/components/crew/sections/CrewSection";
-import { TravelSection } from "@/components/crew/sections/TravelSection";
+import { HotelsSection } from "@/components/crew/sections/HotelsSection";
+import { TransportSection } from "@/components/crew/sections/TransportSection";
 import { VenueSection } from "@/components/crew/sections/VenueSection";
 import { GearSection } from "@/components/crew/sections/GearSection";
+import { AgendaSection } from "@/components/crew/sections/AgendaSection";
 import { ScheduleSection } from "@/components/crew/sections/ScheduleSection";
-import { BudgetSection } from "@/components/crew/sections/BudgetSection";
+import { BillingSection } from "@/components/crew/sections/BillingSection";
 import { pinCrewClock, TodayBlock } from "@/tests/search/_todayBlock";
 import {
   buildSheetDeepLink,
@@ -187,7 +190,7 @@ function renderSection(node: React.ReactNode) {
   return render(<>{node}</>);
 }
 
-/** Render all seven sections into ONE container so the walker sees every card. */
+/** Render all nine sections into ONE container so the walker sees every card. */
 function renderAllSections(data: ShowForViewer) {
   pinCrewClock(FROZEN_TODAY);
   return renderSection(
@@ -199,7 +202,24 @@ function renderAllSections(data: ShowForViewer) {
         today={FROZEN_TODAY}
         showId="show-1"
       />
-      <TravelSection
+      {/* The key contacts' card, crew-contacts, is its own section from PR B Task 7. */}
+      <ContactsSection
+        {...ledgerProp()}
+        data={data}
+        viewer={adminViewer}
+        today={FROZEN_TODAY}
+        showId="show-1"
+      />
+      {/* Travel's three cards, split by PR B Task 9: travel-hotels in Hotels,
+          travel-flight and travel-getting-there in Transport (card ids kept). */}
+      <HotelsSection
+        {...ledgerProp()}
+        data={data}
+        viewer={adminViewer}
+        today={FROZEN_TODAY}
+        showId="show-1"
+      />
+      <TransportSection
         {...ledgerProp()}
         data={data}
         viewer={adminViewer}
@@ -227,7 +247,16 @@ function renderAllSections(data: ShowForViewer) {
         today={FROZEN_TODAY}
         showId="show-1"
       />
-      <BudgetSection
+      {/* The agenda left Schedule for its own section in PR B Task 10; its panel card
+          carries no card id and no header actions (the agenda has none). */}
+      <AgendaSection
+        {...ledgerProp()}
+        data={data}
+        viewer={adminViewer}
+        today={FROZEN_TODAY}
+        showId="show-1"
+      />
+      <BillingSection
         {...ledgerProp()}
         data={data}
         viewer={adminViewer}

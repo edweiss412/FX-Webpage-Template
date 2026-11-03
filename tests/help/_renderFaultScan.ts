@@ -937,14 +937,84 @@ export function scanCandidates(): Candidate[] {
       // "Your scope" ternary moved from the action slot into that prop. Not a
       // fault branch; 78 kept. Re-derived by running the guard.
       //
-      // Probed: 798 such ternaries under the derived roots, 78 on a
-      // fault-vocabulary guard and unclassifiable. 69 of those 78 sit in
+      // 798 -> 799 on feat/crew-page-redesign-pr-b Task 4: OpsBreakdown's empty-state
+      // ternary moved into the shared Billing body (components/show-panels/BillingBody.tsx,
+      // the same `<p>` arm, still counted once), and the crew panel card's optional
+      // header actions (`actions !== undefined ? <div>… : null`, PanelCard) are new.
+      // FieldRowList's search-marker colon ternary carries no JSX in its true arm, so
+      // the arm does not count it. None is a fault branch; 78 kept. Re-derived by
+      // running the guard.
+      //
+      // 799 -> 798 on feat/crew-page-redesign-pr-b Task 5: VenueBreakdown's five line
+      // and dock ternaries moved into the shared Venue body
+      // (components/show-panels/VenueBody.tsx, the same arms, each still counted
+      // once), its map-region ternary moved into the body's slot prop (still counted),
+      // and the crew Where card's `hasWhereRows ? <KeyValueRows … /> : null` left
+      // VenueSection with the rows it drew. None is a fault branch; 78 kept.
+      // Re-derived by running the guard.
+      //
+      // 798 -> 801 on feat/crew-page-redesign-pr-b Task 6: CrewBreakdown's member list
+      // moved into the shared Crew body (components/show-panels/CrewBody.tsx). Seven
+      // ternaries left the admin list (the empty state, the subline, the phone and
+      // email anchors, the row-actions trigger, the hosting row and the overflow note)
+      // and two stayed as the slot values CrewBreakdown passes (the row-actions
+      // trigger, the attention stack); the crew roster's overflow stub left
+      // CrewSection for the body's overflow slot. The body holds nine: the name line
+      // with and without chips, the You, Lead and partial chips, the role line, the
+      // actions' placement, the hosting row and the empty state. None is a fault
+      // branch; 78 kept. Re-derived by running the guard.
+      //
+      // 801 -> 802 on feat/crew-page-redesign-pr-b Task 7: ContactsBreakdown's list
+      // moved into the shared Contacts body (components/show-panels/ContactsBody.tsx).
+      // Three ternaries left the admin list (the empty state, the kind subline and the
+      // actions); CrewSection's five (the contacts fetch-failure block, the both-empty
+      // state, the roster and contacts column wrappers, the contacts overflow stub) gave
+      // way to one (the roster's empty state or card); the new
+      // ContactsSection holds three (the fetch-failure block, the empty state, the card)
+      // and the body five (the kind subline, the actions, the note, the actions'
+      // placement and the empty state). None is a fault branch; 78 kept. Re-derived by
+      // running the guard.
+      //
+      // 802 -> 807 on feat/crew-page-redesign-pr-b Task 8: TransportBody and its contact
+      // cells moved into the shared Transport body
+      // (components/show-panels/TransportBody.tsx) and HotelCard's markup into the shared
+      // hotel card body (components/show-panels/HotelCardBody.tsx), every arm still counted
+      // once (HotelCard's judgment-marker ternary stays in the admin as the slot value). Five
+      // are new: a contact's plain-text line when its link builder returns null or the
+      // surface does not linkify (phone and email), and the hotel card's confirmation and
+      // notes list and its two rows. None is a fault branch; 78 kept. Re-derived by
+      // running the guard.
+      //
+      // 807 -> 798 on feat/crew-page-redesign-pr-b Task 9: the Travel section left, and
+      // its flight, getting-there and hotels ternaries with it; its "Your flight" card
+      // moved to the new TransportSection unchanged, its hotel and transport bodies are
+      // the shared ones (each gains one: the crew's stage-less leg and a stay end's own
+      // presence), and HotelsSection and TransportSection each hold the fetch-failure
+      // block, the empty state and the card. None is a fault branch. 78 -> 79: Travel's
+      // one emptiness check (`allHidden && !hotelFetchFailed && !transportFetchFailed`)
+      // became two, HotelsSection's and TransportSection's, each guarded on its own
+      // fetch failure. Re-derived by running the guard.
+      //
+      // 798 -> 796 on feat/crew-page-redesign-pr-b Task 10: the agenda left the Schedule
+      // section, and with it the agenda area's two ternaries (the area itself and each
+      // link's structured block); the new AgendaSection decides its empty state with an
+      // early return and its per-link blocks with a ternary whose JSX is the false arm.
+      // None was a fault branch. Re-derived by running the guard.
+      //
+      // 796 -> 799 on feat/crew-page-redesign-pr-b's invariant-8 gate repairs: the
+      // crew Transport body's vertical-route segment between two legs and its "With"
+      // riders line (gate rows 1 and 2), and the crew Contacts row that puts the
+      // actions beside the identity from the crew threshold (row 20). None is a
+      // fault branch. Re-derived by running the guard.
+      //
+      // Probed: 799 such ternaries under the derived roots, 79 on a
+      // fault-vocabulary guard and unclassifiable. 69 of those 79 sit in
       // `"use client"` files, where the guard is interaction state -- `errorCode`,
       // `state.kind === "error"`, `switchStatus === "error"` -- and not a server-render
       // fault. The screenshot harness captures server-rendered output, so a
       // client error toast is a different population from the one this
-      // instrument measures. Nine are in server components, of which four are
-      // emptiness checks (`allHidden && !roomsFetchFailed` and three siblings in
+      // instrument measures. Ten are in server components, of which five are
+      // emptiness checks (`allHidden && !roomsFetchFailed` and four siblings in
       // components/crew/sections/) and two are already registered.
       //
       // So the vocabulary probe is the WRONG FILTER on this arm, which answers
@@ -956,8 +1026,11 @@ export function scanCandidates(): Candidate[] {
       //
       // RE-FILE TRIGGER, and it is computed rather than promised: if the count of
       // server-component ternaries that are unclassified, fault-vocabulary AND
-      // unregistered rises above 7 -- its resting value today -- the decline is
-      // re-opened. `tests/help/_metaRenderFaultMarking.test.ts` asserts that
+      // unregistered rises above 8 -- its resting value today -- the decline is
+      // re-opened. It rose from 7 to 8 on feat/crew-page-redesign-pr-b Task 9 and was
+      // re-opened then: the one new site is an emptiness check (Travel's, split into
+      // Hotels' and Transport's), not a server-render fault, so the population the
+      // trigger watches did not gain a fault and the decline stands at 8. `tests/help/_metaRenderFaultMarking.test.ts` asserts that
       // bound, re-derives both figures above and compares them to this comment,
       // and pins each registered site as still unreachable. Editing these numbers
       // without re-probing fails there.

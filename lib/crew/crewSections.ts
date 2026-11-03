@@ -4,47 +4,90 @@
  * One membership list read by both the compact "All sections" card and the
  * wide left nav, so the two can never differ (crew page redesign spec §4.6).
  *
- * PR A keeps today's crew section ids and labels (spec §5.1): the base ids of
- * `BASE_SECTION_IDS` minus `today`, which now means "home, no sheet", plus
- * `budget` only when `financialsVisible` holds. That is the shell's own
- * entitlement (`app/show/[slug]/[shareToken]/_CrewShell.tsx`, `budgetVisible`),
- * computed by the same predicate, so the list, the section bodies the shell
- * builds and `resolveActiveSection` all agree.
+ * Entitlement and membership are two predicates (crew page redesign PR B plan,
+ * decision 1). `crewSectionEntitled` says whether the viewer may see a section
+ * at all: the shell builds a body for every entitled id and resolves `?s=`
+ * against them. Membership, `crewSectionsFor`, is the entitled ids in
+ * `CREW_SECTION_IDS` order, narrowed by one content rule: an Agenda with no
+ * agenda file is entitled and unlisted (PR B Task 10). Three gates (spec line
+ * 240): `billing` only when `financialsVisible` holds; `transport` for an admin,
+ * a viewer `transportTileVisible` admits, or a viewer whose "Your flight" card
+ * renders a row (PR B Task 9), since a viewer with neither has nothing the
+ * section may show them, and an empty state there would claim no transport
+ * exists when it is only withheld, so the section is not theirs (plan decision
+ * 1); and `agenda` whenever the viewer's dates are not suppressed (PR B Task 10).
+ * `today` is the home, not a section.
  *
- * Membership never reads the projection's data: a domain whose fetch failed
- * (`tileErrors`) keeps its section listed, and the section shows its own
- * degraded state. `data` is in the signature because the rules from PR B on
- * read it (spec §5.1).
+ * Membership never reads a domain whose fetch can fail: a domain whose fetch
+ * failed (`tileErrors`) keeps its section listed, and the section shows its own
+ * degraded state. The Agenda's content rule reads the show row's agenda links,
+ * which arrive with the show itself, not from a fetch of their own (spec §5.1).
  *
  * Pure and server-safe.
  */
 import type { ShowForViewer } from "@/lib/data/getShowForViewer";
 import type { ViewerContext } from "@/lib/data/viewerContext";
-import { BASE_SECTION_IDS, type SectionId } from "@/lib/crew/resolveActiveSection";
+import { hasAgendaFile } from "@/components/crew/agendaScheduleRows";
+import { suppressesDates } from "@/lib/crew/dateSuppression";
+import { viewerFlightShown } from "@/lib/crew/flightDisplay";
+import { CREW_SECTION_IDS, type SectionId } from "@/lib/crew/resolveActiveSection";
 import { sectionPeek, type SectionPeekViewer } from "@/lib/crew/sectionPeek";
-import { financialsVisible } from "@/lib/visibility/scopeTiles";
+import { showSection, type ShowSectionId } from "@/lib/showSections/registry";
+import { financialsVisible, transportTileVisible } from "@/lib/visibility/scopeTiles";
 
 /** A section the list and the nav can open. `today` is the home, not a section. */
 export type CrewSectionId = Exclude<SectionId, "today">;
 
 export type CrewSection = { id: CrewSectionId; label: string };
 
-/** What membership reads about the viewer: the budget gate's two inputs. */
-export type CrewSectionsViewer = Pick<ViewerContext, "viewerFlags" | "isAdmin">;
+/**
+ * What entitlement and membership read about the viewer: the billing gate's two
+ * inputs, and the date restriction the Transport gate's own-flight rule reads.
+ */
+export type CrewSectionsViewer = Pick<ViewerContext, "viewerFlags" | "isAdmin" | "dateRestriction">;
 
 /**
- * The crew sections' labels, PR A's ids with today's names (spec §5.1). The one
- * label source: the "All sections" rows, the wide nav, the sheet's title and
- * its close button's name all read it.
+ * The crew sections moved onto a shared body (components/show-panels/), named
+ * explicitly rather than derived (PR B plan, decision 2): `schedule`, `venue` and
+ * `crew` are registry ids long before they move, and `schedule` never does. Each
+ * section task appends its own ids in its own commit. A moved section's label and
+ * glyph are its registry record's (decisions 2 and 3), so the crew page and the
+ * admin popup name and draw it the same way.
  */
-export const CREW_SECTION_LABELS: Readonly<Record<CrewSectionId, string>> = {
+export const CREW_MOVED_IDS = [
+  "billing",
+  "venue",
+  "crew",
+  "contacts",
+  "hotels",
+  "transport",
+  "agenda",
+] as const satisfies readonly (CrewSectionId & ShowSectionId)[];
+
+type CrewMovedId = (typeof CREW_MOVED_IDS)[number];
+
+/** Whether the section reads its label and glyph from the registry. */
+export function isCrewMovedSection(id: CrewSectionId): id is CrewMovedId {
+  return (CREW_MOVED_IDS as readonly string[]).includes(id);
+}
+
+/** The crew's own names for the sections not yet moved (spec §5.1, PR A's labels). */
+const CREW_OWN_LABELS: Readonly<Record<Exclude<CrewSectionId, CrewMovedId>, string>> = {
   schedule: "Schedule",
-  venue: "Venue",
-  travel: "Travel",
-  crew: "Crew",
   gear: "Gear",
-  budget: "Budget",
 };
+
+/**
+ * The crew sections' labels: the registry's for a moved section, the crew's own
+ * for the rest. The one label source: the "All sections" rows, the wide nav, the
+ * sheet's title and its close button's name all read it.
+ */
+export const CREW_SECTION_LABELS: Readonly<Record<CrewSectionId, string>> = Object.fromEntries(
+  CREW_SECTION_IDS.map((id) => [
+    id,
+    isCrewMovedSection(id) ? showSection(id).label : CREW_OWN_LABELS[id],
+  ]),
+) as Record<CrewSectionId, string>;
 
 /** The wide nav's first item, the Today block (spec §5.3). */
 export const CREW_TODAY_LABEL = "Today";
@@ -60,11 +103,71 @@ export function crewSectionLabel(id: SectionId): string {
 /** A listed section plus its one-line peek, as the client receives it. */
 export type CrewSectionEntry = CrewSection & { peek: string | null };
 
-/** The sections this viewer may open, in nav order. */
-export function crewSectionsFor(_data: ShowForViewer, viewer: CrewSectionsViewer): CrewSection[] {
-  const ids: CrewSectionId[] = BASE_SECTION_IDS.flatMap((id) => (id === "today" ? [] : [id]));
-  if (financialsVisible(viewer.viewerFlags, viewer.isAdmin)) ids.push("budget");
-  return ids.map((id) => ({ id, label: CREW_SECTION_LABELS[id] }));
+type SectionGate = (data: ShowForViewer, viewer: CrewSectionsViewer) => boolean;
+
+/**
+ * The sections a viewer may be refused, each with the predicate that admits it.
+ * A section with no row here is entitled for every viewer.
+ */
+const SECTION_GATES: Readonly<Partial<Record<CrewSectionId, SectionGate>>> = {
+  billing: (_data, viewer) => financialsVisible(viewer.viewerFlags, viewer.isAdmin),
+  transport: (data, viewer) =>
+    viewer.isAdmin ||
+    transportTileVisible({
+      transportation: data.transportation,
+      viewerId: data.viewerId,
+      transportationOwnerIds: data.transportationOwnerIds,
+      viewerName: data.viewerName,
+      viewerNameAliases: data.viewerNameAliases,
+      isAdmin: viewer.isAdmin,
+    }) ||
+    viewerFlightShown(data.viewerFlightInfo, suppressesDates(viewer.dateRestriction)),
+  // Hidden for a viewer whose dates are suppressed (spec §6.2 `agenda` row): an
+  // agenda is a schedule of days, so its days are a claim about theirs.
+  agenda: (_data, viewer) => !suppressesDates(viewer.dateRestriction),
+};
+
+/**
+ * The one content rule membership adds to entitlement (spec line 240, plan
+ * decision 1): an Agenda is listed only when the show has an agenda link with a
+ * file, the same test the section's empty state reads. Every other id is listed
+ * whenever it is entitled.
+ */
+function listedWithContent(id: CrewSectionId, data: ShowForViewer): boolean {
+  return id !== "agenda" || hasAgendaFile(data.show.agenda_links);
+}
+
+/**
+ * The sections every viewer is listed, in nav order: the rows the loading
+ * skeleton may show before the projection says who the viewer is, so it never
+ * shows a row that may not render.
+ */
+export const CREW_ALWAYS_SECTION_IDS: readonly CrewSectionId[] = CREW_SECTION_IDS.filter(
+  (id) => !Object.hasOwn(SECTION_GATES, id),
+);
+
+/** Whether this viewer may see the section at all; the home always. */
+export function crewSectionEntitled(
+  id: SectionId,
+  data: ShowForViewer,
+  viewer: CrewSectionsViewer,
+): boolean {
+  if (id === "today") return true;
+  const gate = SECTION_GATES[id];
+  return gate === undefined || gate(data, viewer);
+}
+
+/**
+ * The sections the list and the nav offer this viewer, in nav order: the entitled
+ * ones with something to show (an Agenda with no file is entitled and unlisted).
+ */
+export function crewSectionsFor(data: ShowForViewer, viewer: CrewSectionsViewer): CrewSection[] {
+  return CREW_SECTION_IDS.filter(
+    (id) => crewSectionEntitled(id, data, viewer) && listedWithContent(id, data),
+  ).map((id) => ({
+    id,
+    label: CREW_SECTION_LABELS[id],
+  }));
 }
 
 /**

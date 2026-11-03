@@ -659,14 +659,15 @@ async function agendaShowPrefetched(
 }
 
 /**
- * Schedule, then `View agenda`: the viewer shows the first page, painted. The page
+ * Agenda (its own section since crew page redesign PR B, Task 10; it was the top
+ * of Schedule), then `View agenda`: the viewer shows the first page, painted. The page
  * counter appears once the document loads, before react-pdf's `<Page>` renders
  * (Codex R1 D3), so the case also waits for the first page's canvas and reads its
  * pixels: a real width, and ink on it (the fixture is black text on white).
  */
 async function openAgenda(page: Page): Promise<void> {
-  await sectionRow(page, "schedule").click();
-  await expect(page.getByTestId("section-schedule")).toBeVisible();
+  await sectionRow(page, "agenda").click();
+  await expect(page.getByTestId("section-agenda")).toBeVisible();
   await page
     .getByTestId("agenda-embed")
     .getByRole("button", { name: /View agenda/ })

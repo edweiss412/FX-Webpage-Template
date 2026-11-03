@@ -12,16 +12,16 @@
 // geometry class can drift, it is compared with the REAL component's rendered
 // class list (Header, CrewWideNav), never restated here.
 //
-// §4.17 / no-Budget: placeholders derive from BASE_SECTION_IDS, so a Budget
-// entry never flashes while `financialsVisible` is still unknown.
+// §4.17 / no-Budget: placeholders derive from `CREW_ALWAYS_SECTION_IDS`, the
+// sections every viewer is listed, so a Budget entry never flashes while
+// `financialsVisible` is still unknown.
 import "@testing-library/jest-dom/vitest";
 import { afterEach, describe, expect, it } from "vitest";
 import { cleanup, render, within } from "@testing-library/react";
 import { Header } from "@/components/layout/Header";
 import { CrewWideNav } from "@/components/crew/CrewWideNav";
 import { CREW_PAGE_CONTAINER } from "@/lib/crew/pageContainer";
-import { crewSectionLabel } from "@/lib/crew/crewSections";
-import { BASE_SECTION_IDS } from "@/lib/crew/resolveActiveSection";
+import { CREW_ALWAYS_SECTION_IDS, crewSectionLabel } from "@/lib/crew/crewSections";
 import Loading from "@/app/show/[slug]/[shareToken]/loading";
 
 afterEach(cleanup);
@@ -104,7 +104,9 @@ describe("crew route loading skeleton", () => {
     expect(nav.className).toBe(realNavClass);
     expect(nav.parentElement).toBe(getByTestId("crew-loading-body"));
     const items = within(nav).getAllByTestId("crew-loading-nav-item");
-    expect(items.map((el) => el.textContent)).toEqual(BASE_SECTION_IDS.map(crewSectionLabel));
+    expect(items.map((el) => el.textContent)).toEqual(
+      ["today" as const, ...CREW_ALWAYS_SECTION_IDS].map(crewSectionLabel),
+    );
   });
 
   it("the body row is the shared page container and stretches its columns (DESIGN.md §7)", () => {
@@ -190,17 +192,17 @@ describe("crew route loading skeleton", () => {
     expect(stack).toContainElement(getByTestId("crew-loading-section"));
   });
 
-  it("the list block carries one row per base section, never a Budget row", () => {
+  it("the list block carries one row per base section, never a Billing row", () => {
     const { getByTestId } = render(<Loading />);
     const rows = within(getByTestId("crew-loading-list")).getAllByTestId("crew-loading-list-row");
-    expect(rows.map((el) => el.textContent)).toEqual(
-      BASE_SECTION_IDS.filter((id) => id !== "today").map(crewSectionLabel),
-    );
+    expect(rows.map((el) => el.textContent)).toEqual(CREW_ALWAYS_SECTION_IDS.map(crewSectionLabel));
   });
 
-  it("never renders a Budget entry (case-insensitive)", () => {
+  it("never renders a Billing entry, by its label or its old name (case-insensitive)", () => {
     const { container } = render(<Loading />);
-    expect((container.textContent ?? "").toLowerCase()).not.toContain("budget");
+    const text = (container.textContent ?? "").toLowerCase();
+    expect(text).not.toContain(crewSectionLabel("billing").toLowerCase());
+    expect(text).not.toContain("budget");
   });
 
   it("contains no em dash and no raw error code", () => {

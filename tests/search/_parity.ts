@@ -258,8 +258,8 @@ export function assertParity(
 
   // ── Clause 4: group headings are represented ──
   // Owed only by a heading whose region holds at least one target. A card that
-  // renders only its title (Venue "Where" with only the Maps link; Show crew or
-  // Key contacts whose every row hides itself) has no line to name it, and
+  // renders only its title (Venue "Where" with only the Maps link; the Crew roster or
+  // the Contacts whose every row hides itself) has no line to name it, and
   // clause 5 still holds the title itself to a group heading.
   const pairedRegions = paired.map(({ entry: e, target }) => ({
     group: ws(e.group),

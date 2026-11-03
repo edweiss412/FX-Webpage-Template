@@ -7,7 +7,8 @@
  * SignInOrSkip gate CTA, the picker hidden inputs).
  *
  * Allow-lists are the single source of truth in resolveActiveSection.ts:
- *   - `s` is appended IFF it is in [...BASE_SECTION_IDS, "budget"].
+ *   - `s` is appended IFF `canonicalSectionParam` admits it, written as the
+ *     id it returns (a legacy alias becomes the id that replaced it).
  *   - `gate` is appended IFF it is in ALLOWED_GATE_VALUES.
  * Anything else is DROPPED — an arbitrary `s`/`gate` must never reach the
  * URL (param-smuggling / open-redirect defense; this builder mirrors the
@@ -16,13 +17,8 @@
  * Order is stable: `?s=...` first, then `&gate=...`, so the same inputs
  * always produce a byte-identical URL (revalidatePath / dedupe stability).
  */
-import { BASE_SECTION_IDS, type SectionId } from "@/lib/crew/resolveActiveSection";
-import { ALLOWED_GATE_VALUES } from "@/lib/crew/resolveActiveSection";
+import { ALLOWED_GATE_VALUES, canonicalSectionParam } from "@/lib/crew/resolveActiveSection";
 
-const ALLOWED_SECTION_VALUES: ReadonlySet<string> = new Set<SectionId>([
-  ...BASE_SECTION_IDS,
-  "budget",
-]);
 const ALLOWED_GATE_SET: ReadonlySet<string> = new Set<string>(ALLOWED_GATE_VALUES);
 
 export type ShowReturnUrlOptions = {
@@ -36,8 +32,9 @@ export function buildShowReturnUrl(
   { s, gate }: ShowReturnUrlOptions,
 ): string {
   const params: string[] = [];
-  if (typeof s === "string" && ALLOWED_SECTION_VALUES.has(s)) {
-    params.push(`s=${s}`);
+  const section = canonicalSectionParam(s);
+  if (section !== undefined) {
+    params.push(`s=${section}`);
   }
   if (typeof gate === "string" && ALLOWED_GATE_SET.has(gate)) {
     params.push(`gate=${gate}`);

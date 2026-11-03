@@ -49,14 +49,15 @@
  *      section that failed to render.
  *
  *   3. Whole-tile-missing — the show's `hotel_reservations` rows are removed,
- *      so `hasHotels` (TravelSection.tsx:390) is false and the hotels card
- *      returns nothing while the section reflows around it. Asserted in BOTH
- *      directions, since a missing card and a broken section look identical
- *      from a single `toHaveCount(0)`.
+ *      so `hotelsPanel` (components/crew/sections/hotelsRows.ts) holds no card
+ *      and the Hotels section, Travel's successor from crew page redesign PR B
+ *      Task 9, draws no hotels card and shows its own empty state instead.
+ *      Asserted in BOTH directions, since a missing card and a broken section
+ *      look identical from a single `toHaveCount(0)`.
  *
  *      NOT by viewer identity, which is what the retired version did. The
- *      redesign's Travel section renders EVERY `hotelReservations[]` entry
- *      (TravelSection.tsx:15, :387) rather than the viewer's own, so "the
+ *      redesign's Hotels section renders EVERY `hotelReservations[]` entry
+ *      (`hotelsPanel`, as the Travel section did before it) rather than the viewer's own, so "the
  *      viewer is not named on a reservation" no longer changes what renders
  *      and would have made this case pass for the wrong reason.
  *
@@ -406,7 +407,7 @@ test.describe("crew page — §8.3 empty-state reachability (Task 9.3, AC-9.2)",
     await expect(page.getByTestId("section-venue").locator("dt").first()).toBeVisible();
   });
 
-  test("category 3: whole-tile-missing — no reservations → hotels card absent, section reflows", async ({
+  test("category 3: whole-tile-missing — no reservations → hotels card absent, the Hotels section says so", async ({
     page,
   }) => {
     // PREMISE, read from the DB rather than assumed from a comment.
@@ -415,23 +416,21 @@ test.describe("crew page — §8.3 empty-state reachability (Task 9.3, AC-9.2)",
       "premise: the seed show must carry at least one hotel reservation",
     ).toBeGreaterThan(0);
 
-    // PRESENT half. Without it the count-0 below would also pass on a Travel
+    // PRESENT half. Without it the count-0 below would also pass on a Hotels
     // section that never renders the card under any data.
+    const hotelsCard = '[data-card-id="travel-hotels"]';
     const withHotels = await copy({});
-    await gotoSection(page, withHotels, "travel");
-    await expect(page.getByTestId("section-travel").getByTestId("travel-hotels")).toBeVisible();
+    await gotoSection(page, withHotels, "hotels");
+    await expect(page.getByTestId("section-hotels").locator(hotelsCard)).toBeVisible();
 
     // MISSING half: the same show, minus the reservation rows.
     const noHotels = await copy({}, { withReservations: false });
-    await gotoSection(page, noHotels, "travel");
-    const travel = page.getByTestId("section-travel");
-    await expect(travel.getByTestId("travel-hotels")).toHaveCount(0);
-    // The section reflowed around the missing card rather than collapsing:
-    // either other travel content or the section-level empty state is there.
-    const alive = travel
-      .getByTestId("travel-getting-there")
-      .or(travel.getByTestId("section-empty"));
-    await expect(alive.first()).toBeVisible();
+    await gotoSection(page, noHotels, "hotels");
+    const hotels = page.getByTestId("section-hotels");
+    await expect(hotels.locator(hotelsCard)).toHaveCount(0);
+    // The section is alive rather than collapsed: Hotels is its own section now
+    // (PR B Task 9), so with no card it shows its section-level empty state.
+    await expect(hotels.getByTestId("section-empty")).toBeVisible();
   });
 
   test("category 4: stale-sync — last_checked_at >6h ago → SYNC_DELAYED_SEVERE footer", async ({

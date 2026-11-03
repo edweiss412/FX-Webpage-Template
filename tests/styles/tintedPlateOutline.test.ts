@@ -255,7 +255,26 @@ const REGISTRY: readonly RegistryRow[] = [
     // on the stub's `bg-surface-sunken`. It is a border, not a fill, so it
     // survives forced-colors mode; DESIGN.md §1.2a puts a standalone 1px rule on
     // the text ramp. Raw count is now 15, four of them still in comments.
-    neutralFaintCount: 11,
+    // 11 -> 9 on 2026-11-01: the crew roster's call and email squares (both on the
+    // neutral row ground) moved into the shared Crew body,
+    // components/show-panels/CrewBody.tsx (crew page redesign PR B Task 6), as one
+    // square its actions share. That file stands on no tinted plate, so it has no
+    // anchor this registry could pin; the derived arm above reads it like any
+    // other file. Raw count is now 13, four of them still in comments.
+    // 9 -> 8 on 2026-11-01: the contacts' call, office and email square (on the
+    // neutral row ground) moved into the shared Contacts body,
+    // components/show-panels/ContactsBody.tsx (crew page redesign PR B Task 7), the
+    // square its anchors share. That file stands on no tinted plate either; the
+    // derived arm reads it. Raw count is now 12, four of them still in comments.
+    // 8 -> 5 on 2026-11-01: the transport cells' call and email chips (both on the
+    // neutral sunken cell) moved into the shared Transport body,
+    // components/show-panels/TransportBody.tsx, and the hotel date stub's connector
+    // rule (on the stub's sunken ground) into the shared hotel card body,
+    // components/show-panels/HotelCardBody.tsx (crew page redesign PR B Task 8). Neither
+    // file stands on a tinted plate, so neither has an anchor this registry could pin;
+    // the derived arm reads them. Raw count is now 7, two of them in comments (the
+    // chips' two explanatory comments moved with them).
+    neutralFaintCount: 5,
   },
 ];
 

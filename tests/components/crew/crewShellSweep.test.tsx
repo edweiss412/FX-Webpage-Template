@@ -70,10 +70,13 @@ vi.mock("@/components/crew/sections/ScheduleSection", () => ({
   ScheduleSection: spy("schedule"),
 }));
 vi.mock("@/components/crew/sections/VenueSection", () => ({ VenueSection: spy("venue") }));
-vi.mock("@/components/crew/sections/TravelSection", () => ({ TravelSection: spy("travel") }));
+vi.mock("@/components/crew/sections/HotelsSection", () => ({ HotelsSection: spy("hotels") }));
+vi.mock("@/components/crew/sections/TransportSection", () => ({
+  TransportSection: spy("transport"),
+}));
 vi.mock("@/components/crew/sections/CrewSection", () => ({ CrewSection: spy("crew") }));
 vi.mock("@/components/crew/sections/GearSection", () => ({ GearSection: spy("gear") }));
-vi.mock("@/components/crew/sections/BudgetSection", () => ({ BudgetSection: spy("budget") }));
+vi.mock("@/components/crew/sections/BillingSection", () => ({ BillingSection: spy("billing") }));
 
 // Render EVERY built body. The real controller renders only the active section,
 // so without this override the spies for the other six never run and the

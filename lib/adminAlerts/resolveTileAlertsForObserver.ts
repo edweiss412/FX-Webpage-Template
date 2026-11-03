@@ -14,7 +14,7 @@ export type ResolveTileAlertsForObserverInput = {
  * Resolve TILE_SERVER_RENDER_FAILED rows this observer is entitled to clear.
  *
  * Keyed on BOTH discriminators. Permission gates live inside the wrapped seam
- * (e.g. transportTileVisible in TravelSection), so different viewers execute
+ * (e.g. transportTileVisible in TransportSection), so different viewers execute
  * different code for the same tileId; a viewer who skips the failing path must
  * not clear an alert that is still live for the viewer who reaches it.
  *

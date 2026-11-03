@@ -1111,12 +1111,18 @@ describe("sheet-link phrase containment (spec §7.10)", () => {
         "components/admin/wizard/step3ReviewSections.tsx": 8,
         "components/crew/primitives/CardHeaderActions.tsx": 1,
         "components/crew/primitives/SourceLink.tsx": 5,
-        "components/crew/sections/BudgetSection.tsx": 1,
+        "components/crew/sections/BillingSection.tsx": 1,
+        // The contacts card's source link left CrewSection for its own section
+        // (PR B Task 7); the roster's stays there.
+        "components/crew/sections/ContactsSection.tsx": 1,
         "components/crew/sections/CrewSection.tsx": 1,
         "components/crew/sections/GearSection.tsx": 1,
         "components/crew/sections/HomeSection.tsx": 1,
         "components/crew/sections/ScheduleSection.tsx": 1,
-        "components/crew/sections/TravelSection.tsx": 1,
+        // Travel's card source links split with it (PR B Task 9): the Hotels card's
+        // and the Your flight and Transport cards'.
+        "components/crew/sections/HotelsSection.tsx": 1,
+        "components/crew/sections/TransportSection.tsx": 1,
         "components/crew/sections/VenueSection.tsx": 1,
         "components/shared/CardReportTrigger.tsx": 1,
         // Carries the `SourceAnchor` type import that came out of
@@ -1204,7 +1210,9 @@ describe("sheet-link phrase containment (spec §7.10)", () => {
       const found: Record<string, number> = {};
       for (const file of walkedFiles(root)) {
         const rel = file.slice(root.length + 1);
-        if (!/^(components\/admin|app\/admin)\//.test(rel)) continue;
+        // components/show-panels holds the shared section bodies the admin popup
+        // renders (crew page redesign PR B), so its anchors are the admin tree's.
+        if (!/^(components\/admin|app\/admin|components\/show-panels)\//.test(rel)) continue;
         if (!/\.(tsx|jsx)$/.test(rel)) continue;
         const src = readFileSync(file, "utf8");
         if (!src.includes("<a")) continue;
@@ -1267,11 +1275,18 @@ describe("sheet-link phrase containment (spec §7.10)", () => {
         "components/admin/BellPanel.tsx": 1,
         // The component this whole guard contains.
         "components/admin/SheetIconLink.tsx": 1,
-        // Three icon-only CONTACT affordances (the crew-row call action and
-        // the tel:/mailto: pair) plus the staged-diagram image anchor
-        // (img-only, aria-labeled — the r37 attribute-expression fix
-        // surfaced it) — none is a sheet link.
-        "components/admin/wizard/step3ReviewSections.tsx": 4,
+        // The staged-diagram image anchor (img-only, aria-labeled — the r37
+        // attribute-expression fix surfaced it), not a sheet link. Four until the
+        // crew roster's call and email anchors moved into the shared Crew body (PR B
+        // Task 6), two until the contacts' tel:/mailto: anchor moved into the shared
+        // Contacts body (Task 7), the rows below.
+        "components/admin/wizard/step3ReviewSections.tsx": 1,
+        // The contacts' icon-only call, office and email action: one anchor site
+        // the rows map through, not a sheet link.
+        "components/show-panels/ContactsBody.tsx": 1,
+        // The crew roster's icon-only call, text and email action: one anchor
+        // site the actions map through, not a sheet link.
+        "components/show-panels/CrewBody.tsx": 1,
       });
     },
   );

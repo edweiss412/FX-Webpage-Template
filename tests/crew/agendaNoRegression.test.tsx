@@ -31,7 +31,7 @@ import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { describe, expect, test } from "vitest";
 import { render, within } from "@testing-library/react";
-import { AgendaScheduleBlock } from "@/components/crew/AgendaScheduleBlock";
+import { AgendaScheduleBlock } from "@/components/show-panels/AgendaScheduleBlock";
 import { EXTRACTOR_VERSION } from "@/lib/agenda/constants";
 import type { AgendaExtraction } from "@/lib/agenda/types";
 

@@ -31,15 +31,19 @@ import { cleanup, render } from "@testing-library/react";
 import { createElement, type JSX } from "react";
 import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
 
-import { BudgetSection } from "@/components/crew/sections/BudgetSection";
+import { BillingSection } from "@/components/crew/sections/BillingSection";
+import { CONTACTS_INLINE_CAP } from "@/components/crew/sections/contactsRows";
+import { ContactsSection } from "@/components/crew/sections/ContactsSection";
 import { CrewSection } from "@/components/crew/sections/CrewSection";
-import { CONTACTS_INLINE_CAP, CREW_INLINE_CAP } from "@/components/crew/sections/crewRows";
+import { CREW_INLINE_CAP } from "@/components/crew/sections/crewRows";
 import { GearSection } from "@/components/crew/sections/GearSection";
+import { AgendaSection } from "@/components/crew/sections/AgendaSection";
 import { ScheduleSection } from "@/components/crew/sections/ScheduleSection";
-import { TravelSection } from "@/components/crew/sections/TravelSection";
+import { HotelsSection } from "@/components/crew/sections/HotelsSection";
+import { TransportSection } from "@/components/crew/sections/TransportSection";
 import { VenueSection } from "@/components/crew/sections/VenueSection";
 import { buildCardReportContext } from "@/lib/crew/cardReportContext";
-import { BASE_SECTION_IDS, type SectionId } from "@/lib/crew/resolveActiveSection";
+import type { SectionId } from "@/lib/crew/resolveActiveSection";
 import { createTileRenderLedger } from "@/lib/crew/tileRenderLedger";
 import { hotelVisibleToViewer, type ShowForViewer, type Viewer } from "@/lib/data/getShowForViewer";
 import { resolveViewerContext } from "@/lib/data/viewerContext";
@@ -56,6 +60,7 @@ import {
   dateSuppressed,
   flightVisible,
   leadWithFinancials,
+  memberIdsFor,
   type ViewerCase,
 } from "@/tests/search/_viewerMatrix";
 
@@ -81,9 +86,9 @@ afterEach(() => {
 
 // ── Rendering the page the way CrewShell does ────────────────────────────────
 
-/** `CrewShell` renders Budget only for an entitled viewer; every base section for everyone. */
+/** `CrewShell` renders the home and the viewer's listed sections (`crewSectionsFor`). */
 function openSections(c: ViewerCase): SectionId[] {
-  return c.budgetVisible ? [...BASE_SECTION_IDS, "budget"] : [...BASE_SECTION_IDS];
+  return ["today", ...c.sections];
 }
 
 /** Renders one section with the props `CrewShell` hands it (_CrewShell.tsx `renderOne`). */
@@ -105,16 +110,22 @@ function sectionElement(id: SectionId, c: ViewerCase): JSX.Element {
       return createElement(TodayBlock, props);
     case "schedule":
       return createElement(ScheduleSection, props);
+    case "agenda":
+      return createElement(AgendaSection, props);
     case "venue":
       return createElement(VenueSection, props);
-    case "travel":
-      return createElement(TravelSection, props);
+    case "hotels":
+      return createElement(HotelsSection, props);
+    case "transport":
+      return createElement(TransportSection, props);
     case "crew":
       return createElement(CrewSection, props);
+    case "contacts":
+      return createElement(ContactsSection, props);
     case "gear":
       return createElement(GearSection, props);
-    case "budget":
-      return createElement(BudgetSection, props);
+    case "billing":
+      return createElement(BillingSection, props);
   }
 }
 
@@ -148,7 +159,7 @@ function indexHolds(c: ViewerCase, text: string): boolean {
 
 // ── Fixtures ─────────────────────────────────────────────────────────────────
 
-/** A case on new data, with `budgetVisible` recomputed the way `CrewShell` computes it. */
+/** A case on new data, with `billingVisible` and the member list recomputed the way `CrewShell` computes them. */
 function caseOf(name: string, viewer: Viewer, data: ShowForViewer, from: ViewerCase): ViewerCase {
   const ctx = resolveViewerContext(viewer, data);
   return {
@@ -156,7 +167,8 @@ function caseOf(name: string, viewer: Viewer, data: ShowForViewer, from: ViewerC
     name,
     viewer,
     data,
-    budgetVisible: financialsVisible(ctx.viewerFlags, ctx.isAdmin),
+    billingVisible: financialsVisible(ctx.viewerFlags, ctx.isAdmin),
+    sections: memberIdsFor(viewer, data),
   };
 }
 

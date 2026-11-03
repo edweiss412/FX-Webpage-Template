@@ -2,12 +2,15 @@ import type { SectionId } from "@/lib/crew/resolveActiveSection";
 import type { ShowForViewer, Viewer } from "@/lib/data/getShowForViewer";
 import type { SearchEntry } from "@/lib/search/types";
 
-import { buildBudgetEntries } from "./budget";
+import { buildAgendaEntries } from "./agenda";
+import { buildBillingEntries } from "./billing";
+import { buildContactsEntries } from "./contacts";
 import { buildCrewEntries } from "./crew";
 import { buildGearEntries } from "./gear";
+import { buildHotelsEntries } from "./hotels";
 import { buildScheduleEntries } from "./schedule";
 import { buildTodayEntries } from "./today";
-import { buildTravelEntries } from "./travel";
+import { buildTransportEntries } from "./transport";
 import { buildVenueEntries } from "./venue";
 
 /**
@@ -18,7 +21,7 @@ import { buildVenueEntries } from "./venue";
  * (INV-1, spec §2.3). It takes the same values `CrewShell` gives the section
  * component, under the same names: `data`, `viewer` and `today` (the
  * request-scoped `await nowDate()` `Date`, so clock-dependent lines match the
- * render), plus what the shell computes once: `budgetVisible`
+ * render), plus what the shell computes once: `billingVisible`
  * (`financialsVisible(...)`) and `staticPreview`.
  *
  * Each section task replaced its stub with the section's own builder.
@@ -29,7 +32,7 @@ export type SectionBuildInput = {
   data: ShowForViewer;
   viewer: Viewer;
   today: Date;
-  budgetVisible: boolean;
+  billingVisible: boolean;
   staticPreview: boolean;
 };
 
@@ -38,9 +41,12 @@ export type SectionBuilder = (input: SectionBuildInput) => SearchEntry[];
 export const SECTION_BUILDERS: Record<SectionId, SectionBuilder> = {
   today: buildTodayEntries,
   schedule: buildScheduleEntries,
+  agenda: buildAgendaEntries,
   venue: buildVenueEntries,
-  travel: buildTravelEntries,
+  hotels: buildHotelsEntries,
+  transport: buildTransportEntries,
   crew: buildCrewEntries,
+  contacts: buildContactsEntries,
   gear: buildGearEntries,
-  budget: buildBudgetEntries,
+  billing: buildBillingEntries,
 };

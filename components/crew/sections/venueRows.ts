@@ -1,8 +1,8 @@
 /**
- * components/crew/sections/venueRows.ts — the Venue section's row derivations
- * (Where, Facilities, Venue status), shared by `VenueSection` and the search
- * index builder (lib/search/sections/venue.ts), so the page and the index read
- * the same rows (spec §2.4).
+ * components/crew/sections/venueRows.ts — the Venue section's derivations (the
+ * Venue panel's lines, Facilities, Venue status), shared by `VenueSection` and
+ * the search index builder (lib/search/sections/venue.ts), so the page and the
+ * index read the same rows (spec §2.4).
  *
  * Every rendered row carries its search target id (lib/search/entryId.ts),
  * computed once here, over the exact display strings, in render order.
@@ -15,17 +15,22 @@ import { createElement } from "react";
 
 import { CarIcon, DockIcon, WifiIcon } from "@/components/crew/icons/sectionIcons";
 import type { FactRow } from "@/components/crew/primitives/FactRows";
-import type { KeyValueRow } from "@/components/crew/primitives/KeyValueRows";
+import type { VenueBodyTargets } from "@/components/show-panels/VenueBody";
 import { generalSessionRoomName } from "@/lib/crew/generalSessionRoom";
 import { resolveWifiDisplay } from "@/lib/crew/wifiDisplay";
 import type { ShowForViewer } from "@/lib/data/getShowForViewer";
 import { entryId } from "@/lib/search/entryId";
+import { showSection } from "@/lib/showSections/registry";
 import { shouldHideGenericOptional } from "@/lib/visibility/emptyState";
 import { transportTileVisible } from "@/lib/visibility/scopeTiles";
 import { streetFromAddress, venueDisplay } from "@/lib/venue/venueLocation";
 
-/** Card titles (the search `group`) and `data-card-id`s (the search region). */
-export const WHERE_TITLE = "Where";
+/**
+ * Card titles (the search `group`) and `data-card-id`s (the search region). The
+ * `venue-where` card is the crew panel card around the shared Venue body, titled
+ * with the section's registry label (PR B plan, decision 4); its card id is kept
+ * (decision 5).
+ */
 export const WHERE_CARD_ID = "venue-where";
 export const FACILITIES_TITLE = "Facilities";
 export const FACILITIES_CARD_ID = "venue-facilities";
@@ -52,25 +57,50 @@ function withTargets<R extends { k: string; v: string; searchTarget?: string }>(
   );
 }
 
+/** The Venue panel's lines: the shared Venue body's crew props, less the map slot. */
+export type VenueWhereProps = {
+  name: string | null;
+  address: string | null;
+  city: string | null;
+  /** A target for each line the body will render; a sentinel line has none. */
+  targets: VenueBodyTargets;
+};
+
 /**
- * Where: discrete Venue / City / Address rows. venueDisplay resolves the city
- * (geocoded → structured-address → trailing-known city in the NAME) and returns
- * the venue name with a redundant trailing city stripped, so a blank-address
- * FXAV venue ("Four Seasons Hotel Chicago") still shows a clean "Chicago" City
- * row WITHOUT printing the city twice. streetFromAddress drops the city tail
- * from the Address value; an empty street value reflows the Address row out
- * (KeyValueRows sentinel-hides empty values).
+ * The Venue panel's lines: the venue name, the street and the city. venueDisplay
+ * resolves the city (geocoded → structured-address → trailing-known city in the
+ * NAME) and returns the venue name with a redundant trailing city stripped, so a
+ * blank-address FXAV venue ("Four Seasons Hotel Chicago") still shows a clean
+ * "Chicago" city line WITHOUT printing the city twice. streetFromAddress drops
+ * the city tail from the address; an address that was only the city yields no
+ * street line. An address that names the city without a comma before it ("120 E
+ * Delaware Pl Chicago, IL 60611") keeps its city line too: two rules that tried
+ * to drop the repeat each dropped a real locality, so the repeat is accepted (PR
+ * B UI gate row 12).
+ *
+ * Values are passed as resolved: the body hides a sentinel line (`sentinels:
+ * "hide"`), and that line gets no target here, by the same predicate. Targets are
+ * computed in render order (name, street, city) over the card's group, the
+ * section's registry label.
  */
-export function venueWhereRows(venue: Venue): KeyValueRow[] {
-  const { name: venueDisplayName, city: venueCity } = venueDisplay(venue);
-  const rows: KeyValueRow[] = venue
-    ? [
-        { k: "Venue", v: venueDisplayName ?? venue.name ?? "" },
-        ...(venueCity ? [{ k: "City", v: venueCity } as KeyValueRow] : []),
-        { k: "Address", v: streetFromAddress(venue.address, venueCity) ?? "" },
-      ]
-    : [];
-  return withTargets(rows, WHERE_CARD_ID, WHERE_TITLE);
+export function venueWhereProps(venue: Venue): VenueWhereProps {
+  if (!venue) return { name: null, address: null, city: null, targets: {} };
+  const { name, city } = venueDisplay(venue);
+  const address = streetFromAddress(venue.address, city);
+  const group = showSection("venue").label;
+  const seen = new Map<string, number>();
+  const target = (value: string | null): string | undefined =>
+    value === null || shouldHideGenericOptional(value)
+      ? undefined
+      : entryId("venue", WHERE_CARD_ID, group, null, value, seen);
+  const targets: VenueBodyTargets = {};
+  const nameTarget = target(name);
+  const addressTarget = target(address);
+  const cityTarget = target(city);
+  if (nameTarget !== undefined) targets.name = nameTarget;
+  if (addressTarget !== undefined) targets.address = addressTarget;
+  if (cityTarget !== undefined) targets.city = cityTarget;
+  return { name, address, city, targets };
 }
 
 /** The Parking row's gate: the viewer's transport tile is visible (§9 test 17). */

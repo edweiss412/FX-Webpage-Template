@@ -55,9 +55,9 @@ type PageProps = {
   params: Promise<{ slug: string; crewId: string }>;
   // Task 13: the active-section deep-link. The RAW `s` is threaded into
   // <CrewShell rawSection={s} /> — CrewShell is the single activeSection +
-  // Budget-gate authority (the previous `budgetVisible:true` shortcut that let
-  // a non-LEAD-previewing admin reach ?s=budget is removed by design; the gate
-  // now follows the PREVIEWED crew's LEAD flag via financialsVisible).
+  // Billing-gate authority (the previous `budgetVisible:true` shortcut that let
+  // a non-LEAD-previewing admin reach the lead-only money section is removed by
+  // design; the gate follows the PREVIEWED crew's LEAD flag via financialsVisible).
   searchParams: Promise<{ s?: string }>;
 };
 

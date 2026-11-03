@@ -1078,7 +1078,7 @@ body {
   }
 }
 
-/* Agenda day disclosure (components/crew/AgendaScheduleBlock): the chevron rotates as the
+/* Agenda day disclosure (components/show-panels/AgendaScheduleBlock): the chevron rotates as the
    row opens. HAND-WRITTEN CSS from before the `--transition-duration-*` aliases existed in the
    @theme block above (a Tailwind `duration-fast` class emitted nothing back then). A class would
    work today, but the rule stays hand-written: it keeps the transition co-located with its

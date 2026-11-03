@@ -16,7 +16,7 @@
 import { afterEach, describe, expect, test } from "vitest";
 import { cleanup, render } from "@testing-library/react";
 
-import { AgendaScheduleBlock } from "@/components/crew/AgendaScheduleBlock";
+import { AgendaScheduleBlock } from "@/components/show-panels/AgendaScheduleBlock";
 import type { ViewerAgendaDays } from "@/lib/crew/agendaViewerDays";
 
 afterEach(cleanup);

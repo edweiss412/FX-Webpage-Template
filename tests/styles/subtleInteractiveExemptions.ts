@@ -145,7 +145,13 @@ export const SUBTLE_INTERACTIVE_EXEMPTIONS: readonly SubtleExemption[] = [
     // 1713 -> 1731 on feat/warning-card-fixes Task 17 (the chrome's jump fields and the
     // sectionForWarning import above it); the same `{hidden.length} more` <summary>.
     // 1731 -> 1738 on feat/warning-card-fixes (UI gate P3: jump targets named by their own heading or title); located by its own element (5-line context match).
-    line: 1738,
+    // 1738 -> 1732 on feat/crew-page-redesign-pr-b Task 2 (seven lucide imports moved to lib/showSections/registry.ts and its one import landed above it); located by its own element (5-line context match).
+    // 1732 -> 1711 on feat/crew-page-redesign-pr-b Task 4 (FieldRowList and its eyebrow constants moved to components/show-panels/FieldRowList.tsx, two imports landed, and OpsBreakdown's empty-state ternary became one BillingBody line, all above it); located by its own element (5-line context match).
+    // 1711 -> 1680 on feat/crew-page-redesign-pr-b Task 5 (the cell eyebrow class moved to components/show-panels/FieldRowList.tsx, the Truck import left, two imports landed, and VenueBreakdown's Where core became one VenueBody call, all above it); located by its own element (5-line context match).
+    // 1680 -> 1681 on feat/crew-page-redesign-pr-b Task 6 (one import landed above it; CrewBreakdown's list moved below it); located by its own element (5-line context match).
+    // 1681 -> 1600 on feat/crew-page-redesign-pr-b Task 7 (contentRows moved to components/show-panels/FieldRowList.tsx and contactBlocks with ContactsBreakdown's list and its call and email anchors to components/show-panels/ContactsBody.tsx, one import landed and the unused Avatar import left, all above it); located by its own element (5-line context match).
+    // 1600 -> 1373 on feat/crew-page-redesign-pr-b Task 8 (MiniAvatar moved to components/show-panels/MiniAvatar.tsx, nightsBetween to components/show-panels/HotelCardBody.tsx, and TransportBody with its cells and contact anchors to components/show-panels/TransportBody.tsx, three lucide and four helper imports left and two imports landed, all above it); located by its own element (5-line context match).
+    line: 1373,
     tag: "summary",
     token: "text-text-subtle",
     family: "summary-disclosure",
@@ -190,7 +196,13 @@ export const SUBTLE_INTERACTIVE_EXEMPTIONS: readonly SubtleExemption[] = [
     // 3787 -> 3855 on feat/warning-card-fixes Task 17 (the card section jump above it);
     // located by its own ignored-summary testid.
     // 3855 -> 3875 on feat/warning-card-fixes (UI gate P3: jump targets named by their own heading or title); located by its own element (5-line context match).
-    line: 3875,
+    // 3875 -> 3869 on feat/crew-page-redesign-pr-b Task 2 (seven lucide imports moved to lib/showSections/registry.ts and its one import landed above it); located by its own element (5-line context match).
+    // 3869 -> 3848 on feat/crew-page-redesign-pr-b Task 4 (FieldRowList and its eyebrow constants moved to components/show-panels/FieldRowList.tsx, two imports landed, and OpsBreakdown's empty-state ternary became one BillingBody line, all above it); located by its own element (5-line context match).
+    // 3848 -> 3817 on feat/crew-page-redesign-pr-b Task 5 (the cell eyebrow class moved to components/show-panels/FieldRowList.tsx, the Truck import left, two imports landed, and VenueBreakdown's Where core became one VenueBody call, all above it); located by its own element (5-line context match).
+    // 3817 -> 3770 on feat/crew-page-redesign-pr-b Task 6 (CrewBreakdown's member list became one CrewBody call, its rows and their call and email anchors moved to components/show-panels/CrewBody.tsx, and one import landed, all above it); located by its own element (5-line context match).
+    // 3770 -> 3689 on feat/crew-page-redesign-pr-b Task 7 (contentRows moved to components/show-panels/FieldRowList.tsx and contactBlocks with ContactsBreakdown's list and its call and email anchors to components/show-panels/ContactsBody.tsx, one import landed and the unused Avatar import left, all above it); located by its own element (5-line context match).
+    // 3689 -> 3347 on feat/crew-page-redesign-pr-b Task 8 (MiniAvatar moved to components/show-panels/MiniAvatar.tsx, nightsBetween to components/show-panels/HotelCardBody.tsx, and TransportBody with its cells and contact anchors to components/show-panels/TransportBody.tsx, three lucide and four helper imports left and two imports landed, and HotelCard's markup with its date stub became one HotelCardBody call, all above it); located by its own element (5-line context match).
+    line: 3347,
     tag: "summary",
     token: "text-text-subtle",
     family: "summary-disclosure",
@@ -211,7 +223,13 @@ export const SUBTLE_INTERACTIVE_EXEMPTIONS: readonly SubtleExemption[] = [
     // 3819 -> 3887 on feat/warning-card-fixes Task 17 (the card section jump above it);
     // located by its own accepted-summary testid.
     // 3887 -> 3907 on feat/warning-card-fixes (UI gate P3: jump targets named by their own heading or title); located by its own element (5-line context match).
-    line: 3907,
+    // 3907 -> 3901 on feat/crew-page-redesign-pr-b Task 2 (seven lucide imports moved to lib/showSections/registry.ts and its one import landed above it); located by its own element (5-line context match).
+    // 3901 -> 3880 on feat/crew-page-redesign-pr-b Task 4 (FieldRowList and its eyebrow constants moved to components/show-panels/FieldRowList.tsx, two imports landed, and OpsBreakdown's empty-state ternary became one BillingBody line, all above it); located by its own element (5-line context match).
+    // 3880 -> 3849 on feat/crew-page-redesign-pr-b Task 5 (the cell eyebrow class moved to components/show-panels/FieldRowList.tsx, the Truck import left, two imports landed, and VenueBreakdown's Where core became one VenueBody call, all above it); located by its own element (5-line context match).
+    // 3849 -> 3802 on feat/crew-page-redesign-pr-b Task 6 (CrewBreakdown's member list became one CrewBody call, its rows and their call and email anchors moved to components/show-panels/CrewBody.tsx, and one import landed, all above it); located by its own element (5-line context match).
+    // 3802 -> 3721 on feat/crew-page-redesign-pr-b Task 7 (contentRows moved to components/show-panels/FieldRowList.tsx and contactBlocks with ContactsBreakdown's list and its call and email anchors to components/show-panels/ContactsBody.tsx, one import landed and the unused Avatar import left, all above it); located by its own element (5-line context match).
+    // 3721 -> 3379 on feat/crew-page-redesign-pr-b Task 8 (MiniAvatar moved to components/show-panels/MiniAvatar.tsx, nightsBetween to components/show-panels/HotelCardBody.tsx, and TransportBody with its cells and contact anchors to components/show-panels/TransportBody.tsx, three lucide and four helper imports left and two imports landed, and HotelCard's markup with its date stub became one HotelCardBody call, all above it); located by its own element (5-line context match).
+    line: 3379,
     tag: "summary",
     token: "text-text-subtle",
     family: "summary-disclosure",
@@ -219,11 +237,14 @@ export const SUBTLE_INTERACTIVE_EXEMPTIONS: readonly SubtleExemption[] = [
       "Wizard Ignored (N) disclosure header; a caption-weight fold label over warnings the operator has already dismissed, so the active list above it stays the loudest thing in the panel. Copies the published sectionWarningExtras disclosure verbatim, including this token (DESIGN §1.1a Family S)",
   },
   {
-    file: "components/crew/AgendaScheduleBlock.tsx",
+    file: "components/show-panels/AgendaScheduleBlock.tsx",
     // 107 -> 116 on feat/crew-show-search (Schedule search entries): search-marker props and shared row helpers moved
     // lines around it. Same `<summary>`, same token. 116 -> 117 on the invariant-8
     // fixes (audit P2-4): the header comment's heading levels grew a line. Same `<summary>`.
-    line: 117,
+    // 117 -> 122, and the file from components/crew/ to components/show-panels/ (crew page
+    // redesign PR B, Task 10: the block became a shared body, its header comment five lines
+    // longer). Same `<summary>`, same token.
+    line: 122,
     tag: "summary",
     token: "text-text-subtle",
     family: "summary-disclosure",

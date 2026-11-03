@@ -1,7 +1,8 @@
 /**
  * components/crew/agendaScheduleRows.ts — the structured-agenda render gate and
- * line text, shared by `AgendaScheduleBlock` and the Schedule search builder
- * (spec §2.4: the component and the builder call the same derivation).
+ * line text, shared by `AgendaScheduleBlock` and the Agenda search builder
+ * (spec §2.4: the component and the builder call the same derivation), and the
+ * file gate the Agenda section's membership and empty state read.
  *
  * React-free and client-safe on purpose: `AgendaScheduleBlock` is bundled into
  * the admin Step 3 `"use client"` card too (tests/agenda/agendaPurityBoundary.test.ts),
@@ -9,6 +10,21 @@
  */
 import { normalizeAgendaExtraction } from "@/lib/agenda/normalizeAgendaExtraction";
 import type { AgendaExtraction, AgendaSession } from "@/lib/agenda/types";
+
+type AgendaLinkLike = { readonly fileId?: string | null };
+
+/**
+ * Whether the Agenda section has anything to show: a link carrying a Drive file
+ * id, which is what `AgendaEmbed` draws a "View agenda" button for and what an
+ * extraction is read from. A url-only link renders nothing. The one content rule
+ * crew membership adds to entitlement (crew page redesign spec line 240, PR B
+ * plan decision 1), and the Agenda section's empty-state test, so the list and
+ * the section can never disagree about it. A partial projection with no array
+ * reads as no agenda.
+ */
+export function hasAgendaFile(links: readonly AgendaLinkLike[] | null | undefined): boolean {
+  return Array.isArray(links) && links.some((link) => Boolean(link.fileId));
+}
 
 /**
  * The §4.7 gate: the structured schedule renders ONLY for a high-confidence

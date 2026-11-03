@@ -187,7 +187,12 @@ describe("Server-side time-call grep guard (test #16 — AC-11.38)", () => {
   // it, so the title cannot drift from the number the guard asserts (it read 233 over
   // an assertion of 236 until whole-diff review R4-F5). Re-derive by running this
   // guard, never by adding up the members named below.
-  const DERIVED_LIB_POPULATION = 248;
+  // 249 -> 248 (crew page redesign PR B Task 9): lib/crew/transportLegs.ts was
+  // deleted; the Transport body's own leg rule (`transportRouteLegs`) replaced it.
+  // 248 -> 249 (PR B invariant-8 gate repairs, row 13's peer): lib/crew/contactHrefs.ts,
+  // the crew contact links moved out of crewRows.ts so the client-reachable peek can
+  // read them. Re-derived by running this guard.
+  const DERIVED_LIB_POPULATION = 249;
 
   it(`the derived lib population has exactly ${DERIVED_LIB_POPULATION} members, including both directory-index modules`, () => {
     // The shipped resolver tried only <base>.ts and <base>.tsx, so five live
@@ -324,8 +329,8 @@ describe("Server-side time-call grep guard (test #16 — AC-11.38)", () => {
     //   components/crew/sections/venueRows.ts, the rows module VenueSection and
     //   the search index share.
     //   lib/crew/transportLegs.ts, the visible transport-leg rule lifted out of
-    //   the Travel section; on the merged tree its importer is
-    //   components/crew/sections/travelRows.ts.
+    //   the Travel section, was a member until PR B Task 9 deleted it (the
+    //   Transport section and its peek read the shared body's leg rule instead).
     //   lib/ui/scrollLock.ts, the shared body scroll lock, imported by
     //   components/agenda/AgendaEmbed.tsx, components/diagrams/GalleryLightbox.tsx,
     //   components/admin/FinalizeButton.tsx and
@@ -335,7 +340,7 @@ describe("Server-side time-call grep guard (test #16 — AC-11.38)", () => {
     // modules imported them, so they sat at depth 2. sectionPeek still does (asserted
     // below); quickFacts joined in Task 11 and passModel in Task 9 (both below).
     expect(rel).toContain("lib/crew/generalSessionRoom.ts");
-    expect(rel).toContain("lib/crew/transportLegs.ts");
+    expect(rel).not.toContain("lib/crew/transportLegs.ts");
     expect(rel).toContain("lib/ui/scrollLock.ts");
     // And two from that arc's Task 6:
     //   lib/ui/scrollSpy.ts, the scroll-spy rule moved out of
@@ -447,6 +452,11 @@ describe("Server-side time-call grep guard (test #16 — AC-11.38)", () => {
     // correction keeps the sheet's marker. It reads history state, never the clock.
     // Re-derived by running this guard.
     expect(rel).toContain("lib/ui/historyState.ts");
+    // 249 (crew page redesign PR B, Task 2): lib/showSections/registry.ts, the
+    // show-section registry step3ReviewSections.tsx now reads its shared section
+    // labels, groups and icons from. It holds constants, never the clock.
+    // Re-derived by running this guard.
+    expect(rel).toContain("lib/showSections/registry.ts");
     expect(rel.length).toBe(DERIVED_LIB_POPULATION);
   });
 

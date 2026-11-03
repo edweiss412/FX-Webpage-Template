@@ -26,19 +26,25 @@ import { cleanup, render } from "@testing-library/react";
 import type { JSX } from "react";
 import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
 
-import { BudgetSection } from "@/components/crew/sections/BudgetSection";
+import { BillingSection } from "@/components/crew/sections/BillingSection";
 import * as budgetRowsModule from "@/components/crew/sections/budgetRows";
+import * as contactsRowsModule from "@/components/crew/sections/contactsRows";
+import { ContactsSection } from "@/components/crew/sections/ContactsSection";
 import * as crewRowsModule from "@/components/crew/sections/crewRows";
-import { contactFallbackLabel } from "@/components/crew/sections/crewRows";
 import * as diagramItemsModule from "@/components/crew/diagramItems";
 import { CrewSection } from "@/components/crew/sections/CrewSection";
 import { GearSection } from "@/components/crew/sections/GearSection";
 import * as gearRows from "@/components/crew/sections/gearRows";
+import { AgendaSection } from "@/components/crew/sections/AgendaSection";
+import * as agendaRowsModule from "@/components/crew/sections/agendaRows";
 import { ScheduleSection } from "@/components/crew/sections/ScheduleSection";
-import { TravelSection } from "@/components/crew/sections/TravelSection";
-import * as travelRows from "@/components/crew/sections/travelRows";
+import { HotelsSection } from "@/components/crew/sections/HotelsSection";
+import * as hotelsRowsModule from "@/components/crew/sections/hotelsRows";
+import { TransportSection } from "@/components/crew/sections/TransportSection";
+import * as transportRowsModule from "@/components/crew/sections/transportRows";
 import { VenueSection } from "@/components/crew/sections/VenueSection";
 import { SHOWS_CAP } from "@/components/crew/primitives/KeyTimesStrip";
+import { contactKindLabel } from "@/components/show-panels/ContactsBody";
 import * as scheduleRows from "@/components/crew/sections/scheduleRows";
 import * as todayRows from "@/components/crew/sections/todayRows";
 import { INITIAL_VISIBLE } from "@/components/diagrams/galleryLimits";
@@ -49,12 +55,13 @@ import { aggregateDays, TITLE_TRUNCATE_AT } from "@/lib/crew/agendaDisplay";
 import { buildCardReportContext } from "@/lib/crew/cardReportContext";
 import { normalizeMeridiem } from "@/lib/crew/normalizeMeridiem";
 import { partialAttendanceLabel } from "@/lib/crew/partialAttendance";
-import { BASE_SECTION_IDS, type SectionId } from "@/lib/crew/resolveActiveSection";
+import { CREW_SECTION_IDS, type SectionId } from "@/lib/crew/resolveActiveSection";
 import { createTileRenderLedger } from "@/lib/crew/tileRenderLedger";
 import { parseWifiValue } from "@/lib/crew/wifiDisplay";
 import type { ShowForViewer } from "@/lib/data/getShowForViewer";
 import { resolveViewerContext } from "@/lib/data/viewerContext";
 import { SECTION_BUILDERS } from "@/lib/search/sections";
+import { showSection } from "@/lib/showSections/registry";
 import type { SearchEntry } from "@/lib/search/types";
 import { premise, premiseHolds } from "@/tests/_shared/premise";
 import { assertParity } from "@/tests/search/_parity";
@@ -69,6 +76,7 @@ import {
   flightVisible,
   fullContent,
   leadWithFinancials,
+  memberIdsFor,
   overCaps,
   wifiNotes,
   wifiRaw,
@@ -130,11 +138,14 @@ function renderSection(id: SectionId, c: ViewerCase): HTMLElement {
   const byId: Record<SectionId, () => JSX.Element> = {
     today: () => <TodayBlock {...props} />,
     schedule: () => <ScheduleSection {...props} />,
+    agenda: () => <AgendaSection {...props} />,
     venue: () => <VenueSection {...props} />,
-    travel: () => <TravelSection {...props} />,
+    hotels: () => <HotelsSection {...props} />,
+    transport: () => <TransportSection {...props} />,
     crew: () => <CrewSection {...props} />,
+    contacts: () => <ContactsSection {...props} />,
     gear: () => <GearSection {...props} />,
-    budget: () => <BudgetSection {...props} />,
+    billing: () => <BillingSection {...props} />,
   };
   return render(byId[id]()).container;
 }
@@ -143,9 +154,9 @@ function build(id: SectionId, c: ViewerCase): SearchEntry[] {
   return SECTION_BUILDERS[id](c);
 }
 
-/** `CrewShell` renders Budget only for an entitled viewer; every base section for everyone. */
+/** `CrewShell` renders the home and each section the viewer's member list holds. */
 function canOpen(id: SectionId, c: ViewerCase): boolean {
-  return (BASE_SECTION_IDS as readonly SectionId[]).includes(id) || c.budgetVisible;
+  return id === "today" || c.sections.includes(id);
 }
 
 /**
@@ -181,7 +192,7 @@ function caseNamed(cases: readonly ViewerCase[], name: string): ViewerCase {
 /**
  * The sections every parity block covers, filled at collection time by
  * `parityOver` and read by the coverage block at the end of the file. Spec §11.1
- * derives the section list from `[...BASE_SECTION_IDS, "budget"]`, so a section
+ * derives the section list from `["today", ...CREW_SECTION_IDS]`, so a section
  * added later without a block here fails coverage instead of being skipped.
  */
 const PARITY_CASES = new Map<SectionId, string[]>();
@@ -197,41 +208,20 @@ function regionOf(e: SearchEntry): string {
   return e.id.split(":")[1] ?? "";
 }
 
-// ── travel ───────────────────────────────────────────────────────────────────
+// ── hotels ───────────────────────────────────────────────────────────────────
 
-describe("travel", () => {
-  const withTransport = crewWithTransport.data.transportation;
-  if (withTransport === null) throw new Error("crewWithTransport carries no transportation row");
-
+describe("hotels", () => {
   /**
-   * Every Getting there row shape at once: a driver with phone and email in the
-   * meta line, a load-out contact whose name is a sentinel (so the phone is
-   * promoted to primary), a vehicle with plate, colour and parking (meta and
-   * conf lines), and legs whose primary is a date, a time, a stage, and nothing
-   * (names only). Hotels: one sorted ahead by ordinal with a raw "TBD" check-in
-   * and no address, the default hotel, and an empty reservation; two share a
-   * byte-identical notes line, so the second gets the `~2` id.
+   * Every hotel line shape at once: one sorted ahead by ordinal with a raw "TBD"
+   * check-in, no check-out and no address, the default hotel, a nameless stay
+   * with only an address, and an empty reservation (it renders nothing, so it
+   * has no card). Two share a byte-identical notes line, so the second gets the
+   * `~2` id.
    */
-  const travelGroundAll = variant(crewWithTransport, "travelGroundAll", {
-    ...crewWithTransport.data,
-    transportation: {
-      ...withTransport,
-      driver_email: "driver@example.com",
-      loadout_name: "TBD",
-      loadout_phone: "555-0199",
-      loadout_email: "loadout@example.com",
-      license_plate: "FX 1234",
-      color: "White",
-      schedule: [
-        ...withTransport.schedule,
-        { stage: "Load Out", date: null, time: "11:00 PM", assigned_names: ["Pat Driver"] },
-        { stage: "Strike", date: null, time: null, assigned_names: [] },
-        // A blank stage is sentinel-hidden, so this leg's only content is its names.
-        { stage: "", date: null, time: null, assigned_names: ["Sam Rigger"] },
-      ],
-    },
+  const hotelsAll = variant(crewNoTransport, "hotelsAll", {
+    ...crewNoTransport.data,
     hotelReservations: [
-      ...crewWithTransport.data.hotelReservations,
+      ...crewNoTransport.data.hotelReservations,
       {
         ordinal: 0,
         hotel_name: "Courtyard Downtown",
@@ -240,7 +230,17 @@ describe("travel", () => {
         confirmation_no: "CY-55120",
         check_in: "TBD",
         check_out: null,
-        notes: crewWithTransport.data.hotelReservations[0]?.notes ?? null,
+        notes: crewNoTransport.data.hotelReservations[0]?.notes ?? null,
+      },
+      {
+        ordinal: 2,
+        hotel_name: null,
+        hotel_address: "9 Overflow Lane",
+        names: [],
+        confirmation_no: null,
+        check_in: null,
+        check_out: null,
+        notes: null,
       },
       {
         ordinal: 3,
@@ -255,35 +255,14 @@ describe("travel", () => {
     ],
   });
 
-  const LOCAL_CASES: readonly ViewerCase[] = [travelGroundAll];
-  const cases = [...ALL_CASES, ...LOCAL_CASES].filter((c) => canOpen("travel", c));
+  const LOCAL_CASES: readonly ViewerCase[] = [hotelsAll];
+  const cases = [...ALL_CASES, ...LOCAL_CASES].filter((c) => canOpen("hotels", c));
 
-  const renderTravel = (c: ViewerCase) => renderRoot(<TravelSection {...shellProps(c)} />);
+  const renderHotels = (c: ViewerCase) => renderRoot(<HotelsSection {...shellProps(c)} />);
+  const group = showSection("hotels").label;
 
-  const flightCard = (root: HTMLElement) => root.querySelector('[data-card-id="travel-flight"]');
-
-  /** Each case whose gate is a Travel gate proves it flipped in its own render. */
+  /** Each case whose gate is a Hotels gate proves it flipped in its own render. */
   const PREMISES: Partial<Record<string, (root: HTMLElement, c: ViewerCase) => void>> = {
-    crewNoTransport: (root, c) => {
-      premiseHolds(
-        "crewNoTransport has a transportation row to hide",
-        c.data.transportation !== null,
-      );
-      premiseHolds(
-        "crewNoTransport renders no Getting there card",
-        byTestIds(root, "travel-getting-there").length === 0,
-      );
-    },
-    crewWithTransport: (root) =>
-      premiseHolds(
-        "crewWithTransport renders the Getting there card",
-        byTestIds(root, "travel-getting-there").length === 1,
-      ),
-    adminViewer: (root) =>
-      premiseHolds(
-        "adminViewer renders the Getting there card",
-        byTestIds(root, "travel-getting-there").length === 1,
-      ),
     dateSuppressed: (root, c) => {
       const hotel = c.data.hotelReservations[0];
       premiseHolds("dateSuppressed has a hotel check-in to withhold", Boolean(hotel?.check_in));
@@ -291,6 +270,173 @@ describe("travel", () => {
         "dateSuppressed renders no hotel check-in",
         !squash(root.textContent).includes("Check in"),
       );
+      premiseHolds(
+        "dateSuppressed still renders its hotel",
+        byTestIds(root, "crew-panel-hotel-card").length > 0,
+      );
+    },
+    hotelsAll: (root, c) => {
+      const note = c.data.hotelReservations[0]?.notes ?? "";
+      const text = squash(root.querySelector('[data-card-id="travel-hotels"]')?.textContent);
+      premiseHolds(
+        "hotelsAll renders one hotel notes line twice (the ~2 id)",
+        note !== "" && text.split(note).length - 1 >= 2,
+      );
+      premiseHolds(
+        "hotelsAll renders a card per reservation with content, and none for the empty one",
+        byTestIds(root, "crew-panel-hotel-card").length === c.data.hotelReservations.length - 1,
+      );
+    },
+  };
+
+  test.each(parityOver("hotels", cases))("$name: index equals render", (c) => {
+    const root = renderHotels(c);
+    PREMISES[c.name]?.(root, c);
+    expect(assertParity(root, SECTION_BUILDERS.hotels(c))).toEqual([]);
+  });
+
+  const inGroup = (e: SearchEntry) => e.section === "hotels" && e.group === group;
+  const hotel = (c: ViewerCase) => c.data.hotelReservations[0]!;
+
+  /** Inventory §4, F10 to F15 (the Hotels card), plus the raw stay end and the nameless stay. */
+  const LINE_KINDS: readonly LineKind[] = [
+    {
+      kind: "F10 hotel name",
+      caseName: crewNoTransport.name,
+      present: (es, c) =>
+        es.some((e) => inGroup(e) && e.label === null && e.value === hotel(c).hotel_name),
+    },
+    {
+      kind: "F11 hotel address",
+      caseName: crewNoTransport.name,
+      present: (es, c) =>
+        es.some((e) => inGroup(e) && e.label === null && e.value === hotel(c).hotel_address),
+    },
+    {
+      kind: "F12 check in",
+      caseName: crewNoTransport.name,
+      present: (es) => es.some((e) => inGroup(e) && e.label === "Check in"),
+    },
+    {
+      kind: "F13 check out",
+      caseName: crewNoTransport.name,
+      present: (es) => es.some((e) => inGroup(e) && e.label === "Check out"),
+    },
+    {
+      kind: "F14 hotel confirmation",
+      caseName: crewNoTransport.name,
+      present: (es) =>
+        es.some(
+          (e) => inGroup(e) && e.label === "Confirmation" && e.copy?.kind === "hotelConfirmation",
+        ),
+    },
+    {
+      kind: "F15 hotel notes",
+      caseName: crewNoTransport.name,
+      present: (es) => es.some((e) => inGroup(e) && e.label === "Notes"),
+    },
+    {
+      kind: "raw stay end (a non-date check-in renders as written)",
+      caseName: hotelsAll.name,
+      present: (es) => es.some((e) => inGroup(e) && e.label === "Check in" && e.value === "TBD"),
+    },
+    {
+      kind: "nameless stay's address",
+      caseName: hotelsAll.name,
+      present: (es) =>
+        es.some((e) => inGroup(e) && e.label === null && e.value === "9 Overflow Lane"),
+    },
+  ];
+
+  test.each(LINE_KINDS)("line kind $kind renders in $caseName", ({ caseName, present }) => {
+    const c = [...ALL_CASES, ...LOCAL_CASES].find((x) => x.name === caseName);
+    if (c === undefined) throw new Error(`no case named ${caseName}`);
+    expect(present(SECTION_BUILDERS.hotels(c), c)).toBe(true);
+  });
+
+  test("error guard: a throwing derivation empties the page block and the index alike", () => {
+    // The Hotels body is one WrappedSection (`crew:hotels:list`), so the block
+    // that throws is the section: its fallback replaces every line.
+    const c = hotelsAll;
+    premiseHolds(
+      "hotelsAll renders search targets when nothing throws",
+      renderHotels(c).querySelector("[data-search-target]") !== null,
+    );
+    cleanup();
+
+    const spy = vi.spyOn(hotelsRowsModule, "hotelsPanel").mockImplementation(() => {
+      throw new Error("planted hotelsPanel fault");
+    });
+    try {
+      const root = renderHotels(c);
+      expect(spy, "the section derives its cards through hotelsRows").toHaveBeenCalled();
+      expect(root.querySelector('[data-testid="tile-error-fallback"]')).not.toBeNull();
+      expect(root.querySelector("[data-search-target]")).toBeNull();
+
+      spy.mockClear();
+      const entries = SECTION_BUILDERS.hotels(c);
+      expect(spy, "the builder derives its cards through the same function").toHaveBeenCalled();
+      expect(entries).toEqual([]);
+      expect(assertParity(root, entries)).toEqual([]);
+    } finally {
+      spy.mockRestore();
+    }
+  });
+
+  test("dateSuppressed keeps the hotel confirmation copyable", () => {
+    const entries = SECTION_BUILDERS.hotels(dateSuppressed);
+    expect(entries.some((e) => e.copy?.kind === "hotelConfirmation")).toBe(true);
+  });
+});
+
+// ── transport ────────────────────────────────────────────────────────────────
+
+describe("transport", () => {
+  const withTransport = crewWithTransport.data.transportation;
+  if (withTransport === null) throw new Error("crewWithTransport carries no transportation row");
+
+  /**
+   * Every transport cell and leg shape at once: a driver with phone and email, a
+   * load-out contact whose name is a sentinel (so the phone leads its cell), a
+   * vehicle with plate and colour, parking, and legs with a stage and a time, a
+   * stage alone, and no stage at all (riders only), which the crew keeps.
+   */
+  const transportAll = variant(crewWithTransport, "transportAll", {
+    ...crewWithTransport.data,
+    transportation: {
+      ...withTransport,
+      driver_email: "driver@example.com",
+      loadout_name: "TBD",
+      loadout_phone: "555-0199",
+      loadout_email: "loadout@example.com",
+      license_plate: "FX 1234",
+      color: "White",
+      schedule: [
+        ...withTransport.schedule,
+        { stage: "Load Out", date: null, time: "11:00 PM", assigned_names: ["Pat Driver"] },
+        { stage: "Strike", date: null, time: null, assigned_names: [] },
+        // A blank stage is sentinel-hidden; the crew keeps the leg for its riders.
+        { stage: "", date: null, time: null, assigned_names: ["Sam Rigger"] },
+      ],
+    },
+  });
+
+  const LOCAL_CASES: readonly ViewerCase[] = [transportAll];
+  const cases = [...ALL_CASES, ...LOCAL_CASES].filter((c) => canOpen("transport", c));
+
+  const renderTransport = (c: ViewerCase) => renderRoot(<TransportSection {...shellProps(c)} />);
+  const group = showSection("transport").label;
+  const flightCard = (root: HTMLElement) => root.querySelector('[data-card-id="travel-flight"]');
+  const groundCard = (root: HTMLElement) =>
+    root.querySelector('[data-card-id="travel-getting-there"]');
+
+  /** Each case whose gate is a Transport gate proves it flipped in its own render. */
+  const PREMISES: Partial<Record<string, (root: HTMLElement, c: ViewerCase) => void>> = {
+    crewWithTransport: (root) =>
+      premiseHolds("crewWithTransport renders the Transport card", groundCard(root) !== null),
+    adminViewer: (root) =>
+      premiseHolds("adminViewer renders the Transport card", groundCard(root) !== null),
+    dateSuppressed: (root) => {
       const card = flightCard(root);
       premiseHolds("dateSuppressed still renders its flight card", card !== null);
       premiseHolds(
@@ -301,6 +447,7 @@ describe("travel", () => {
     flightVisible: (root) => {
       const card = flightCard(root);
       premiseHolds("flightVisible renders the flight card", card !== null);
+      premiseHolds("flightVisible renders no Transport card", groundCard(root) === null);
       premiseHolds(
         "flightVisible renders at least two segments",
         byTestIds(card!, "travel-flight-seg").length >= 2,
@@ -316,34 +463,20 @@ describe("travel", () => {
         byTestIds(card!, "travel-flight-leg").length > 0,
       );
     },
-    travelGroundAll: (root, c) => {
-      const note = c.data.hotelReservations[0]?.notes ?? "";
-      const hotelText = squash(root.querySelector('[data-testid="travel-hotels"]')?.textContent);
-      premiseHolds(
-        "travelGroundAll renders one hotel notes line twice (the ~2 id)",
-        note !== "" && hotelText.split(note).length - 1 >= 2,
-      );
-      const rows = byTestIds(root, "travelrow");
-      premiseHolds(
-        "travelGroundAll renders a load-out row",
-        rows.some((r) => squash(r.textContent).startsWith("Load out")),
-      );
-      premiseHolds(
-        "travelGroundAll renders a names-only leg (empty primary line)",
-        rows.some(
-          (r) => squash(r.querySelector('[data-testid="travelrow-primary"]')?.textContent) === "",
-        ),
-      );
+    transportAll: (root) => {
+      const text = squash(groundCard(root)?.textContent);
+      premiseHolds("transportAll renders a Load out cell", text.includes("Load out"));
+      premiseHolds("transportAll renders the riders-only leg", text.includes("Sam Rigger"));
     },
   };
 
-  test.each(parityOver("travel", cases))("$name: index equals render", (c) => {
-    const root = renderTravel(c);
+  test.each(parityOver("transport", cases))("$name: index equals render", (c) => {
+    const root = renderTransport(c);
     PREMISES[c.name]?.(root, c);
-    expect(assertParity(root, SECTION_BUILDERS.travel(c))).toEqual([]);
+    expect(assertParity(root, SECTION_BUILDERS.transport(c))).toEqual([]);
   });
 
-  const inGroup = (e: SearchEntry, group: string) => e.section === "travel" && e.group === group;
+  const inGroup = (e: SearchEntry, g: string) => e.section === "transport" && e.group === g;
   const stages = (c: ViewerCase) =>
     (c.data.transportation?.schedule ?? []).map((l) => l.stage).filter((s): s is string => !!s);
   const rawFlightParts = (c: ViewerCase) =>
@@ -351,9 +484,8 @@ describe("travel", () => {
       .split("|")
       .map((p) => p.trim())
       .filter((p) => p.length > 0 && !/\b\d{1,2}\/\d{1,2}\b/.test(p));
-  const hotel = (c: ViewerCase) => c.data.hotelReservations[0]!;
 
-  /** Inventory §4, F1 to F15. */
+  /** Inventory §4, F1 to F9, as the Transport section renders them. */
   const LINE_KINDS: readonly LineKind[] = [
     {
       kind: "F1 flight segment line",
@@ -392,108 +524,81 @@ describe("travel", () => {
     {
       kind: "F5 driver",
       caseName: crewWithTransport.name,
-      present: (es) => es.some((e) => inGroup(e, "Getting there") && e.label === "Driver"),
+      present: (es) => es.some((e) => inGroup(e, group) && e.label === "Driver"),
     },
     {
       kind: "F6 load out",
-      caseName: travelGroundAll.name,
-      present: (es) => es.some((e) => inGroup(e, "Getting there") && e.label === "Load out"),
+      caseName: transportAll.name,
+      present: (es) => es.some((e) => inGroup(e, group) && e.label === "Load out"),
     },
     {
       kind: "F7 vehicle",
       caseName: crewWithTransport.name,
-      present: (es) => es.some((e) => inGroup(e, "Getting there") && e.label === "Vehicle"),
+      present: (es) => es.some((e) => inGroup(e, group) && e.label === "Vehicle"),
+    },
+    {
+      kind: "F7b parking",
+      caseName: crewWithTransport.name,
+      present: (es, c) =>
+        es.some(
+          (e) =>
+            inGroup(e, group) &&
+            e.label === "Parking" &&
+            e.value === c.data.transportation?.parking,
+        ),
     },
     {
       kind: "F8 ground leg",
       caseName: crewWithTransport.name,
       present: (es, c) =>
-        es.some(
-          (e) => inGroup(e, "Getting there") && e.label !== null && stages(c).includes(e.label),
-        ),
+        es.some((e) => inGroup(e, group) && e.label !== null && stages(c).includes(e.label)),
+    },
+    {
+      kind: "F8b leg with no stage (riders only)",
+      caseName: transportAll.name,
+      present: (es) =>
+        // The riders line as the crew writes it (PR B invariant-8 gate row 2).
+        es.some((e) => inGroup(e, group) && e.label === null && e.value === "With Sam Rigger"),
     },
     {
       kind: "F9 transport notes",
       caseName: crewWithTransport.name,
       present: (es, c) =>
         es.some(
-          (e) =>
-            inGroup(e, "Getting there") &&
-            e.label === null &&
-            e.value === c.data.transportation?.notes,
+          (e) => inGroup(e, group) && e.label === null && e.value === c.data.transportation?.notes,
         ),
-    },
-    {
-      kind: "F10 hotel name",
-      caseName: crewNoTransport.name,
-      present: (es, c) =>
-        es.some((e) => inGroup(e, "Hotels") && e.label === null && e.value === hotel(c).hotel_name),
-    },
-    {
-      kind: "F11 hotel address",
-      caseName: crewNoTransport.name,
-      present: (es, c) =>
-        es.some(
-          (e) => inGroup(e, "Hotels") && e.label === null && e.value === hotel(c).hotel_address,
-        ),
-    },
-    {
-      kind: "F12 check in",
-      caseName: crewNoTransport.name,
-      present: (es) => es.some((e) => inGroup(e, "Hotels") && e.label === "Check in"),
-    },
-    {
-      kind: "F13 check out",
-      caseName: crewNoTransport.name,
-      present: (es) => es.some((e) => inGroup(e, "Hotels") && e.label === "Check out"),
-    },
-    {
-      kind: "F14 hotel confirmation",
-      caseName: crewNoTransport.name,
-      present: (es) =>
-        es.some(
-          (e) =>
-            inGroup(e, "Hotels") &&
-            e.label === "Confirmation" &&
-            e.copy?.kind === "hotelConfirmation",
-        ),
-    },
-    {
-      kind: "F15 hotel notes",
-      caseName: crewNoTransport.name,
-      present: (es) => es.some((e) => inGroup(e, "Hotels") && e.label === "Notes"),
     },
   ];
 
   test.each(LINE_KINDS)("line kind $kind renders in $caseName", ({ caseName, present }) => {
     const c = [...ALL_CASES, ...LOCAL_CASES].find((x) => x.name === caseName);
     if (c === undefined) throw new Error(`no case named ${caseName}`);
-    expect(present(SECTION_BUILDERS.travel(c), c)).toBe(true);
+    expect(present(SECTION_BUILDERS.transport(c), c)).toBe(true);
   });
 
   test("error guard: a throwing derivation empties the page block and the index alike", () => {
-    // Travel's whole body is one WrappedSection (`crew:travel:transport`), so
-    // the block that throws is the section: its fallback replaces every line,
-    // and there are no other blocks whose entries could stay behind.
-    const c = travelGroundAll;
+    // Transport's body is one WrappedSection (`crew:travel:transport`), so the
+    // block that throws is the section: its fallback replaces every line, the
+    // flight card's included.
+    const c = transportAll;
     premiseHolds(
-      "travelGroundAll renders search targets when nothing throws",
-      renderTravel(c).querySelector("[data-search-target]") !== null,
+      "transportAll renders search targets when nothing throws",
+      renderTransport(c).querySelector("[data-search-target]") !== null,
     );
     cleanup();
 
-    const spy = vi.spyOn(travelRows, "hotelBlocks").mockImplementation(() => {
-      throw new Error("planted hotelBlocks fault");
+    const spy = vi.spyOn(transportRowsModule, "transportPanel").mockImplementation(() => {
+      throw new Error("planted transportPanel fault");
     });
     try {
-      const root = renderTravel(c);
-      expect(spy, "the section derives its hotels through travelRows").toHaveBeenCalled();
+      const root = renderTransport(c);
+      expect(spy, "the section derives its body props through transportRows").toHaveBeenCalled();
       expect(root.querySelector('[data-testid="tile-error-fallback"]')).not.toBeNull();
       expect(root.querySelector("[data-search-target]")).toBeNull();
 
       spy.mockClear();
-      const entries = SECTION_BUILDERS.travel(c);
-      expect(spy, "the builder derives its hotels through the same function").toHaveBeenCalled();
+      const entries = SECTION_BUILDERS.transport(c);
+      expect(spy, "the builder derives its lines through the same function").toHaveBeenCalled();
       expect(entries).toEqual([]);
       expect(assertParity(root, entries)).toEqual([]);
     } finally {
@@ -501,11 +606,8 @@ describe("travel", () => {
     }
   });
 
-  test("dateSuppressed keeps the hotel confirmation copyable while the flight's is withheld", () => {
-    const entries = SECTION_BUILDERS.travel(dateSuppressed);
-    expect(entries.some((e) => e.group === "Hotels" && e.copy?.kind === "hotelConfirmation")).toBe(
-      true,
-    );
+  test("dateSuppressed withholds the flight's confirmation from the index", () => {
+    const entries = SECTION_BUILDERS.transport(dateSuppressed);
     expect(entries.some((e) => e.group === "Your flight" && e.copy !== null)).toBe(false);
   });
 });
@@ -705,24 +807,24 @@ describe("gear", () => {
   });
 });
 
-// ── budget ───────────────────────────────────────────────────────────────────
+// ── billing ──────────────────────────────────────────────────────────────────
 
-describe("budget", () => {
-  const entitled = ALL_CASES.filter((c) => canOpen("budget", c));
-  const notEntitled = ALL_CASES.filter((c) => !canOpen("budget", c));
+describe("billing", () => {
+  const entitled = ALL_CASES.filter((c) => canOpen("billing", c));
+  const notEntitled = ALL_CASES.filter((c) => !canOpen("billing", c));
 
   /** Financials present but every field a sentinel or blank: the section shows its empty state. */
-  const allBlank = variant(leadWithFinancials, "budgetAllBlank", (d) => ({
+  const allBlank = variant(leadWithFinancials, "billingAllBlank", (d) => ({
     ...d,
     financials: { po: "TBD", proposal: "", invoice: "N/A", invoice_notes: null },
   }));
   /** A financials fetch failure for an entitled viewer: the section shows its error block. */
-  const fetchFailed = variant(adminViewer, "budgetFetchFailed", (d) => ({
+  const fetchFailed = variant(adminViewer, "billingFetchFailed", (d) => ({
     ...d,
     tileErrors: { ...d.tileErrors, financials: "boom" },
   }));
   /** One field blank: its row is omitted and the others render. */
-  const oneBlank = variant(leadWithFinancials, "budgetOneBlank", (d) => ({
+  const oneBlank = variant(leadWithFinancials, "billingOneBlank", (d) => ({
     ...d,
     financials: { ...d.financials!, proposal: "TBA" },
   }));
@@ -730,28 +832,28 @@ describe("budget", () => {
   const cases = [...entitled, ...local];
 
   const PREMISES: Record<string, (root: HTMLElement) => void> = {
-    budgetAllBlank: (root) =>
+    billingAllBlank: (root) =>
       premiseHolds(
-        "budgetAllBlank renders the empty state, not the card",
+        "billingAllBlank renders the empty state, not the card",
         root.querySelector('[data-testid="section-empty"]') !== null &&
           root.querySelector('[data-card-id="budget-main"]') === null,
       ),
-    budgetFetchFailed: (root) =>
+    billingFetchFailed: (root) =>
       premiseHolds(
-        "budgetFetchFailed renders the error block, not the card",
+        "billingFetchFailed renders the error block, not the card",
         root.querySelector('[data-testid="section-tile-error-financials"]') !== null &&
           root.querySelector('[data-card-id="budget-main"]') === null,
       ),
-    budgetOneBlank: (root) =>
+    billingOneBlank: (root) =>
       premise(
-        "budgetOneBlank renders the other three rows",
-        root.querySelectorAll('[data-card-id="budget-main"] dt').length,
+        "billingOneBlank renders the other three rows",
+        root.querySelectorAll('[data-card-id="budget-main"] li').length,
         2,
       ),
   };
   const defaultPremise = (c: ViewerCase) => (root: HTMLElement) =>
     premiseHolds(
-      `${c.name} renders the Budget card`,
+      `${c.name} renders the Billing card`,
       root.querySelector('[data-card-id="budget-main"]') !== null,
     );
 
@@ -760,17 +862,17 @@ describe("budget", () => {
     premise("non-entitled matrix cases", notEntitled.length, 0);
   });
 
-  test.each(parityOver("budget", cases).map((c) => [c.name, c] as const))(
+  test.each(parityOver("billing", cases).map((c) => [c.name, c] as const))(
     "parity: %s",
     (_name, c) => {
-      const root = renderSection("budget", c);
+      const root = renderSection("billing", c);
       (PREMISES[c.name] ?? defaultPremise(c))(root);
-      expect(assertParity(root, build("budget", c))).toEqual([]);
+      expect(assertParity(root, build("billing", c))).toEqual([]);
     },
   );
 
-  test("a viewer the shell does not render Budget for gets no Budget entries", () => {
-    for (const c of notEntitled) expect(build("budget", c), c.name).toEqual([]);
+  test("a viewer the shell does not render Billing for gets no Billing entries", () => {
+    for (const c of notEntitled) expect(build("billing", c), c.name).toEqual([]);
   });
 
   const LINE_KINDS: LineKind[] = [
@@ -798,17 +900,18 @@ describe("budget", () => {
 
   test.each(LINE_KINDS.map((k) => [k.kind, k] as const))("line kind %s renders", (_k, kind) => {
     const c = caseNamed(cases, kind.caseName);
-    expect(kind.present(build("budget", c), c)).toBe(true);
+    expect(kind.present(build("billing", c), c)).toBe(true);
   });
 
   test("error guard: a throwing row derivation renders the fallback and indexes nothing", () => {
-    // The whole Budget body is one WrappedSection block, so "the other blocks'
+    // The whole Billing body is one WrappedSection block, so "the other blocks'
     // entries" is the empty set; the guard is what keeps the builder from
-    // throwing past it.
-    const spy = vi.spyOn(budgetRowsModule, "budgetRows").mockImplementation(() => {
-      throw new Error("planted budget rows fault");
+    // throwing past it. The section and the builder both read their rows through
+    // `billingBodyProps`, so the planted fault reaches both.
+    const spy = vi.spyOn(budgetRowsModule, "billingBodyProps").mockImplementation(() => {
+      throw new Error("planted billing rows fault");
     });
-    const root = renderSection("budget", leadWithFinancials);
+    const root = renderSection("billing", leadWithFinancials);
     premiseHolds("the planted fault reached the component", spy.mock.calls.length > 0);
     premiseHolds(
       "the section rendered its tile fallback",
@@ -816,7 +919,7 @@ describe("budget", () => {
         root.querySelector('[data-card-id="budget-main"]') === null,
     );
     const calls = spy.mock.calls.length;
-    const entries = build("budget", leadWithFinancials);
+    const entries = build("billing", leadWithFinancials);
     premiseHolds("the planted fault reached the builder", spy.mock.calls.length > calls);
     expect(entries).toEqual([]);
     expect(assertParity(root, entries)).toEqual([]);
@@ -826,18 +929,16 @@ describe("budget", () => {
 // ── crew ─────────────────────────────────────────────────────────────────────
 
 describe("crew", () => {
-  const ROSTER = "Show crew";
-  const CONTACTS = "Key contacts";
+  // The roster card is the crew panel card, titled with the registry label (PR B Task 6).
+  // The contacts are their own section from PR B Task 7 (the "contacts" block below).
+  const ROSTER = showSection("crew").label;
   const inGroup = (es: readonly SearchEntry[], group: string) =>
     es.filter((e) => e.group === group);
 
   /**
    * Alternate identity forms the shared matrix never renders: a roster member
-   * with a blank name (the role is the whole identity line), one named with a
-   * sentinel (rendered verbatim: crew names are not sentinel-guarded), a
-   * nameless contact reachable by email (the fallback label is its heading), a
-   * sentinel-named contact with a phone, and a contact with nothing actionable
-   * (PersonRow renders nothing, notes included).
+   * with a blank name (the role is the whole identity line), and one named with
+   * a sentinel (rendered verbatim: crew names are not sentinel-guarded).
    */
   const alternates = variant(fullContent, "crewAlternateRows", (d) => ({
     ...d,
@@ -846,84 +947,35 @@ describe("crew", () => {
       { ...d.crewMembers[0]!, id: "crew-blank", name: "   ", role: "Stagehand", roleFlags: [] },
       { ...d.crewMembers[0]!, id: "crew-tbd", name: "TBD", role: "TBD", roleFlags: [] },
     ],
-    contacts: [
-      ...d.contacts,
-      {
-        kind: "in_house_av",
-        name: null,
-        email: "av@venue.example",
-        phone: null,
-        notes: "Ask at the AV office",
-      },
-      { kind: "venue", name: "N/A", email: null, phone: "555-0199", notes: null },
-      { kind: "venue", name: null, email: null, phone: "TBD", notes: "Unreachable note" },
-    ],
   }));
-  /** An admin viewer whose contacts fetch failed: the error block renders above both columns. */
-  const contactsFailed = variant(adminViewer, "crewContactsFailed", (d) => ({
-    ...d,
-    tileErrors: { ...d.tileErrors, contacts: "boom" },
-    contacts: fullContent.data.contacts,
-  }));
-  /** No crew and no contacts: the section-level empty state. */
-  const bothEmpty = variant(adminViewer, "crewBothEmpty", (d) => ({
-    ...d,
-    crewMembers: [],
-    contacts: [],
-  }));
-  const cases = [...ALL_CASES, alternates, contactsFailed, bothEmpty];
+  /** No crew: the section-level empty state. */
+  const empty = variant(adminViewer, "crewEmpty", (d) => ({ ...d, crewMembers: [] }));
+  const cases = [...ALL_CASES, alternates, empty];
 
   const has = (root: HTMLElement, selector: string) => root.querySelector(selector) !== null;
   const PREMISES: Record<string, (root: HTMLElement) => void> = {
     overCaps: (root) =>
       premiseHolds(
-        "overCaps renders both overflow stubs",
-        has(root, '[data-testid="crew-overflow-stub"]') &&
-          has(root, '[data-testid="contacts-overflow-stub"]'),
-      ),
-    todayOnlyLines: (root) =>
-      premiseHolds(
-        "todayOnlyLines drops its past-cap contact behind the stub",
-        has(root, '[data-testid="contacts-overflow-stub"]'),
+        "overCaps renders the roster's overflow stub",
+        has(root, '[data-testid="crew-overflow-stub"]'),
       ),
     adminViewer: (root) =>
       premiseHolds("adminViewer marks nobody as You", !has(root, "[data-you]")),
     crewNoTransport: (root) =>
       premiseHolds("a crew viewer sees the You chip", has(root, "[data-you]")),
     fullContent: (root) =>
-      premiseHolds(
-        "fullContent renders a Lead chip and a contact note",
-        has(root, "[data-lead]") &&
-          fullContent.data.contacts.some(
-            (k) => k.notes !== null && (root.textContent ?? "").includes(k.notes),
-          ),
-      ),
+      premiseHolds("fullContent renders a Lead chip", has(root, "[data-lead]")),
     dateSuppressed: (root) =>
       premiseHolds("dateSuppressed renders a partial-attendance chip", has(root, "[data-partial]")),
     crewAlternateRows: (root) => {
       const text = root.textContent ?? "";
       premiseHolds(
-        "crewAlternateRows renders the fallback label, the role-only line and the TBD name",
-        text.includes(contactFallbackLabel("in_house_av")) &&
-          text.includes("Stagehand") &&
-          text.includes("TBD"),
-      );
-      premiseHolds(
-        "crewAlternateRows drops the contact with nothing actionable, notes included",
-        !text.includes("Unreachable note"),
+        "crewAlternateRows renders the role-only line and the TBD name",
+        text.includes("Stagehand") && text.includes("TBD"),
       );
     },
-    crewContactsFailed: (root) =>
-      premiseHolds(
-        "crewContactsFailed renders the error block and the contacts column",
-        has(root, '[data-testid="section-tile-error-contacts"]') &&
-          has(root, '[data-card-id="crew-contacts"]'),
-      ),
-    crewBothEmpty: (root) =>
-      premiseHolds(
-        "crewBothEmpty renders the empty state",
-        has(root, '[data-testid="section-empty"]'),
-      ),
+    crewEmpty: (root) =>
+      premiseHolds("crewEmpty renders the empty state", has(root, '[data-testid="section-empty"]')),
   };
   const defaultPremise = (c: ViewerCase) => (root: HTMLElement) =>
     premiseHolds(`${c.name} renders the roster`, has(root, '[data-card-id="crew-roster"]'));
@@ -972,6 +1024,134 @@ describe("crew", () => {
       caseName: "crewAlternateRows",
       present: (es) => inGroup(es, ROSTER).some((e) => e.value === "Stagehand"),
     },
+  ];
+
+  test.each(LINE_KINDS.map((k) => [k.kind, k] as const))("line kind %s renders", (_k, kind) => {
+    const c = caseNamed(cases, kind.caseName);
+    expect(kind.present(build("crew", c), c)).toBe(true);
+  });
+
+  test("error guard: a throwing roster derivation renders the fallback and indexes nothing", () => {
+    // The whole Crew body is one WrappedSection block, so "the other blocks'
+    // entries" is the empty set; the guard is what keeps the builder from
+    // throwing past it.
+    const spy = vi.spyOn(crewRowsModule, "rosterPanel").mockImplementation(() => {
+      throw new Error("planted crew roster fault");
+    });
+    const root = renderSection("crew", fullContent);
+    premiseHolds("the planted fault reached the component", spy.mock.calls.length > 0);
+    premiseHolds(
+      "the section rendered its tile fallback",
+      has(root, '[data-testid="tile-error-fallback"]') &&
+        !has(root, '[data-card-id="crew-roster"]'),
+    );
+    const calls = spy.mock.calls.length;
+    const entries = build("crew", fullContent);
+    premiseHolds("the planted fault reached the builder", spy.mock.calls.length > calls);
+    expect(entries).toEqual([]);
+    expect(assertParity(root, entries)).toEqual([]);
+  });
+});
+
+// ── contacts ─────────────────────────────────────────────────────────────────
+
+describe("contacts", () => {
+  // The contacts card is the crew panel card, titled with the registry label (PR B Task 7).
+  const CONTACTS = showSection("contacts").label;
+  const inGroup = (es: readonly SearchEntry[], group: string) =>
+    es.filter((e) => e.group === group);
+
+  /**
+   * Alternate identity forms the shared matrix never renders: a nameless
+   * contact reachable by email (its kind is its heading), a sentinel-named
+   * contact with a phone, and a contact with nothing actionable (the body
+   * renders nothing for it, notes included).
+   */
+  const alternates = variant(fullContent, "contactsAlternateRows", (d) => ({
+    ...d,
+    contacts: [
+      ...d.contacts,
+      {
+        kind: "in_house_av",
+        name: null,
+        email: "av@venue.example",
+        phone: null,
+        notes: "Ask at the AV office",
+      },
+      { kind: "venue", name: "N/A", email: null, phone: "555-0199", notes: null },
+      { kind: "venue", name: null, email: null, phone: "TBD", notes: "Unreachable note" },
+    ],
+  }));
+  /** An admin viewer whose contacts fetch failed: the error block renders above the card. */
+  const failed = variant(adminViewer, "contactsFailed", (d) => ({
+    ...d,
+    tileErrors: { ...d.tileErrors, contacts: "boom" },
+    contacts: fullContent.data.contacts,
+  }));
+  /** No contacts: the section-level empty state. */
+  const empty = variant(adminViewer, "contactsEmpty", (d) => ({ ...d, contacts: [] }));
+  const cases = [...ALL_CASES, alternates, failed, empty];
+
+  const has = (root: HTMLElement, selector: string) => root.querySelector(selector) !== null;
+  const PREMISES: Record<string, (root: HTMLElement) => void> = {
+    overCaps: (root) =>
+      premiseHolds(
+        "overCaps renders the contacts' overflow stub",
+        has(root, '[data-testid="contacts-overflow-stub"]'),
+      ),
+    todayOnlyLines: (root) =>
+      premiseHolds(
+        "todayOnlyLines drops its past-cap contact behind the stub",
+        has(root, '[data-testid="contacts-overflow-stub"]'),
+      ),
+    fullContent: (root) =>
+      premiseHolds(
+        "fullContent renders a contact note",
+        fullContent.data.contacts.some(
+          (k) => k.notes !== null && (root.textContent ?? "").includes(k.notes),
+        ),
+      ),
+    contactsAlternateRows: (root) => {
+      const text = root.textContent ?? "";
+      premiseHolds(
+        "contactsAlternateRows renders the nameless contact's kind as its heading",
+        text.includes(contactKindLabel("in_house_av")),
+      );
+      premiseHolds(
+        "contactsAlternateRows drops the contact with nothing actionable, notes included",
+        !text.includes("Unreachable note"),
+      );
+    },
+    contactsFailed: (root) =>
+      premiseHolds(
+        "contactsFailed renders the error block and the contacts card",
+        has(root, '[data-testid="section-tile-error-contacts"]') &&
+          has(root, '[data-card-id="crew-contacts"]'),
+      ),
+    contactsEmpty: (root) =>
+      premiseHolds(
+        "contactsEmpty renders the empty state",
+        has(root, '[data-testid="section-empty"]'),
+      ),
+  };
+  const defaultPremise = (c: ViewerCase) => (root: HTMLElement) =>
+    premiseHolds(
+      `${c.name} renders the contacts card when it has contacts, the empty state when not`,
+      c.data.contacts.length > 0
+        ? has(root, '[data-card-id="crew-contacts"]')
+        : has(root, '[data-testid="section-empty"]'),
+    );
+
+  test.each(parityOver("contacts", cases).map((c) => [c.name, c] as const))(
+    "parity: %s",
+    (_name, c) => {
+      const root = renderSection("contacts", c);
+      (PREMISES[c.name] ?? defaultPremise(c))(root);
+      expect(assertParity(root, build("contacts", c))).toEqual([]);
+    },
+  );
+
+  const LINE_KINDS: LineKind[] = [
     {
       kind: "C2 contact name",
       caseName: "fullContent",
@@ -982,9 +1162,9 @@ describe("crew", () => {
     },
     {
       kind: "C2 contact fallback label",
-      caseName: "crewAlternateRows",
+      caseName: "contactsAlternateRows",
       present: (es) =>
-        inGroup(es, CONTACTS).some((e) => e.value === contactFallbackLabel("in_house_av")),
+        inGroup(es, CONTACTS).some((e) => e.value === contactKindLabel("in_house_av")),
     },
     {
       kind: "C3 contact notes",
@@ -998,25 +1178,25 @@ describe("crew", () => {
 
   test.each(LINE_KINDS.map((k) => [k.kind, k] as const))("line kind %s renders", (_k, kind) => {
     const c = caseNamed(cases, kind.caseName);
-    expect(kind.present(build("crew", c), c)).toBe(true);
+    expect(kind.present(build("contacts", c), c)).toBe(true);
   });
 
-  test("error guard: a throwing roster derivation renders the fallback and indexes nothing", () => {
-    // The whole Crew body is one WrappedSection block, so "the other blocks'
+  test("error guard: a throwing contacts derivation renders the fallback and indexes nothing", () => {
+    // The whole Contacts body is one WrappedSection block, so "the other blocks'
     // entries" is the empty set; the guard is what keeps the builder from
     // throwing past it.
-    const spy = vi.spyOn(crewRowsModule, "rosterPersons").mockImplementation(() => {
-      throw new Error("planted crew roster fault");
+    const spy = vi.spyOn(contactsRowsModule, "contactsPanel").mockImplementation(() => {
+      throw new Error("planted contacts fault");
     });
-    const root = renderSection("crew", fullContent);
+    const root = renderSection("contacts", fullContent);
     premiseHolds("the planted fault reached the component", spy.mock.calls.length > 0);
     premiseHolds(
       "the section rendered its tile fallback",
       has(root, '[data-testid="tile-error-fallback"]') &&
-        !has(root, '[data-card-id="crew-roster"]'),
+        !has(root, '[data-card-id="crew-contacts"]'),
     );
     const calls = spy.mock.calls.length;
-    const entries = build("crew", fullContent);
+    const entries = build("contacts", fullContent);
     premiseHolds("the planted fault reached the builder", spy.mock.calls.length > calls);
     expect(entries).toEqual([]);
     expect(assertParity(root, entries)).toEqual([]);
@@ -1118,10 +1298,68 @@ describe("venue", () => {
     diagrams: null,
     transportation: null,
   }));
-  const local = [cityAndMaps, diagramForms, transportFailed, sentinels, synthRoom, allHidden];
+  /**
+   * The city line shows whenever a city resolves, even beside an address that
+   * repeats it (UI gate row 12, accepted after review rounds 1 and 2, B1), and
+   * the index carries the same lines. A street named for the city, its locality
+   * a comma segment the street drops:
+   */
+  const cityInStreet = variant(fullContent, "venueCityInStreet", (d) => ({
+    ...d,
+    show: {
+      ...d.show,
+      venue: {
+        ...d.show.venue!,
+        name: "Four Seasons Hotel Chicago",
+        address: "120 E Chicago Ave, Chicago, IL 60611",
+        city: null,
+      },
+    },
+  }));
+  /** A street named for the city with an uppercase suffix that reads like a state. */
+  const cityUppercaseSuffix = variant(fullContent, "venueCityUppercaseSuffix", (d) => ({
+    ...d,
+    show: {
+      ...d.show,
+      venue: {
+        ...d.show.venue!,
+        name: "Four Seasons Hotel",
+        address: "120 E Chicago PL",
+        city: "Chicago",
+      },
+    },
+  }));
+  /** An address that repeats the city with no comma before it: the city line stays. */
+  const cityRepeated = variant(fullContent, "venueCityRepeated", (d) => ({
+    ...d,
+    show: {
+      ...d.show,
+      venue: {
+        ...d.show.venue!,
+        name: "Four Seasons Hotel",
+        address: "120 E Delaware Pl Chicago, IL 60611",
+        city: "Chicago",
+      },
+    },
+  }));
+  const local = [
+    cityAndMaps,
+    cityInStreet,
+    cityUppercaseSuffix,
+    cityRepeated,
+    diagramForms,
+    transportFailed,
+    sentinels,
+    synthRoom,
+    allHidden,
+  ];
   const cases = [...ALL_CASES, ...local];
 
   const facilities = (root: HTMLElement) => textOf(root, '[data-card-id="venue-facilities"]');
+  const whereLines = (root: HTMLElement) =>
+    [...root.querySelectorAll('[data-card-id="venue-where"] [data-search-target]')].map(
+      (el) => el.textContent,
+    );
   const thumbnails = (root: HTMLElement) =>
     root.querySelectorAll('[data-card-id="venue-diagrams"] [data-testid^="diagram-slot-"]');
   const PREMISES: Record<string, (root: HTMLElement) => void> = {
@@ -1171,12 +1409,33 @@ describe("venue", () => {
           facilities(root).includes("Loading dock"),
       ),
     venueCityAndMaps: (root) => {
-      const where = textOf(root, '[data-card-id="venue-where"]');
+      // The city is its own line of the Venue panel (the shared Venue body, PR B
+      // Task 5), not a substring of the name the geocoded city was stripped from.
+      const lines = [
+        ...root.querySelectorAll('[data-card-id="venue-where"] [data-search-target]'),
+      ].map((el) => el.textContent);
       premiseHolds(
-        "venueCityAndMaps renders the City row and the Maps link",
-        where.includes("City") && has(root, '[data-card-id="venue-where"] a[href^="https://"]'),
+        "venueCityAndMaps renders the city line and the Maps link",
+        lines.includes(cityAndMaps.data.show.venue!.city!) &&
+          has(root, '[data-card-id="venue-where"] a[href^="https://"]'),
       );
     },
+    venueCityInStreet: (root) =>
+      premiseHolds(
+        "venueCityInStreet renders the street without its locality and a Chicago city line",
+        whereLines(root).join("|") === "Four Seasons Hotel|120 E Chicago Ave|Chicago",
+      ),
+    venueCityUppercaseSuffix: (root) =>
+      premiseHolds(
+        "venueCityUppercaseSuffix renders the whole street and a Chicago city line",
+        whereLines(root).join("|") === "Four Seasons Hotel|120 E Chicago PL|Chicago",
+      ),
+    venueCityRepeated: (root) =>
+      premiseHolds(
+        "venueCityRepeated renders the whole address and a Chicago city line",
+        whereLines(root).join("|") ===
+          "Four Seasons Hotel|120 E Delaware Pl Chicago, IL 60611|Chicago",
+      ),
     venueDiagramForms: (root) =>
       premiseHolds(
         "venueDiagramForms renders an unavailable slot",
@@ -1354,8 +1613,9 @@ describe("venue", () => {
   });
 
   test("error guard: a throwing gallery derivation drops the diagrams block only", () => {
-    // The diagrams block is Venue's one WrappedSection; Where, Facilities and
-    // Venue status render outside it and must be indexed exactly as before.
+    // The diagrams block has its own WrappedSection; Where (inside another),
+    // Facilities and Venue status render outside it and must be indexed exactly
+    // as before.
     const c = diagramsNamedAndUnnamed;
     const intact = build("venue", c).filter((e) => !REGION("venue-diagrams")(e));
     premise("the blocks outside the boundary contribute entries", intact.length, 0);
@@ -1452,11 +1712,6 @@ describe("schedule", () => {
       );
     },
     fullContent: (root) => {
-      premise(
-        "fullContent renders more than one agenda document label",
-        root.querySelectorAll('[data-testid="agenda-schedule-label"]').length,
-        1,
-      );
       premiseHolds(
         "fullContent folds a long run-of-show title",
         root.querySelector('[data-testid="agenda-title-truncated"]') !== null,
@@ -1482,9 +1737,6 @@ describe("schedule", () => {
   });
 
   const fullDates = fullContent.data.show.dates;
-  const fullAgenda = fullContent.data.show.agenda_links;
-  const fullDays = fullAgenda.flatMap((l) => normalizeAgendaExtraction(l.extracted)?.days ?? []);
-  const fullSessions = fullDays.flatMap((d) => d.sessions);
   const fullRos = Object.values(fullContent.data.runOfShow ?? {}).flatMap((d) => d.entries);
   const at = (es: readonly SearchEntry[], region: string) =>
     es.filter((e) => regionOf(e) === region);
@@ -1566,6 +1818,110 @@ describe("schedule", () => {
       caseName: "fullContent",
       present: (es) => at(es, "schedule-call-times").some((e) => e.label === "Strike"),
     },
+  ];
+
+  test.each(LINE_KINDS.map((k) => [k.kind, k] as const))("line kind reached: %s", (_kind, k) => {
+    const c = caseNamed(ALL_CASES, k.caseName);
+    expect(k.present(build("schedule", c), c)).toBe(true);
+  });
+
+  test("the agenda left Schedule for its own section: Schedule renders and indexes no agenda line (PR B Task 10)", () => {
+    const fileLinks = fullContent.data.show.agenda_links.filter((l) => Boolean(l.fileId));
+    premise("fullContent carries agenda files", fileLinks.length, 0);
+    const root = renderSection("schedule", fullContent);
+    expect(root.querySelector('[data-testid="agenda-schedule"]')).toBeNull();
+    expect(root.querySelector('[data-testid="agenda-embed"]')).toBeNull();
+    expect(build("schedule", fullContent).filter((e) => e.group === "Agenda")).toEqual([]);
+  });
+
+  test("error guard: a throwing day derivation drops the days block, and with it every Schedule entry", () => {
+    // The day cards and the Crew Schedule card share one WrappedSection, which
+    // since PR B Task 10 holds everything the section indexes (the agenda moved
+    // to its own section). The spy reaches both callers because both import
+    // scheduleDayRows from the sibling rows module.
+    vi.spyOn(scheduleRows, "scheduleDayRows").mockImplementation(() => {
+      throw new Error("planted day derivation fault");
+    });
+    const root = renderSection("schedule", fullContent);
+    premiseHolds(
+      "the days block renders its fallback",
+      root.querySelector('[data-testid="tile-error-fallback"]') !== null &&
+        root.querySelector('[data-testid="day-card"]') === null,
+    );
+
+    const entries = build("schedule", fullContent);
+    expect(entries).toEqual([]);
+    expect(assertParity(root, entries)).toEqual([]);
+  });
+
+  test("overCaps premise: more show days than SHOWS_CAP", () => {
+    premise("overCaps show days", overCaps.data.show.dates.showDays.length, SHOWS_CAP);
+  });
+});
+
+// ── agenda ──────────────────────────────────────────────────────────────────
+
+describe("agenda", () => {
+  /**
+   * Agenda is listed only when the show has an agenda link with a file (PR B
+   * Task 10, plan decision 1), so its block runs over the matrix cases that list
+   * it, plus one with a single bare AGENDA link and no extraction (a button with
+   * no document label: the card's heading names no line).
+   */
+  const bareLink = variant(fullContent, "agendaBareLink", (d) => ({
+    ...d,
+    show: { ...d.show, agenda_links: [{ label: "AGENDA", fileId: "agenda-bare" }] },
+  }));
+  const cases = [...ALL_CASES, bareLink].filter((c) => c === bareLink || canOpen("agenda", c));
+
+  const PREMISES: Partial<Record<string, (root: HTMLElement, c: ViewerCase) => void>> = {
+    fullContent: (root) => {
+      premise(
+        "fullContent renders more than one agenda document label",
+        root.querySelectorAll('[data-testid="agenda-schedule-label"]').length,
+        1,
+      );
+    },
+    agendaBareLink: (root) => {
+      premiseHolds(
+        "agendaBareLink renders its button and no structured schedule",
+        root.querySelector('[data-testid="agenda-embed"]') !== null &&
+          root.querySelector('[data-testid="agenda-schedule"]') === null,
+      );
+    },
+  };
+
+  test.each(parityOver("agenda", cases).map((c) => [c.name, c] as const))(
+    "%s: index equals render",
+    (_name, c) => {
+      const root = renderSection("agenda", c);
+      PREMISES[c.name]?.(root, c);
+      expect(assertParity(root, build("agenda", c))).toEqual([]);
+    },
+  );
+
+  test("a date-suppressed viewer is not listed Agenda on a show with agenda files, and builds no entries", () => {
+    const c = variant(caseNamed(ALL_CASES, "dateSuppressed"), "dateSuppressedWithAgenda", (d) => ({
+      ...d,
+      show: { ...d.show, agenda_links: fullContent.data.show.agenda_links },
+    }));
+    premiseHolds(
+      "the variant's show carries an agenda file",
+      c.data.show.agenda_links.some((l) => Boolean(l.fileId)),
+    );
+    expect(memberIdsFor(c.viewer, c.data)).not.toContain("agenda");
+    expect(build("agenda", c)).toEqual([]);
+    // Positive control: the same links for a viewer whose dates are confirmed.
+    expect(build("agenda", fullContent).length).toBeGreaterThan(0);
+  });
+
+  const fullAgenda = fullContent.data.show.agenda_links;
+  const fullDays = fullAgenda.flatMap((l) => normalizeAgendaExtraction(l.extracted)?.days ?? []);
+  const fullSessions = fullDays.flatMap((d) => d.sessions);
+  const at = (es: readonly SearchEntry[], region: string) =>
+    es.filter((e) => regionOf(e) === region);
+
+  const LINE_KINDS: readonly LineKind[] = [
     {
       kind: "agenda button document label",
       caseName: "fullContent",
@@ -1619,35 +1975,37 @@ describe("schedule", () => {
 
   test.each(LINE_KINDS.map((k) => [k.kind, k] as const))("line kind reached: %s", (_kind, k) => {
     const c = caseNamed(ALL_CASES, k.caseName);
-    expect(k.present(build("schedule", c), c)).toBe(true);
+    expect(k.present(build("agenda", c), c)).toBe(true);
   });
 
-  test("error guard: a throwing day derivation drops the days block, the agenda stays", () => {
-    // The day cards and the Crew Schedule card share one WrappedSection; the
-    // agenda sits outside it (spec §2.4). The spy reaches both callers because
-    // both import scheduleDayRows from the sibling rows module.
-    vi.spyOn(scheduleRows, "scheduleDayRows").mockImplementation(() => {
-      throw new Error("planted day derivation fault");
+  test("every Agenda entry is filed under the Agenda section, so a hit reveals inside it", () => {
+    // A search hit opens the section its entry names (openSectionAndReveal); an
+    // agenda line still filed under Schedule would open a section that no longer
+    // holds it. Planted mutant: the rows' sink left on "schedule" (parity alone
+    // passes it, since the ids still match their targets).
+    const entries = build("agenda", fullContent);
+    premise("fullContent indexes agenda lines", entries.length, 0);
+    expect(entries.filter((e) => e.section !== "agenda" || !e.id.startsWith("agenda:"))).toEqual(
+      [],
+    );
+  });
+
+  test("error guard: a throwing agenda derivation renders the section's fallback and drops every Agenda entry", () => {
+    // The whole section sits in one WrappedSection (crew:agenda:schedule); the spy
+    // reaches both callers because the section and the builder import agendaPanel
+    // from the rows module.
+    vi.spyOn(agendaRowsModule, "agendaPanel").mockImplementation(() => {
+      throw new Error("planted agenda derivation fault");
     });
-    const root = renderSection("schedule", fullContent);
+    const root = renderSection("agenda", fullContent);
     premiseHolds(
-      "the days block renders its fallback",
+      "the section renders its fallback",
       root.querySelector('[data-testid="tile-error-fallback"]') !== null &&
-        root.querySelector('[data-testid="day-card"]') === null,
+        root.querySelector('[data-testid="agenda-session"]') === null,
     );
-    premiseHolds(
-      "the agenda still renders",
-      root.querySelector('[data-testid="agenda-session"]') !== null,
-    );
-
-    const entries = build("schedule", fullContent);
-    expect(entries.filter((e) => regionOf(e) !== "none")).toEqual([]);
-    expect(entries.filter((e) => regionOf(e) === "none").length).toBeGreaterThan(0);
+    const entries = build("agenda", fullContent);
+    expect(entries).toEqual([]);
     expect(assertParity(root, entries)).toEqual([]);
-  });
-
-  test("overCaps premise: more show days than SHOWS_CAP", () => {
-    premise("overCaps show days", overCaps.data.show.dates.showDays.length, SHOWS_CAP);
   });
 });
 
@@ -1837,7 +2195,7 @@ describe("today", () => {
 // ── coverage ─────────────────────────────────────────────────────────────────
 
 /** The section list, derived, never typed (spec §11.1). */
-const DERIVED_SECTIONS: readonly SectionId[] = [...BASE_SECTION_IDS, "budget"];
+const DERIVED_SECTIONS: readonly SectionId[] = ["today", ...CREW_SECTION_IDS];
 
 describe("coverage: every section has a parity block", () => {
   test("SECTION_BUILDERS has a builder for exactly the derived section list", () => {

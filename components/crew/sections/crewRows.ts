@@ -3,20 +3,26 @@
  * shared by `CrewSection` and the search index builder (lib/search/sections/
  * crew.ts), so the page and the index read the same rows (spec §2.4).
  *
- * Each row carries the `PersonRow` props it renders with, search target ids
- * included, and the search lines those ids name. The lines come from
- * `personRowLines`, PersonRow's own render predicate, so a row PersonRow omits
- * (no identity and nothing actionable) has no line, and a row cut by an inline
- * cap is not in the list at all.
+ * The roster is the shared Crew body's crew props (`rosterPanel`, crew page
+ * redesign PR B Task 6, components/show-panels/CrewBody.tsx); its search lines
+ * come from `crewBodyIdentity`, the body's own identity predicate, so a row that
+ * renders no line has none, and a row cut by the inline cap is not in the list
+ * at all. The contacts are their own section from PR B Task 7
+ * (contactsRows.ts); the crew's call, text and email builders here serve both.
  *
  * Non-client module: the builder runs on the server and imports it.
  */
-import { personRowLines, type Person } from "@/components/crew/primitives/PersonRow";
+import {
+  crewBodyIdentity,
+  type CrewBodyMember,
+  type CrewBodyProps,
+} from "@/components/show-panels/CrewBody";
+import { crewMailtoHref, crewSmsHref, crewTelHref } from "@/lib/crew/contactHrefs";
 import { partialAttendanceLabel } from "@/lib/crew/partialAttendance";
 import type { ShowForViewer, Viewer } from "@/lib/data/getShowForViewer";
 import { entryId } from "@/lib/search/entryId";
 import type { SearchEntry } from "@/lib/search/types";
-import { shouldHideGenericOptional } from "@/lib/visibility/emptyState";
+import { showSection } from "@/lib/showSections/registry";
 
 /**
  * Cardinality cap for the crew roster before the `[data-tile-show-more]`
@@ -27,121 +33,80 @@ import { shouldHideGenericOptional } from "@/lib/visibility/emptyState";
 export const CREW_INLINE_CAP = 8;
 
 /**
- * Cardinality cap for the key-contacts column before its overflow affordance
- * renders. Ported verbatim from ContactsTile (CONTACTS_INLINE_CAP = 6).
+ * The roster card's `data-card-id` (the search region). Its title, and so the
+ * search `group` of its lines, is the registry label of `crew` (plan decision 4).
  */
-export const CONTACTS_INLINE_CAP = 6;
-
-/** The roster card: title (the search `group`) and `data-card-id` (the region). */
-export const ROSTER_TITLE = "Show crew";
 export const ROSTER_CARD_ID = "crew-roster";
-
-/** The key-contacts card: title and `data-card-id`. */
-export const CONTACTS_TITLE = "Key contacts";
-export const CONTACTS_CARD_ID = "crew-contacts";
-
-/** Human-readable fallback heading for a nameless contact row. */
-export function contactFallbackLabel(kind: ShowForViewer["contacts"][number]["kind"]): string {
-  switch (kind) {
-    case "venue":
-      return "Venue contact";
-    case "in_house_av":
-      return "In-house AV";
-    default:
-      return "Contact";
-  }
-}
 
 /** A search entry without the parts the builder adds (section and copy). */
 export type CrewSearchLine = Omit<SearchEntry, "section" | "copy">;
 
-export type CrewPersonRow = {
-  /** React key, as the section has always keyed the row. */
-  key: string;
-  /** PersonRow props, `searchTarget` included when the row renders a line. */
-  person: Person;
-  /** The row's search lines in render order: identity, then notes. */
+// The contact links live in lib/crew/contactHrefs.ts, markup-free, so the
+// client-reachable peek can read them; re-exported here, where callers import them.
+export { crewMailtoHref, crewSmsHref, crewTelHref };
+
+/** The roster's body props (all but the overflow slot, which is markup) and its search lines. */
+export type RosterPanel = {
+  body: Omit<CrewBodyProps, "overflow">;
   lines: CrewSearchLine[];
 };
 
-function withSearchLines(
-  key: string,
-  person: Person,
-  region: string,
-  group: string,
-  seen: Map<string, number>,
-): CrewPersonRow {
-  const { identity, notes } = personRowLines(person);
-  const lines: CrewSearchLine[] = [];
-  const searchTarget: { identity?: string; notes?: string } = {};
-  if (identity !== null) {
-    const id = entryId("crew", region, group, null, identity.value, seen);
-    searchTarget.identity = id;
-    lines.push({ id, group, label: null, value: identity.value, context: identity.context });
-  }
-  if (notes !== null) {
-    const id = entryId("crew", region, group, null, notes.value, seen);
-    searchTarget.notes = id;
-    lines.push({ id, group, label: null, value: notes.value, context: notes.context });
-  }
-  // Always set, even with no line: a row on the search surface marks its
-  // avatar and action glyphs skip whether or not it has a line to index.
-  return { key, person: { ...person, searchTarget }, lines };
-}
-
 /**
- * The roster rows the "Show crew" card renders, capped at `CREW_INLINE_CAP`, in
- * `data.crewMembers` order. The viewer gets the "You" chip; department leads
- * the "Lead" chip.
+ * The roster the "Crew" panel card renders: every member in `data.crewMembers`
+ * order (the body caps them at `CREW_INLINE_CAP`), the viewer's own row with
+ * the "You" chip, department leads with the "Lead" chip, a partial-attendance
+ * chip humanized, and a search target per identity line of the rows the cap
+ * keeps.
  */
-export function rosterPersons(data: ShowForViewer, viewer: Viewer): CrewPersonRow[] {
+export function rosterPanel(data: ShowForViewer, viewer: Viewer): RosterPanel {
   // The viewer's own crew row id, used to stamp the "You" chip. Admin viewers
   // have no crewMemberId so nobody is highlighted as "You".
   const viewerCrewId =
     viewer.kind === "crew" || viewer.kind === "admin_preview" ? viewer.crewMemberId : null;
-  const seen = new Map<string, number>();
-  return data.crewMembers.slice(0, CREW_INLINE_CAP).map((member) => {
-    // Sentinel-guard the free-text heading source: a sentinel role must not
-    // seed PersonRow's role eyebrow.
-    const role = shouldHideGenericOptional(member.role) ? undefined : member.role;
-    // Partial-attendance chip (BL-CREW-PARTIAL-ATTENDANCE-CHIP): the projection
-    // carries ISO-normalized days, so humanize.
-    const partial = partialAttendanceLabel(member.dateRestriction, { humanize: true });
-    const person: Person = {
-      name: member.name,
-      ...(role !== undefined ? { role } : {}),
-      ...(member.phone !== null ? { phone: member.phone } : {}),
-      ...(member.email !== null ? { email: member.email } : {}),
+  const members: CrewBodyMember[] = data.crewMembers.map((member) => {
+    const name = member.name.trim().length > 0 ? member.name : null;
+    return {
+      key: member.id,
+      name,
+      avatarName: name ?? "",
+      role: member.role,
+      // Partial-attendance chip (BL-CREW-PARTIAL-ATTENDANCE-CHIP): the projection
+      // carries ISO-normalized days, so humanize.
+      partial: partialAttendanceLabel(member.dateRestriction, { humanize: true }),
+      phone: member.phone,
+      email: member.email,
       you: viewerCrewId !== null && member.id === viewerCrewId,
       lead: member.roleFlags.includes("LEAD"),
-      ...(partial ? { partial } : {}),
     };
-    return withSearchLines(member.id, person, ROSTER_CARD_ID, ROSTER_TITLE, seen);
   });
-}
-
-/**
- * The contact rows the "Key contacts" card renders, capped at
- * `CONTACTS_INLINE_CAP`, in `data.contacts` order. Never `show.client_contact`.
- */
-export function contactPersons(data: ShowForViewer): CrewPersonRow[] {
+  const options = { sentinels: "hide", partialAs: "chip" } as const;
+  const group = showSection("crew").label;
   const seen = new Map<string, number>();
-  return data.contacts.slice(0, CONTACTS_INLINE_CAP).map((contact, idx) => {
-    const name =
-      contact.name !== null && !shouldHideGenericOptional(contact.name) ? contact.name : undefined;
-    const person: Person = {
-      ...(name !== undefined ? { name } : {}),
-      fallbackLabel: contactFallbackLabel(contact.kind),
-      ...(contact.phone !== null ? { phone: contact.phone } : {}),
-      ...(contact.email !== null ? { email: contact.email } : {}),
-      ...(contact.notes !== null ? { notes: contact.notes } : {}),
-    };
-    return withSearchLines(
-      `${contact.kind}-${idx}`,
-      person,
-      CONTACTS_CARD_ID,
-      CONTACTS_TITLE,
-      seen,
-    );
-  });
+  const targets: Record<string, string> = {};
+  const lines: CrewSearchLine[] = [];
+  for (const member of members.slice(0, CREW_INLINE_CAP)) {
+    const identity = crewBodyIdentity(member, options);
+    if (identity === null) continue;
+    const id = entryId("crew", ROSTER_CARD_ID, group, null, identity.value, seen);
+    targets[member.key] = id;
+    lines.push({ id, group, label: null, value: identity.value, context: identity.context });
+  }
+  return {
+    body: {
+      members,
+      cap: CREW_INLINE_CAP,
+      telHref: crewTelHref,
+      smsHref: crewSmsHref,
+      mailtoHref: crewMailtoHref,
+      ...options,
+      // PR B invariant-8 gate rows 17 and 20: the actions drawn in body text with
+      // the home buttons' hover, under the identity until the crew threshold and
+      // at the row's end from it.
+      actionsPlacement: "below-until-split",
+      actionTone: "text",
+      targets,
+      testIdPrefix: "crew-panel",
+    },
+    lines,
+  };
 }

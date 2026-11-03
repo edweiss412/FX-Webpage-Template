@@ -71,6 +71,8 @@ test.beforeAll(async () => {
     entryCss,
     [
       `@source "${join(REPO_ROOT, "components", "admin", "wizard", "step3ReviewSections.tsx")}";`,
+      // The shared section bodies the admin popup renders (crew page redesign PR B).
+      `@source "${join(REPO_ROOT, "components", "show-panels")}";`,
       `@source "${join(REPO_ROOT, "tests", "e2e", "_attentionAnchorEntry.tsx")}";`,
       globals,
     ].join("\n"),

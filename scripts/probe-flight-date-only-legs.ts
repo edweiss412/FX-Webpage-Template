@@ -3,7 +3,7 @@
  *
  * Counts, over the LIVE show sheets, how often a flight segment parses
  * successfully (`structured: true`) yet carries no displayable field beyond its
- * date — the case `components/crew/sections/TravelSection.tsx` hands to the
+ * date — the case `components/crew/sections/TransportSection.tsx` hands to the
  * raw-fallback branch, where a crew member reads an unlabeled line.
  *
  * The row was filed with its frequency UNMEASURED and its promotion gated on
@@ -60,7 +60,7 @@ const NAMED_SHOW_RE = /^(II|AII\/III)\s+-/;
 /**
  * The renderer's own structured-vs-raw predicate, at `hideDates: false`.
  *
- * Mirrors `flightRowFields` (`components/crew/sections/TravelSection.tsx:203`):
+ * Mirrors `flightRowFields` (`lib/crew/flightDisplay.ts`):
  * `showStructured = seg.structured && (carrier || route || depTime || arrTime)`,
  * where `carrier = flightNo ?? airline` and `route` is built from origin/dest.
  * The copy exists because the promotion gate had to run ahead of any change to
@@ -141,7 +141,7 @@ export function isUnmeasured(r: SheetCounts): boolean {
   return Boolean(r.error) || r.hardErrors.length > 0;
 }
 
-/** Same year derivation the crew page uses (TravelSection.tsx:410-418), minus the show-timezone fallback. */
+/** Same year derivation the crew page uses (`flightCard`, components/crew/sections/transportRows.ts), minus the show-timezone fallback. */
 function showYearOf(dates: {
   travelIn?: string | null;
   showDays?: string[];

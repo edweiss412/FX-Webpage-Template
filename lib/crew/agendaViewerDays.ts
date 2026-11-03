@@ -218,7 +218,7 @@ export function visibleAgendaDaysForViewer(
 ): ViewerAgendaDays {
   const extraction = normalizeAgendaExtraction(extracted);
   // Not high-confidence or no days: the component renders nothing for this link
-  // (`components/crew/AgendaScheduleBlock.tsx:58`), so there is nothing to fold.
+  // (`components/show-panels/AgendaScheduleBlock.tsx`), so there is nothing to fold.
   if (!extraction || extraction.confidence !== "high" || extraction.days.length === 0) return ALL;
 
   const restriction = new Set(restrictionDates);

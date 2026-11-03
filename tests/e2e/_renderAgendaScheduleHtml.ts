@@ -16,7 +16,7 @@
  */
 import { renderToStaticMarkup } from "react-dom/server";
 
-import { AgendaScheduleBlock } from "@/components/crew/AgendaScheduleBlock";
+import { AgendaScheduleBlock } from "@/components/show-panels/AgendaScheduleBlock";
 import { AGENDA_EXTRACTION } from "./_agendaFixture";
 
 /**

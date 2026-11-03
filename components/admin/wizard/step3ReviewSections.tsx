@@ -37,30 +37,19 @@ import {
 } from "react";
 import {
   AlertTriangle,
-  BedDouble,
-  CalendarDays,
   Check,
   ChevronRight,
   Circle,
   ExternalLink,
-  FileText,
   ImageOff,
   Images,
   Info,
-  LayoutGrid,
   Lightbulb,
-  Mail,
-  MapPin,
   MessageSquareWarning,
   Minus,
   Package,
-  Phone,
-  Receipt,
-  Sparkles,
   Theater,
   TriangleAlert,
-  Truck,
-  Users,
   Video,
   Volume2,
   type LucideIcon,
@@ -147,9 +136,6 @@ import {
 } from "@/lib/admin/stagedDiagramGuards";
 import type { MessageCode } from "@/lib/messages/catalog";
 import { humanizeDate, humanizeDayRange } from "@/lib/dates/humanize";
-import { dateStubParts } from "@/lib/format/date";
-import { avatarColor } from "@/lib/crew/avatarColor";
-import { deriveInitials } from "@/components/atoms/Avatar";
 import { renderEmphasis } from "@/components/messages/renderEmphasis";
 import { buildSheetDeepLink, type SourceAnchor } from "@/lib/sheet-links/buildSheetDeepLink";
 import { sheetCellReference } from "@/lib/sheet-links/sheetCellReference";
@@ -168,9 +154,8 @@ import { shouldHideGenericOptional } from "@/lib/visibility/emptyState";
 import { isWarnSeverity } from "@/lib/parser/dataGaps";
 import { candidateLabel } from "@/lib/parser/candidateLabel";
 import { labelFromRawSnippet } from "@/lib/parser/rawSnippet";
-import { Avatar } from "@/components/atoms/Avatar";
 import { CrewRowActions, type CrewRowOutcome } from "@/components/admin/wizard/CrewRowActions";
-import { AgendaScheduleBlock } from "@/components/crew/AgendaScheduleBlock";
+import { AgendaScheduleBlock } from "@/components/show-panels/AgendaScheduleBlock";
 import { DressCodeLines } from "@/components/crew/DressCodeLines";
 import type { AdminAgendaItem } from "@/lib/agenda/agendaAdminPreview";
 import { agendaOverflowNotes } from "@/lib/agenda/agendaPaint";
@@ -195,6 +180,18 @@ import {
   AGENDA_CLIENT_QUEUE_BUDGET_MS,
 } from "@/lib/agenda/constants";
 import { cn } from "@/lib/ui/cn";
+import { SHOW_SECTION_GROUPS, showSection, type ShowSectionId } from "@/lib/showSections/registry";
+import { BillingBody } from "@/components/show-panels/BillingBody";
+import { CrewBody } from "@/components/show-panels/CrewBody";
+import { ContactsBody, contactBlocks } from "@/components/show-panels/ContactsBody";
+import { EYEBROW_CLASS, EYEBROW_STYLE, contentRows } from "@/components/show-panels/FieldRowList";
+import { VenueBody } from "@/components/show-panels/VenueBody";
+import { HotelCardBody, hotelCardLabel } from "@/components/show-panels/HotelCardBody";
+import {
+  TransportBody,
+  transportRouteLegs,
+  type TransportBodyProps,
+} from "@/components/show-panels/TransportBody";
 import {
   clearStoredDraftIfUnchanged,
   readStoredDraft,
@@ -288,22 +285,11 @@ export function roomHasScope(r: RoomRow): boolean {
 
 /**
  * Build {label,value} rows from [label, rawValue] pairs, keeping only as-parsed
- * content (hasContent — non-null, non-whitespace string). Used by the operator
- * review-modal field-group sections (Venue / Ops / Transport / Contacts).
+ * content. It lives with the shared section bodies in components/show-panels/
+ * (crew page redesign PR B plan Task 7, the Contacts body's blocks read it) and
+ * is re-exported here under the same name, so every admin import is unchanged.
  */
-export function contentRows(
-  pairs: ReadonlyArray<readonly [string, unknown]>,
-): { label: string; value: string }[] {
-  const out: { label: string; value: string }[] = [];
-  // Coerce-then-keep (String().trim(), length > 0) — matches the EventDetails +
-  // RoomsDetail modal sections (#195/#197): a non-string JSONB value still shows
-  // as text, sentinels (TBD/N/A) show as-parsed, empty/whitespace is omitted.
-  for (const [label, val] of pairs) {
-    const value = String(val ?? "").trim();
-    if (value.length > 0) out.push({ label, value });
-  }
-  return out;
-}
+export { contentRows } from "@/components/show-panels/FieldRowList";
 
 // Defensive coercion for the untyped-on-the-wire JSONB (§4.3/§4.6): anything
 // that isn't an array becomes [].
@@ -349,86 +335,21 @@ export function overflowNote(total: number, cap: number, noun: string): string |
   return extra > 0 ? `…and ${extra} more ${noun}` : null;
 }
 
-/** The shared eyebrow-key style (spec §8 field-list grammar). */
-const EYEBROW_CLASS = cn("text-xs font-semibold uppercase text-text-subtle");
-const EYEBROW_STYLE = { letterSpacing: "var(--tracking-eyebrow)" } as const;
+/**
+ * Vertical label:value list shared by the review-modal field-group sections. It
+ * lives with the shared section bodies in components/show-panels/ (crew page
+ * redesign PR B plan Task 4) and is re-exported here under the same name, so
+ * every admin import of it is unchanged.
+ */
+export { FieldRowList } from "@/components/show-panels/FieldRowList";
 
 /**
- * Vertical label:value list shared by the review-modal field-group sections.
- * Restyled to the mock's `fieldlist` grammar (spec §8): each row a
- * `7.5rem + minmax(0,1fr)` grid, eyebrow key, hairline row separators. The
- * trailing colon on the key is PRESERVED copy ("Venue:", "COI:") — existing
- * suites pin the `Label:` textContent.
+ * Nights between an ISO check-in and check-out. It lives with the shared hotel
+ * card body in components/show-panels/ (crew page redesign PR B plan Task 8)
+ * and is re-exported here under the same name, so the freshness projection and
+ * every admin import of it are unchanged.
  */
-export function FieldRowList({ rows }: { rows: { label: string; value: string }[] }) {
-  return (
-    <ul className="flex flex-col">
-      {rows.map((r) => (
-        <li
-          key={r.label}
-          className="grid grid-cols-[7.5rem_minmax(0,1fr)] items-baseline gap-x-4 border-b border-border py-2 last:border-0"
-        >
-          <span className={EYEBROW_CLASS} style={EYEBROW_STYLE}>
-            {r.label}:
-          </span>
-          <span className="wrap-break-word text-sm text-text">{r.value}</span>
-        </li>
-      ))}
-    </ul>
-  );
-}
-
-/**
- * Small identity chip shared by the redesigned Hotels (guest chips) and
- * Transport (driver / load-out) cards. Reuses the crew identity palette
- * (`avatarColor`) + `deriveInitials` so a person's swatch is stable across
- * every surface (DESIGN.md §1.4 identity-avatar exception). `aria-hidden`
- * because the decorated name is always rendered as live text beside it.
- * `sizeClass` carries the diameter + text size. `ringed` keeps the 2px
- * surface ring; the Hotels chip drops it because its avatar sits inside a
- * bordered pill rather than beside bare text.
- */
-function MiniAvatar({
-  name,
-  sizeClass,
-  testId,
-  ringed = true,
-}: {
-  name: string;
-  sizeClass: string;
-  testId?: string;
-  ringed?: boolean;
-}) {
-  return (
-    <span
-      aria-hidden="true"
-      data-testid={testId}
-      style={{ backgroundColor: avatarColor(name) }}
-      className={cn(
-        "grid shrink-0 place-items-center rounded-pill font-semibold text-white",
-        ringed && "border-2 border-surface",
-        sizeClass,
-      )}
-    >
-      {deriveInitials(name)}
-    </span>
-  );
-}
-
-/**
- * Nights between an ISO check-in and check-out (both `YYYY-MM-DD`). Returns
- * null when either is missing, unparseable (a sentinel like `TBD`), or the
- * span is non-positive — so the "N nights" pill only appears for a real stay.
- * UTC-pinned (same day-boundary discipline as `formatIsoDate`).
- */
-export function nightsBetween(checkIn: string | null, checkOut: string | null): number | null {
-  if (!checkIn || !checkOut) return null;
-  const a = new Date(`${checkIn}T00:00:00Z`);
-  const b = new Date(`${checkOut}T00:00:00Z`);
-  if (Number.isNaN(a.getTime()) || Number.isNaN(b.getTime())) return null;
-  const nights = Math.round((b.getTime() - a.getTime()) / 86_400_000);
-  return nights > 0 ? nights : null;
-}
+export { nightsBetween } from "@/components/show-panels/HotelCardBody";
 
 /**
  * Event-details grouping (spec "3a Grouped"). The flat 20-field wall clusters
@@ -474,11 +395,6 @@ function interpretBooleanValue(value: string): "yes" | "no" | null {
   if (/^(n|no|none|false|nope)\b/.test(v)) return "no";
   return null;
 }
-
-/** Uppercase eyebrow label for the redesigned spec cells / group headers. */
-const CELL_EYEBROW_CLASS = cn(
-  "text-[10px] font-semibold uppercase tracking-eyebrow text-text-subtle",
-);
 
 /**
  * Modal section chrome (Task 5 — spec §6.4/§5.2). The review modal wraps each
@@ -1235,45 +1151,17 @@ export function BreakdownSection({
 
 /**
  * The contact "blocks" the contacts body renders (client primary + optional
- * secondary + venue / in-house-AV rows). Extracted so the §6.1 rail count and
- * the body derive the SAME number (count={blocks.length}, the existing
- * contract) without duplicating the shaping logic.
+ * secondary + venue / in-house-AV rows). It lives with the shared Contacts body
+ * in components/show-panels/ (crew page redesign PR B plan Task 7) and is
+ * re-exported here under the same name, so the §6.1 rail count, the freshness
+ * projection and every admin import of it are unchanged.
  */
-export function contactBlocks(
-  clientContact: ClientContact | null,
-  contacts: ContactRow[],
-): Array<{ key: string; kind: string; name: string; rows: { label: string; value: string }[] }> {
-  // Client people: primary + optional secondary (null-safe). Each a "Client
-  // contact" (the second flagged "(secondary)" so the operator can tell the lead
-  // client rep from the backup). Index keys avoid same-name React key collisions.
-  const clientPeople = [clientContact, clientContact?.secondary].filter(Boolean) as {
-    name: string;
-    phone: string | null;
-    email: string | null;
-    officePhone?: string | null;
-  }[];
-  return [
-    ...clientPeople.map((p, i) => ({
-      key: `client-${i}`,
-      kind: i === 0 ? "Client contact" : "Client contact (secondary)",
-      name: p.name,
-      rows: contentRows([
-        ["Phone", p.phone],
-        ["Email", p.email],
-        ["Office", p.officePhone],
-      ]),
-    })),
-    ...contacts.map((c, i) => ({
-      key: `contact-${i}`,
-      kind: c.kind === "in_house_av" ? "In-house AV" : "Venue contact",
-      name: c.name ?? "",
-      rows: contentRows([
-        ["Phone", c.phone],
-        ["Email", c.email],
-      ]),
-    })),
-  ].filter((b) => hasContent(b.name) || b.rows.length > 0);
-}
+export { contactBlocks } from "@/components/show-panels/ContactsBody";
+
+/** The admin's call link: the number as parsed (`contentRows` trims it). */
+const adminTelHref = (phone: string): string => `tel:${phone}`;
+/** The admin's email link: the address as parsed. */
+const adminMailtoHref = (email: string): string => `mailto:${email}`;
 
 export function ContactsBreakdown({
   dfid,
@@ -1291,66 +1179,23 @@ export function ContactsBreakdown({
       label="Contacts"
       count={blocks.length}
     >
-      {blocks.length === 0 ? (
-        <p className="text-sm text-text-subtle">No contacts parsed.</p>
-      ) : (
-        // Crew-row layout (owner decision 2026-07-06): avatar left, name +
-        // contact-kind subline, and the phone/email as right-aligned icon-only
-        // action buttons — the SAME anchor DOM the CrewBreakdown rows use
-        // (size-tap-min hit box wrapping a 32px bordered square). The raw number/
-        // address moves into the button's aria-label rather than showing as text.
-        <ul className="flex flex-col">
-          {blocks.map((b) => {
-            const displayName = hasContent(b.name) ? b.name : b.kind;
-            return (
-              <li key={b.key} className="flex items-center gap-3 py-1">
-                <Avatar name={hasContent(b.name) ? b.name : null} />
-                <span className="min-w-0 flex-1">
-                  <span className="block wrap-break-word text-sm font-medium text-text-strong">
-                    {displayName}
-                  </span>
-                  {hasContent(b.name) ? (
-                    <span className="block wrap-break-word text-xs text-text-subtle">{b.kind}</span>
-                  ) : null}
-                </span>
-                {b.rows.length > 0 ? (
-                  // Adjacent anchors sit flush (no gap) so the 44×44 hit areas
-                  // never overlap; the centered 32px visuals leave a natural gutter.
-                  <span className="flex shrink-0 items-center">
-                    {b.rows.map((r) => {
-                      const isEmail = r.label === "Email";
-                      const href = isEmail ? `mailto:${r.value}` : `tel:${r.value}`;
-                      const Icon = isEmail ? Mail : Phone;
-                      // Distinguish a second (office) phone in the accessible name
-                      // so two Call buttons on one contact stay tellable apart.
-                      const action = isEmail
-                        ? "Email"
-                        : r.label === "Office"
-                          ? "Call the office for"
-                          : "Call";
-                      return (
-                        <a
-                          key={r.label}
-                          href={href}
-                          data-testid={`wizard-step3-card-${dfid}-contact-${b.key}-${
-                            isEmail ? "email" : r.label.toLowerCase()
-                          }`}
-                          aria-label={`${action} ${displayName}`}
-                          className="inline-flex size-tap-min items-center justify-center focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring"
-                        >
-                          <span className="grid size-8 place-items-center rounded-sm border border-text-faint text-text-subtle">
-                            <Icon aria-hidden="true" className="size-4" />
-                          </span>
-                        </a>
-                      );
-                    })}
-                  </span>
-                ) : null}
-              </li>
-            );
-          })}
-        </ul>
-      )}
+      {/* Crew-row layout (owner decision 2026-07-06): avatar left, name +
+          contact-kind subline, and the phone/email as right-aligned icon-only
+          action buttons, the SAME anchor DOM the CrewBreakdown rows use
+          (size-tap-min hit box wrapping a 32px bordered square). The raw number/
+          address moves into the button's aria-label rather than showing as text.
+          The list is the shared Contacts body (crew page redesign spec §6.2). */}
+      <ContactsBody
+        includeClient
+        clientContact={clientContact}
+        contacts={contacts}
+        showNotes={false}
+        telHref={adminTelHref}
+        mailtoHref={adminMailtoHref}
+        sentinels="show"
+        actionsPlacement="end"
+        testIdPrefix={`wizard-step3-card-${dfid}`}
+      />
     </BreakdownSection>
   );
 }
@@ -1386,60 +1231,51 @@ export function VenueBreakdown({ dfid, venue }: { dfid: string | null; venue: Sh
       {rows.length === 0 ? (
         <p className="text-sm text-text-subtle">No venue details parsed.</p>
       ) : (
-        // Full-bleed body: cancel the panel p-tile-pad and clip to its radius so
-        // the map divider + dock band reach the card edges (one card, no nesting).
-        <div data-testid="venue-body" className="-m-tile-pad overflow-hidden rounded-md">
-          {/* Region A: two-column (stacks below sm) */}
-          <div className="flex flex-col sm:flex-row sm:items-stretch">
-            <div
-              data-testid="venue-text-col"
-              className="flex min-w-0 flex-1 flex-col gap-1 p-tile-pad"
-            >
-              <span className={CELL_EYEBROW_CLASS}>Venue</span>
-              {name ? (
-                <span className="text-lg leading-tight font-bold wrap-break-word text-text-strong">
-                  {name}
-                </span>
-              ) : null}
-              {address || city ? (
-                <span className="mt-1 text-sm/snug text-text-subtle">
-                  {address ? <span className="block wrap-break-word">{address}</span> : null}
-                  {city ? <span className="block wrap-break-word">{city}</span> : null}
-                </span>
-              ) : null}
-            </div>
-            {query || mapHref ? (
+        // The shared Venue body (crew page redesign PR B, Task 5): every line as
+        // parsed, the dock band, the map region in the slot, edge to edge.
+        <VenueBody
+          name={name}
+          address={address}
+          city={city}
+          dock={dock}
+          map={
+            query || mapHref ? (
               <div
                 data-testid="venue-map-region"
                 className="h-40 w-full self-stretch border-t border-border sm:h-auto sm:w-[172px] sm:shrink-0 sm:border-t-0 sm:border-l"
               >
                 <VenueMapTile query={query} mapHref={mapHref} />
               </div>
-            ) : null}
-          </div>
-          {/* Region B: loading-dock footer — only when present */}
-          {dock ? (
-            <div
-              data-testid="venue-dock"
-              className="flex items-start gap-2.5 border-t border-border bg-surface-sunken p-tile-pad"
-            >
-              <span
-                aria-hidden="true"
-                className="grid size-6 shrink-0 place-items-center rounded-sm border border-border bg-surface text-accent-on-bg"
-              >
-                <Truck className="size-3.5" />
-              </span>
-              <div className="min-w-0">
-                <span className={CELL_EYEBROW_CLASS}>Loading dock</span>
-                <p className="mt-0.5 text-sm/snug wrap-break-word text-text">{dock}</p>
-              </div>
-            </div>
-          ) : null}
-        </div>
+            ) : null
+          }
+          sentinels="show"
+          bleed
+        />
       )}
     </BreakdownSection>
   );
 }
+
+/** The admin's transport call link: `ContactCell`'s digits-and-plus rule, as before PR B. */
+const adminTransportTelHref = (phone: string): string => `tel:${phone.replace(/[^\d+]/g, "")}`;
+
+/** The admin's route-leg time line: the leg's date and time as parsed, blanks dropped. */
+const adminLegTime = (date: string | null, time: string | null): string =>
+  [date, time].filter((x) => hasContent(x)).join(" ");
+
+/**
+ * What the admin's transport body renders (spec §6.2 `transport` row): every
+ * contact linked, every leg's date, sentinels as parsed. Read by the body and by
+ * the section count, so the two cannot disagree about which route legs exist.
+ */
+const ADMIN_TRANSPORT_PROPS = {
+  telHref: adminTransportTelHref,
+  mailtoHref: adminMailtoHref,
+  linkifyContacts: true,
+  hideDates: false,
+  legTime: adminLegTime,
+  sentinels: "show",
+} as const satisfies Omit<TransportBodyProps, "transport">;
 
 export function TransportBreakdown({
   dfid,
@@ -1466,13 +1302,8 @@ export function TransportBreakdown({
     : [];
   // Route nodes: each schedule leg with a real stage becomes a route dot with
   // its humanized when-line and any assigned passengers (review completeness).
-  const routeLegs = (t ? arr(t.schedule) : [])
-    .filter((leg) => hasContent(leg.stage))
-    .map((leg) => ({
-      stage: leg.stage as string,
-      when: [leg.date, leg.time].filter((x) => hasContent(x)).join(" "),
-      names: arr(leg.assigned_names).filter((n) => hasContent(n)),
-    }));
+  // The shared body derives the same list (`transportRouteLegs`).
+  const routeLegs = t ? transportRouteLegs(t, ADMIN_TRANSPORT_PROPS) : [];
   const count = fieldRows.length + routeLegs.length;
   return (
     <BreakdownSection
@@ -1483,203 +1314,9 @@ export function TransportBreakdown({
       {count === 0 || !t ? (
         <p className="text-sm text-text-subtle">No transportation parsed.</p>
       ) : (
-        <TransportBody t={t} routeLegs={routeLegs} />
+        <TransportBody transport={t} {...ADMIN_TRANSPORT_PROPS} />
       )}
     </BreakdownSection>
-  );
-}
-
-/** One sunken spec cell in the compact transport strip: eyebrow + stacked lines. */
-function TransportCell({ label, children }: { label: string; children: React.ReactNode }) {
-  return (
-    <div className="flex min-w-0 flex-col items-center gap-1 rounded-md bg-surface-sunken px-3 py-2 text-center">
-      <span className={CELL_EYEBROW_CLASS}>{label}</span>
-      {/* No `flex-1`/`justify-center`: with `items-start` on the grid the cell no longer
-          stretches, so there is never surplus height to grow into or centre within. */}
-      <div className="flex w-full flex-col items-center gap-1">{children}</div>
-    </div>
-  );
-}
-
-/** Driver / Load-out contact cell — avatar + name, tel + mailto, as-parsed. */
-function ContactCell({
-  label,
-  name,
-  phone,
-  email,
-}: {
-  label: string;
-  name: string | null;
-  phone: string | null;
-  email: string | null;
-}) {
-  return (
-    <TransportCell label={label}>
-      {hasContent(name) ? (
-        <span className="flex min-w-0 items-center gap-1.5">
-          <MiniAvatar name={name} sizeClass="size-5 text-[8px]" />
-          <span className="min-w-0 wrap-break-word text-xs font-medium text-text">{name}</span>
-        </span>
-      ) : null}
-      {hasContent(phone) ? (
-        <a
-          href={`tel:${phone.replace(/[^\d+]/g, "")}`}
-          // Tap floor (spec 2026-08-10 §2, site 6) as a full-width CHIP ROW
-          // (spec 2026-08-15-step3-tap-cluster §2.3). `min-h-tap-min` still carries the floor;
-          // what is new is that the 44px reads as a row instead of a void. `w-full` is
-          // deliberate and is the OPPOSITE of the shrink-wrap contract sites 4/8 keep: a
-          // `border-text-faint` chip on the cell's `bg-surface-sunken` ground gives the
-          // target a visible edge AT REST, which is the affordance the venue floor requires
-          // (PRODUCT.md:59 — phones cannot hover, so `hover:` alone is an invisible target).
-          // The house focus ring is new here too; these links carried no focus treatment.
-          // The outline is `border-text-faint`, NOT a border token: a control edge that has to
-          // stand on its own needs text-grade contrast (DESIGN.md §1.2a). `border-border` here
-          // measures 1.15:1 against the sunken cell — an edge that exists in the DOM and is
-          // invisible on the floor. `text-faint` is the pinned 3.02:1 light / 4.11:1 dark row
-          // (DESIGN.md §1.2), the same recipe the shared secondary-action button uses for
-          // its own boundary.
-          className="flex w-full min-h-tap-min min-w-0 items-center justify-center gap-1 rounded-sm border border-text-faint bg-surface px-2 text-[11px] tabular-nums text-text hover:text-text-strong focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring focus-visible:ring-offset-2 focus-visible:ring-offset-surface-sunken"
-        >
-          <Phone className="size-3 shrink-0" aria-hidden="true" />
-          {/* Same containment as the email chip below: the number is as-parsed, so an
-              unbroken string (no spaces) would otherwise set the flex item's automatic
-              min-width to its full width and push past a ~165px cell at 390px. */}
-          <span className="min-w-0 wrap-break-word">{phone}</span>
-        </a>
-      ) : null}
-      {hasContent(email) ? (
-        <a
-          href={`mailto:${email}`}
-          // Site 7 — the same chip recipe as the tel: link above, plus `mt-1.5`. That margin
-          // rides on top of the body's `gap-1` to put 10px between the two targets: they are
-          // both 44px now, and 6px of separation made "email the driver" and "dial the driver
-          // mid-show" a thumb-width apart. It is UNCONDITIONAL, so a phone-less cell carries
-          // 6px of leading dead space — accepted (spec §7 limit 4) over a conditional
-          // className, which is the non-literal shape BL-TAP-TARGET-STRUCTURAL-GUARD records
-          // as the corpus guard's blocker.
-          className="mt-1.5 flex w-full min-h-tap-min min-w-0 items-center justify-center gap-1 rounded-sm border border-text-faint bg-surface px-2 text-[11px] text-text hover:text-text-strong focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring focus-visible:ring-offset-2 focus-visible:ring-offset-surface-sunken"
-        >
-          <Mail className="size-3 shrink-0" aria-hidden="true" />
-          <span className="min-w-0 wrap-break-word">{email}</span>
-        </a>
-      ) : null}
-    </TransportCell>
-  );
-}
-
-/**
- * Compact transport body (spec "1b Compact"): a responsive spec strip of
- * Driver / Load-out / Vehicle / Parking cells (each present only when it has
- * real content) above a horizontal Route timeline of the schedule legs, with
- * the free-text transport notes last. `t` is non-null (the caller renders the
- * empty state when count is 0).
- */
-function TransportBody({
-  t,
-  routeLegs,
-}: {
-  t: TransportationRow;
-  routeLegs: { stage: string; when: string; names: string[] }[];
-}) {
-  const hasDriver =
-    hasContent(t.driver_name) || hasContent(t.driver_phone) || hasContent(t.driver_email);
-  const hasLoadout =
-    hasContent(t.loadout_name) || hasContent(t.loadout_phone) || hasContent(t.loadout_email);
-  const vehicleSubs = [t.license_plate, t.color].filter((x) => hasContent(x)) as string[];
-  const hasVehicle = hasContent(t.vehicle) || vehicleSubs.length > 0;
-  const hasParking = hasContent(t.parking);
-  const cellCount = [hasDriver, hasLoadout, hasVehicle, hasParking].filter(Boolean).length;
-
-  return (
-    <div className="flex flex-col gap-4">
-      {cellCount > 0 ? (
-        // `items-start` (spec 2026-08-15-step3-tap-cluster §2.2): grid items stretch by
-        // default, so a one-line Vehicle or Parking cell was dragged to the height of a
-        // contact cell whose two 44px tap targets make it ~160px — a large sunken panel
-        // around ~34px of content, which reads as broken rather than spacious.
-        <div className="grid grid-cols-2 items-start gap-2 min-[560px]:grid-cols-3">
-          {hasDriver ? (
-            <ContactCell
-              label="Driver"
-              name={t.driver_name}
-              phone={t.driver_phone}
-              email={t.driver_email}
-            />
-          ) : null}
-          {hasLoadout ? (
-            <ContactCell
-              label="Load out"
-              name={t.loadout_name}
-              phone={t.loadout_phone}
-              email={t.loadout_email}
-            />
-          ) : null}
-          {hasVehicle ? (
-            <TransportCell label="Vehicle">
-              {hasContent(t.vehicle) ? (
-                <span className="wrap-break-word text-xs font-medium text-text">{t.vehicle}</span>
-              ) : null}
-              {vehicleSubs.map((s, i) => (
-                <span
-                  key={i}
-                  className={`wrap-break-word text-[11px] ${
-                    shouldHideGenericOptional(s) ? "text-text-faint" : "text-text-subtle"
-                  }`}
-                >
-                  {s}
-                </span>
-              ))}
-            </TransportCell>
-          ) : null}
-          {hasParking ? (
-            <TransportCell label="Parking">
-              <span className="wrap-break-word text-xs font-medium text-text">{t.parking}</span>
-            </TransportCell>
-          ) : null}
-        </div>
-      ) : null}
-
-      {routeLegs.length > 0 ? (
-        <div>
-          <p className={`${CELL_EYEBROW_CLASS} mb-3`}>Route</p>
-          <ol className="relative flex justify-between gap-2">
-            <span aria-hidden="true" className="absolute inset-x-[8%] top-[6px] h-0.5 bg-border" />
-            {routeLegs.map((leg, i) => (
-              <li
-                key={`${leg.stage}-${i}`}
-                className="relative flex min-w-0 flex-1 flex-col items-center gap-2 text-center"
-              >
-                <span
-                  aria-hidden="true"
-                  className={`box-border size-3.5 rounded-pill ring-2 ring-surface ${
-                    i % 2 === 0 ? "bg-accent-on-bg" : "border-2 border-border-strong bg-surface"
-                  }`}
-                />
-                <span className="min-w-0">
-                  <span className="block wrap-break-word text-xs font-semibold text-text-strong">
-                    {leg.stage}
-                  </span>
-                  {leg.when ? (
-                    <span className="mt-0.5 block text-[11px] tabular-nums text-text-subtle">
-                      {leg.when}
-                    </span>
-                  ) : null}
-                  {leg.names.length > 0 ? (
-                    <span className="mt-0.5 block wrap-break-word text-[11px] text-text-faint">
-                      {leg.names.join(", ")}
-                    </span>
-                  ) : null}
-                </span>
-              </li>
-            ))}
-          </ol>
-        </div>
-      ) : null}
-
-      {hasContent(t.notes) ? (
-        <p className="wrap-break-word text-sm text-text-subtle">{t.notes}</p>
-      ) : null}
-    </div>
   );
 }
 
@@ -1697,17 +1334,15 @@ export function OpsBreakdown({
     ["Invoice", billing.invoice],
     ["Invoice notes", billing.invoiceNotes],
   ]);
+  // The shared Billing body (spec §6.2): every non-empty row as parsed, sentinels
+  // included, and "No billing details parsed." when none is.
   return (
     <BreakdownSection
       testId={`wizard-step3-card-${dfid}-breakdown-ops`}
       label="Billing & docs"
       count={rows.length}
     >
-      {rows.length === 0 ? (
-        <p className="text-sm text-text-subtle">No billing details parsed.</p>
-      ) : (
-        <FieldRowList rows={rows} />
-      )}
+      <BillingBody rows={rows} sentinels="show" />
     </BreakdownSection>
   );
 }
@@ -1762,7 +1397,6 @@ export function CrewBreakdown({
    *  byte-identical to the pre-change render. */
   actions?: { showId: string; slug: string; enabled: boolean; crewIds: readonly string[] };
 }) {
-  const shown = members.slice(0, CREW_CAP);
   const note = overflowNote(members.length, CREW_CAP, "people");
   // Single-open menu + panel-top outcome banner (spec §4.2/§4.5). State exists
   // in every mode but banners/menus only MOUNT when actions?.enabled.
@@ -1827,112 +1461,65 @@ export function CrewBreakdown({
       {crewAttention && crewAttention.sectionTop.length > 0 ? (
         <div className="flex flex-col gap-2">{crewAttention.sectionTop}</div>
       ) : null}
-      {members.length === 0 ? (
-        <p className="text-sm text-text-subtle">No crew parsed.</p>
-      ) : (
-        <ul className="flex flex-col">
-          {shown.map((m, i) => {
-            const partial = partialAttendanceLabel(m.date_restriction, { humanize: false });
-            const name = m.name || "Unnamed";
-            const subline = [m.role, partial].filter((x): x is string => hasContent(x)).join(" · ");
-            // Spec §4.1: the row-actions trigger mounts only when published &&
-            // !archived AND this row has a persisted crew id (index-aligned).
-            const crewId = actions?.enabled ? (actions.crewIds[i] ?? "") : "";
-            const attentionKey = canonicalCrewKey(m.name || "");
-            // §6.3 id-matched fan-out banners for THIS rendered row, ahead of any
-            // name-keyed byCrewKey stack (banners first, then warning cards).
-            const indexBanners = crewAttention?.byIndex?.get(i) ?? [];
-            const nameBanners =
-              crewAttention && !consumedAttentionKeys.has(attentionKey)
-                ? crewAttention.byCrewKey.get(attentionKey)
-                : undefined;
-            if (nameBanners) consumedAttentionKeys.add(attentionKey);
-            const rowBanners =
-              indexBanners.length > 0 || (nameBanners && nameBanners.length > 0)
-                ? [...indexBanners, ...(nameBanners ?? [])]
-                : undefined;
-            // Row content is built ONCE (crew-row-controls #499 reconcile):
-            // both branches below render these exact children, so the
-            // non-hosting <li> stays byte-identical to the pre-attention render
-            // and the hosting branch can never drift from the live row markup.
-            const rowInner = (
-              <>
-                <Avatar name={m.name || null} />
-                <span className="min-w-0 flex-1">
-                  <span className="block wrap-break-word text-sm font-medium text-text-strong">
-                    {name}
-                  </span>
-                  {subline ? (
-                    <span className="block wrap-break-word text-xs text-text-subtle">
-                      {subline}
-                    </span>
-                  ) : null}
-                </span>
-                {/* §8 exact anchor DOM: the INTERACTIVE <a> is the 44×44
-                    border box (`size-tap-min`); the bordered 32px square is a
-                    nested NON-interactive visual. Adjacent anchors sit flush
-                    (no gap, no negative margins) so hit areas never overlap;
-                    the centered visuals leave a natural 12px gutter. */}
-                <span className="flex shrink-0 items-center">
-                  {hasContent(m.phone) ? (
-                    <a
-                      href={`tel:${m.phone}`}
-                      aria-label={`Call ${name}`}
-                      className="inline-flex size-tap-min items-center justify-center focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring"
-                    >
-                      <span className="grid size-8 place-items-center rounded-sm border border-text-faint text-text-subtle">
-                        <Phone aria-hidden="true" className="size-4" />
-                      </span>
-                    </a>
-                  ) : null}
-                  {hasContent(m.email) ? (
-                    <a
-                      href={`mailto:${m.email}`}
-                      aria-label={`Email ${name}`}
-                      className="inline-flex size-tap-min items-center justify-center focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring"
-                    >
-                      <span className="grid size-8 place-items-center rounded-sm border border-text-faint text-text-subtle">
-                        <Mail aria-hidden="true" className="size-4" />
-                      </span>
-                    </a>
-                  ) : null}
-                </span>
-                {crewId ? (
-                  <CrewRowActions
-                    crewId={crewId}
-                    name={name}
-                    showId={actions!.showId}
-                    slug={actions!.slug}
-                    open={openCrewId === crewId}
-                    onOpenChange={(next) => setOpenCrewId(next ? crewId : null)}
-                    onOutcome={setOutcome}
-                  />
-                ) : null}
-              </>
-            );
-            return (
-              <Fragment key={`${m.name}-${i}`}>
-                {rowBanners && rowBanners.length > 0 ? (
-                  /* Attention-hosting row (published-show-alerts §5.4): the
-                     original flex row nests inside a column <li> so the banner
-                     block sits under it (mock's card-with-attached-banner
-                     shape). */
-                  /* pb-2 (impeccable P1a, 2026-07-23): the stack's above-gap
-                     (mt-2) must be visibly smaller than the gap to the NEXT
-                     row, or proximity stops binding the card to ITS member. */
-                  <li className="pt-1 pb-2">
-                    <div className="flex items-center gap-3">{rowInner}</div>
-                    <CrewUnderRowStack nodes={rowBanners} ckey={attentionKey} />
-                  </li>
-                ) : (
-                  <li className="flex items-center gap-3 py-1">{rowInner}</li>
-                )}
-              </Fragment>
-            );
-          })}
-        </ul>
-      )}
-      {note ? <p className="text-xs text-text-subtle">{note}</p> : null}
+      {/* The shared Crew body (crew page redesign spec §6.2, `crew` row) with the
+          admin props: CREW_CAP and its note, the name as parsed, role and partial
+          label on one line, sentinels as parsed, the actions at the row's end
+          through the raw builders, and per row the two admin slots this
+          component fills (the row-actions trigger, the attention stack). */}
+      <CrewBody
+        members={members.map((m, i) => {
+          const name = m.name || "Unnamed";
+          // Spec §4.1: the row-actions trigger mounts only when published &&
+          // !archived AND this row has a persisted crew id (index-aligned).
+          const crewId = actions?.enabled ? (actions.crewIds[i] ?? "") : "";
+          const attentionKey = canonicalCrewKey(m.name || "");
+          // §6.3 id-matched fan-out banners for THIS row, ahead of any name-keyed
+          // byCrewKey stack (banners first, then warning cards). Only the first
+          // row matching a canonical name hosts its banners (duplicate names);
+          // rows run in order, so the rows the cap keeps claim theirs first.
+          const indexBanners = crewAttention?.byIndex?.get(i) ?? [];
+          const nameBanners =
+            crewAttention && !consumedAttentionKeys.has(attentionKey)
+              ? crewAttention.byCrewKey.get(attentionKey)
+              : undefined;
+          if (nameBanners) consumedAttentionKeys.add(attentionKey);
+          const rowBanners =
+            indexBanners.length > 0 || (nameBanners && nameBanners.length > 0)
+              ? [...indexBanners, ...(nameBanners ?? [])]
+              : undefined;
+          return {
+            key: `${m.name}-${i}`,
+            name,
+            avatarName: m.name || null,
+            role: m.role,
+            partial: partialAttendanceLabel(m.date_restriction, { humanize: false }),
+            phone: m.phone,
+            email: m.email,
+            rowActions: crewId ? (
+              <CrewRowActions
+                crewId={crewId}
+                name={name}
+                showId={actions!.showId}
+                slug={actions!.slug}
+                open={openCrewId === crewId}
+                onOpenChange={(next) => setOpenCrewId(next ? crewId : null)}
+                onOutcome={setOutcome}
+              />
+            ) : undefined,
+            underRow:
+              rowBanners && rowBanners.length > 0 ? (
+                <CrewUnderRowStack nodes={rowBanners} ckey={attentionKey} />
+              ) : undefined,
+          };
+        })}
+        cap={CREW_CAP}
+        overflow={() => <p className="text-xs text-text-subtle">{note}</p>}
+        telHref={(phone) => (hasContent(phone) ? `tel:${phone}` : null)}
+        mailtoHref={(email) => (hasContent(email) ? `mailto:${email}` : null)}
+        sentinels="show"
+        partialAs="line"
+        actionsPlacement="end"
+      />
     </BreakdownSection>
   );
 }
@@ -2914,60 +2501,19 @@ export function HotelsBreakdown({
   );
 }
 
-/**
- * One end of the hotel card's date stub: a field label over the day set large
- * with its month beside it and the weekday underneath. A missing date says so
- * in plain words. The parser normalizes a non-date cell (e.g. "TBD") to null,
- * so the verbatim-echo branch is defensive only; neither claims a `<time>`.
- */
-function StayEnd({
-  label,
-  value,
-  testId,
-  alignEnd = false,
-}: {
-  label: string;
-  value: string | null;
-  testId: string;
-  alignEnd?: boolean;
-}) {
-  const parts = value ? dateStubParts(value) : null;
-  return (
-    <div data-testid={testId} className={cn("min-w-0", alignEnd && "text-right")}>
-      <p className={CELL_EYEBROW_CLASS}>{label}</p>
-      {parts === null ? (
-        <p className="mt-1 text-sm font-medium text-text-subtle">Not listed</p>
-      ) : parts.kind === "raw" ? (
-        <p className="mt-1 wrap-break-word text-xl font-bold text-text-strong">{parts.text}</p>
-      ) : (
-        <time dateTime={value ?? undefined} className="mt-1 block">
-          <span
-            className={cn("flex items-baseline gap-1.5 tabular-nums", alignEnd && "justify-end")}
-          >
-            <span className="text-3xl font-bold leading-none tracking-daynum text-text-strong">
-              {parts.day}
-            </span>
-            <span className="text-sm font-semibold text-text-strong">{parts.month}</span>
-          </span>
-          <span className="mt-1 block text-xs text-text-subtle">{parts.weekday}</span>
-        </time>
-      )}
-    </div>
-  );
-}
-
-/**
- * One reservation as a structured sub-card (2026-10-25 date-stub pass):
- * hotel name + map-pin address on one left edge, a sunken date stub whose
- * connector carries the night count, and one named chip per guest.
- * `confirmation_no` is NEVER rendered (it stays private, matching the
- * existing review contract); dates are shown as-parsed (a non-ISO sentinel
- * echoes verbatim).
- */
 /** The judged reservation's marker data (warning-card-fixes §5.4): the jump to its
  *  first card in Sheet warnings and that card's raw cell, already cut for display. */
 type HotelJudgmentMarker = { onJump: () => void; sheetSays: string | null };
 
+/**
+ * One reservation as a structured sub-card, rendered through the shared hotel
+ * card body (components/show-panels/HotelCardBody.tsx, crew page redesign PR B
+ * plan Task 8). `confirmation_no` is NEVER rendered here (it stays private,
+ * matching the existing review contract), nor are the reservation's notes; the
+ * guest chips and both stay dates are. This component keeps the card's two
+ * `useId` calls and passes the ids in, and builds the judgment marker (an admin
+ * tag, jump and Sheet says line) for the body's marker slot.
+ */
 function HotelCard({
   h,
   index,
@@ -2980,124 +2526,50 @@ function HotelCard({
   flat?: boolean;
   marker?: HotelJudgmentMarker | null;
 }) {
-  const address = hasContent(h.hotel_address) ? h.hotel_address : null;
-  const names = arr(h.names).filter((n) => hasContent(n));
-  const nights = nightsBetween(h.check_in, h.check_out);
   const guestsLabelId = useId();
   // warning-card-fixes §15 (UI gate P3): the card is a jump's focus target, so it is a
   // group named by its own hotel name.
   const nameId = useId();
-  const hotelLabel = h.hotel_name || "Hotel";
+  const hotelLabel = hotelCardLabel(h);
   return (
-    <div
-      data-testid="wizard-step3-hotel-card"
-      // warning-card-fixes §5.5: the card jump's target (same idiom as data-room-nav).
-      data-hotel-index={index}
-      role="group"
-      aria-labelledby={nameId}
-      className={
-        flat
-          ? "@container flex flex-col gap-3"
-          : "@container flex flex-col gap-3 rounded-md border border-border p-4"
-      }
-    >
-      {/* §5.4: the judgment marker sits above the hotel name. The card paints no fill
-          of its own, so the tag's plate is the panel's surface in both layouts. */}
-      {marker ? (
-        <div data-testid="wizard-step3-hotel-judgment-marker" className="flex flex-col gap-1">
-          <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
-            <JudgmentCallTag plate="surface" testId="wizard-step3-hotel-judgment-tag" />
-            <button
-              type="button"
-              data-testid="wizard-step3-hotel-judgment-jump"
-              onClick={marker.onJump}
-              className="inline-flex min-h-tap-min items-center text-xs font-medium text-text-strong underline underline-offset-2 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring focus-visible:ring-offset-2 focus-visible:ring-offset-surface"
-            >
-              See how we read it <span className="sr-only">for {hotelLabel}</span>
-            </button>
-          </div>
-          {marker.sheetSays ? (
-            <p
-              data-testid="wizard-step3-hotel-judgment-sheet-says"
-              className="wrap-break-word text-xs text-text-subtle"
-            >
-              Sheet says <span className="text-text">{marker.sheetSays}</span>
-            </p>
-          ) : null}
-        </div>
-      ) : null}
-      <div className="min-w-0">
-        <p id={nameId} className="wrap-break-word text-base font-semibold text-text-strong">
-          {hotelLabel}
-        </p>
-        {address ? (
-          <p className="mt-0.5 flex items-start gap-1.5 text-sm text-text-subtle">
-            <MapPin className="mt-0.5 size-3.5 shrink-0" aria-hidden="true" />
-            <span className="min-w-0 wrap-break-word">{address}</span>
-          </p>
-        ) : null}
-      </div>
-
-      {h.check_in || h.check_out ? (
-        <div className="flex flex-wrap items-start justify-between gap-x-3 gap-y-2 rounded-md bg-surface-sunken px-4 py-3 @2xs:flex-nowrap">
-          <StayEnd label="Check in" value={h.check_in} testId="hotel-stay-check-in" />
-          {/* One row from an 18rem card up: the connector sits between the dates. Below
-              that (a 320px phone, or enlarged text, since the query is in rem) it drops
-              to its own full-width row under them instead of painting over them. The
-              ends top-align so their labels line up when one end is "Not listed".
-              The line is a standalone 1px rule, so it takes the text-faint hairline
-              ramp (DESIGN.md §1.2a). It is a ::before BORDER, not a fill: a background
-              vanishes in forced-colors mode, and the pseudo-element means no childless
-              flex-1 span exists. Without a night count it has nothing to say on its
-              own row, so it only shows in the one-row layout. */}
-          <div
-            className={cn(
-              "relative order-last basis-full items-center justify-center self-center before:absolute before:inset-x-0 before:top-1/2 before:-translate-y-1/2 before:border-t before:border-text-faint @2xs:order-0 @2xs:min-w-fit @2xs:flex-1 @2xs:basis-0",
-              nights === null ? "hidden @2xs:flex" : "flex",
-            )}
-          >
-            {nights !== null ? (
-              <span
-                data-testid="hotel-stay-nights"
-                className="relative whitespace-nowrap bg-surface-sunken px-2 text-xs font-semibold tabular-nums text-text-subtle"
+    <HotelCardBody
+      hotel={h}
+      nameId={nameId}
+      guestsLabelId={guestsLabelId}
+      jumpIndex={index}
+      flat={flat}
+      marker={
+        marker ? (
+          <div data-testid="wizard-step3-hotel-judgment-marker" className="flex flex-col gap-1">
+            <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
+              <JudgmentCallTag plate="surface" testId="wizard-step3-hotel-judgment-tag" />
+              <button
+                type="button"
+                data-testid="wizard-step3-hotel-judgment-jump"
+                onClick={marker.onJump}
+                className="inline-flex min-h-tap-min items-center text-xs font-medium text-text-strong underline underline-offset-2 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring focus-visible:ring-offset-2 focus-visible:ring-offset-surface"
               >
-                {nights} {nights === 1 ? "night" : "nights"}
-              </span>
+                See how we read it <span className="sr-only">for {hotelLabel}</span>
+              </button>
+            </div>
+            {marker.sheetSays ? (
+              <p
+                data-testid="wizard-step3-hotel-judgment-sheet-says"
+                className="wrap-break-word text-xs text-text-subtle"
+              >
+                Sheet says <span className="text-text">{marker.sheetSays}</span>
+              </p>
             ) : null}
           </div>
-          <StayEnd label="Check out" value={h.check_out} testId="hotel-stay-check-out" alignEnd />
-        </div>
-      ) : null}
-
-      {names.length > 0 ? (
-        <div>
-          <p id={guestsLabelId} className={CELL_EYEBROW_CLASS}>
-            Guests
-          </p>
-          {/* Explicit role: preflight's list-style:none makes Safari drop list
-              semantics, and with them the guest count. */}
-          <ul role="list" aria-labelledby={guestsLabelId} className="mt-2 flex flex-wrap gap-2">
-            {names.map((n, idx) => (
-              <li
-                key={`${n}-${idx}`}
-                data-testid="hotel-guest-chip"
-                className="inline-flex min-w-0 max-w-full items-center gap-2 rounded-pill border border-border py-0.5 pl-0.5 pr-3 text-sm text-text"
-              >
-                <MiniAvatar
-                  name={n}
-                  testId="hotel-guest-avatar"
-                  sizeClass="size-6 text-[10px]"
-                  ringed={false}
-                />
-                <span data-testid="hotel-guest-name" className="min-w-0 wrap-break-word">
-                  {n}
-                </span>
-              </li>
-            ))}
-          </ul>
-        </div>
-      ) : null}
-    </div>
+        ) : null
+      }
+      showConfirmation={false}
+      showNotes={false}
+      showGuests
+      hideDates={false}
+      sentinels="show"
+      testIdPrefix="wizard-step3"
+    />
   );
 }
 
@@ -4581,16 +4053,8 @@ export type Step3SectionDef = {
   render: (d: SectionData) => React.ReactNode;
 };
 
-/** Rail group order (spec §6.1). */
-export const STEP3_SECTION_GROUPS: readonly string[] = [
-  "The show",
-  "People",
-  "Schedule",
-  "Logistics",
-  "Gear",
-  "Money",
-  "Checks",
-];
+/** Rail group order (spec §6.1): the show-section registry's groups, then the admin-only "Checks". */
+export const STEP3_SECTION_GROUPS: readonly string[] = [...SHOW_SECTION_GROUPS, "Checks"];
 
 /** Thumbnail-grid cap (spec §B3): overflow renders the quiet "+N more" note. */
 export const DIAGRAM_TILE_CAP = 12;
@@ -5530,6 +4994,21 @@ export function hasDiagramSignal(
 }
 
 /**
+ * A shared section's id, label, group and glyph, read from the show-section
+ * registry (lib/showSections/registry.ts) so the admin and the crew page name a
+ * section the same way. `render`, the rail count and the dot rule stay here.
+ *
+ * Type-level assertion: `id` comes back as an admin `SectionId`, so a registry id
+ * the admin does not know fails to compile on the return below.
+ */
+function sharedSection(
+  id: ShowSectionId,
+): Pick<Step3SectionDef, "id" | "label" | "group" | "Icon"> {
+  const { label, group, icon } = showSection(id);
+  return { id, label, group, Icon: icon };
+}
+
+/**
  * The §6.1 registry (+ follow-ups §D2). 12 defs base; `agenda` (rail entry AND
  * section, only when the baseline is non-empty — the same gate the card uses
  * today) is conditional → 12/13. Diagrams are consolidated INTO the `rooms`
@@ -5542,26 +5021,17 @@ export function hasDiagramSignal(
 export function step3Sections(d: SectionData): Step3SectionDef[] {
   const defs: Step3SectionDef[] = [
     {
-      id: "venue",
-      label: "Venue",
-      group: "The show",
-      Icon: MapPin,
+      ...sharedSection("venue"),
       railCount: null,
       render: (s) => <VenueBreakdown dfid={s.driveFileId} venue={s.venue} />,
     },
     {
-      id: "event",
-      label: "Event details",
-      group: "The show",
-      Icon: Sparkles,
+      ...sharedSection("event"),
       railCount: null,
       render: (s) => <EventDetailsBreakdown dfid={s.driveFileId} eventDetails={s.eventDetails} />,
     },
     {
-      id: "crew",
-      label: "Crew",
-      group: "People",
-      Icon: Users,
+      ...sharedSection("crew"),
       railCount: (s) => s.crewMembers.length,
       // Mode fork (crew-row-controls spec §3): published rows gain the ⋮ row-action
       // menu (Preview as + Reset name picker, gated on published && !archived);
@@ -5583,10 +5053,7 @@ export function step3Sections(d: SectionData): Step3SectionDef[] {
         ),
     },
     {
-      id: "contacts",
-      label: "Contacts",
-      group: "People",
-      Icon: Phone,
+      ...sharedSection("contacts"),
       // Contact-BLOCK count, exactly as the body renders it today
       // (count={blocks.length}) — shared shaping via contactBlocks.
       railCount: (s) => contactBlocks(s.clientContact, s.contacts).length,
@@ -5599,10 +5066,7 @@ export function step3Sections(d: SectionData): Step3SectionDef[] {
       ),
     },
     {
-      id: "schedule",
-      label: "Crew schedule",
-      group: "Schedule",
-      Icon: CalendarDays,
+      ...sharedSection("schedule"),
       // No rail count (owner decision, 2026-07-05): only Crew, Contacts, Rooms,
       // and Parse warnings show a count. Keep in lockstep with COUNT_SECTIONS.
       railCount: null,
@@ -5613,10 +5077,7 @@ export function step3Sections(d: SectionData): Step3SectionDef[] {
   ];
   if (includesAgenda(d)) {
     defs.push({
-      id: "agenda",
-      label: "Agenda",
-      group: "Schedule",
-      Icon: FileText,
+      ...sharedSection("agenda"),
       railCount: null,
       // Mode fork (spec §3.5): staged AgendaBreakdown POSTs the wizard session +
       // polls; published renders the static baseline (no fetch, no wizard session).
@@ -5635,27 +5096,18 @@ export function step3Sections(d: SectionData): Step3SectionDef[] {
   }
   defs.push(
     {
-      id: "hotels",
-      label: "Hotels",
-      group: "Logistics",
-      Icon: BedDouble,
+      ...sharedSection("hotels"),
       // No rail count (owner decision, 2026-07-05) — see COUNT_SECTIONS.
       railCount: null,
       render: (s) => <HotelsBreakdown dfid={s.driveFileId} hotels={s.hotels} />,
     },
     {
-      id: "transport",
-      label: "Transport",
-      group: "Logistics",
-      Icon: Truck,
+      ...sharedSection("transport"),
       railCount: null,
       render: (s) => <TransportBreakdown dfid={s.driveFileId} transportation={s.transportation} />,
     },
     {
-      id: "rooms",
-      label: "Rooms & scope",
-      group: "Gear",
-      Icon: LayoutGrid,
+      ...sharedSection("rooms"),
       // Rail count mirrors the body header: only A/V-scoped rooms are tallied
       // (roomHasScope) — a no-A/V placeholder room renders but is not counted.
       railCount: (s) => s.rooms.filter(roomHasScope).length,
@@ -5677,10 +5129,7 @@ export function step3Sections(d: SectionData): Step3SectionDef[] {
   );
   defs.push(
     {
-      id: "packlist",
-      label: "Pack list",
-      group: "Gear",
-      Icon: Package,
+      ...sharedSection("packlist"),
       // No rail count (owner decision, 2026-07-05) — see COUNT_SECTIONS.
       railCount: null,
       // The pull sheet itself is source-agnostic; only the archived-tab accept/skip
@@ -5709,10 +5158,7 @@ export function step3Sections(d: SectionData): Step3SectionDef[] {
       ),
     },
     {
-      id: "billing",
-      label: "Billing & docs",
-      group: "Money",
-      Icon: Receipt,
+      ...sharedSection("billing"),
       railCount: null,
       render: (s) => <OpsBreakdown dfid={s.driveFileId} billing={s.billing} />,
     },

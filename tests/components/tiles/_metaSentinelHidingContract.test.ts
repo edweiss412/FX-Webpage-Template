@@ -105,6 +105,9 @@ const TILES_DIR = join(REPO_ROOT, "components", "tiles");
 const CREW_DIRS: ReadonlyArray<string> = [
   join(REPO_ROOT, "components", "crew", "sections"),
   join(REPO_ROOT, "components", "crew", "primitives"),
+  // The shared section bodies (crew page redesign spec §6.1, line 503): a body
+  // that reads a generic-optional field is held to the same contract.
+  join(REPO_ROOT, "components", "show-panels"),
 ];
 
 /**
@@ -314,12 +317,31 @@ const GENERIC_OPTIONAL_FIELDS: ReadonlyArray<{
  * a documented decision, not a "we'll fix it later."
  *
  * Empty as of M4 round 12: every tile that consumes generic-optional
- * text fields routes through the predicate. Future exemptions go here.
+ * text fields routes through the predicate. Future exemptions go here. Two
+ * since crew page redesign PR B's invariant-8 gate repairs, each a file whose
+ * routing moved one module away (named in its row).
  */
 const EXEMPTIONS: ReadonlyArray<{
   filename: string;
   reason: string;
-}> = [];
+}> = [
+  // feat/crew-page-redesign-pr-b, invariant-8 gate row 9 and row 13's peer: the
+  // contacts display rule and the crew contact links moved into markup-free modules
+  // so the client-reachable "All sections" peek can count the contacts the section
+  // renders. Each file below still routes every field it consumes through the
+  // predicate, one module away, in a file this walk reaches and holds to the
+  // contract; the lexical check cannot follow the import.
+  {
+    filename: "components/show-panels/ContactsBody.tsx",
+    reason:
+      "renders a contact's name, links and note only from contactBlockDisplay (components/show-panels/contactsBlocks.ts), whose `shown` calls shouldHideGenericOptional on the name and note; walked and held to this contract there",
+  },
+  {
+    filename: "components/crew/sections/crewRows.ts",
+    reason:
+      "hands a member's phone and email to the roster body only through crewTelHref, crewSmsHref and crewMailtoHref (lib/crew/contactHrefs.ts, whose email gate is shouldHideGenericOptional), and its role to the body's own sentinel rule (CrewBody `subline`, which calls it)",
+  },
+];
 
 /**
  * Files that live under a walked directory but aren't subject to the
@@ -395,6 +417,16 @@ describe("META §8.3 sentinel-hiding contract — components/tiles/ + components
     const files = listTileFiles();
     const crewFiles = files.filter((rel) => rel.startsWith("components/crew/"));
     expect(crewFiles.length, "expected ≥1 components/crew/ file in the walk").toBeGreaterThan(0);
+  });
+
+  test("the walk includes the shared section bodies (show-panels extension guard)", () => {
+    // Pins the crew page redesign PR B extension: the bodies both surfaces render
+    // live in components/show-panels/, so the walk must reach them.
+    const files = listTileFiles();
+    const panels = files.filter((rel) => rel.startsWith("components/show-panels/"));
+    expect(panels.length, "expected ≥1 components/show-panels/ file in the walk").toBeGreaterThan(
+      0,
+    );
   });
 
   test("the walk includes the crew sibling .ts row modules (search extension guard)", () => {

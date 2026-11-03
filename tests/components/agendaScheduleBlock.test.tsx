@@ -16,7 +16,7 @@
 import { afterEach, describe, expect, test } from "vitest";
 import { cleanup, render } from "@testing-library/react";
 
-import { AgendaScheduleBlock } from "@/components/crew/AgendaScheduleBlock";
+import { AgendaScheduleBlock } from "@/components/show-panels/AgendaScheduleBlock";
 
 // Data source for the assertions (NOT the rendered DOM): expected values are
 // read from THIS object, and counts are derived from its dimensions.

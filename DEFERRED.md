@@ -28,9 +28,9 @@ screen-disposition 2026-08-04: ANNOTATE, stays open as an owner action. It is no
 
 **Effort:** M
 
-From the impeccable critique of `feat/a11y-privacy-cluster` (invariant-8 dual gate, P1). Arc A withholds dates from an `unknown_asterisk` viewer at three TravelSection sites. When suppression empties the section OUTRIGHT the copy now names the reason ("Travel dates are hidden until your days are confirmed." — fixed in-branch, it was the reachable-false-statement half of the same finding). What is NOT explained is the PARTIAL case: a hotel card that renders its name with no check-in/out, a ground leg with a time and no date, a flight list with no dates and no Today/Next chip. Those read as a data bug, and the crew member's likely response is to report missing data that is not missing.
+From the impeccable critique of `feat/a11y-privacy-cluster` (invariant-8 dual gate, P1). Arc A withholds dates from an `unknown_asterisk` viewer at three sites of the Travel section (now HotelsSection's and TransportSection's, crew page redesign PR B Task 9). When suppression empties the section OUTRIGHT the copy now names the reason ("Travel dates are hidden until your days are confirmed." — fixed in-branch, it was the reachable-false-statement half of the same finding). What is NOT explained is the PARTIAL case: a hotel card that renders its name with no check-in/out, a ground leg with a time and no date, a flight list with no dates and no Today/Next chip. Those read as a data bug, and the crew member's likely response is to report missing data that is not missing.
 
-**Accepted, not fixed — deferral exception (a), a product decision this PR cannot settle.** The question is not whether to explain but WHERE and HOW OFTEN, and it is not TravelSection's alone: three crew sections now treat one product state three different ways. `ScheduleSection` explains it in full (`schedule-unconfirmed`, "Your days haven't been confirmed yet. Check back after the schedule is finalized."), the Today Tonight card drops its date rows silently (shipped M-wave), and Travel now drops content silently. Fixing only Travel would make the inconsistency worse by adding a fourth treatment. A per-section banner also risks saying the same sentence three times on one scroll, which is its own noise problem on a page whose whole brief is answering one question in under five seconds.
+**Accepted, not fixed — deferral exception (a), a product decision this PR cannot settle.** The question is not whether to explain but WHERE and HOW OFTEN, and it is not the Travel section's alone: three crew sections now treat one product state three different ways. `ScheduleSection` explains it in full (`schedule-unconfirmed`, "Your days haven't been confirmed yet. Check back after the schedule is finalized."), the Today Tonight card drops its date rows silently (shipped M-wave), and Travel now drops content silently. Fixing only Travel would make the inconsistency worse by adding a fourth treatment. A per-section banner also risks saying the same sentence three times on one scroll, which is its own noise problem on a page whose whole brief is answering one question in under five seconds.
 
 **Un-defer trigger:** a crew-page pass that can settle the suppression-explanation pattern across Schedule / Today / Travel together, or the first report of a crew member chasing travel data that was withheld rather than missing.
 
@@ -205,3 +205,37 @@ Both from the invariant-8 critique on `fix/diagram-tile-chrome-consistency`. Nei
 diff: the change relocates the tile's box chrome and touches neither the image's fit nor the tile's labelling.
 Both are deferred under class-sweep exception (a) — each needs a product decision this PR cannot settle — and
 both are recorded here rather than in `BACKLOG.md` because each has a concrete trigger.
+
+## Crew page shared section bodies (PR B) — impeccable dual-gate deferrals (2026-11-02)
+
+From the invariant-8 dual gate on `feat/crew-page-redesign-pr-b` (critique 28/40, audit 14/20; 0 P0, 2 P1, 7 P2, 12 P3). Both P1s and most P2 and P3 findings were fixed in-branch through crew-side props on the shared bodies, with the admin popup's rendered DOM held byte-identical by `tests/components/admin/wizard/adminSectionDom.test.tsx`. Three P2 findings are deferred, each under class-sweep exception (a) or (b) and each with its trigger. The full table is the PR B plan's §12.
+
+### CREWPANEL-TYPE-SCALE-1 — impeccable critique/audit P2: crew section bodies render at the admin popup's compact type scale (2026-11-02)
+
+**Effort:** M
+
+Since PR B the seven moved crew sections render the admin's shared bodies (`components/show-panels/`). Their field keys are 10px uppercase (`CELL_EYEBROW_CLASS`, `components/show-panels/FieldRowList.tsx`), and chips, leg times and riders are 11px; before PR B the crew rows used 12px keys and 13 to 15px values (origin/main `components/crew/primitives/KeyValueRows.tsx`).
+
+**Accepted, not fixed.** Exception (a), a product decision this PR cannot settle. The redesign's brief was to make the crew page match the admin popup's layout, and the spec ratifies the admin card's markup for the shared bodies (§6.1). Whether crew gets its own, larger scale on phones, and how it is expressed (a scale prop on every body, or a container-level token), is a design decision that touches all seven bodies and PR C's three, so it belongs with PR C's body moves rather than as a rider here.
+
+**Un-defer trigger:** the product owner settles the crew type scale for shared bodies, or PR C's plan takes it up.
+
+### CREWPANEL-DOUBLE-TITLE-1 — impeccable critique/audit P2: every moved section is titled twice (2026-11-02)
+
+**Effort:** S
+
+The sheet's h2 (`components/crew/CrewSectionSheet.tsx`) and the wide stack's h2 (`components/crew/CrewSections.tsx`) are followed by the panel card's h3 with the same word (`components/show-panels/PanelCard.tsx`); Venue adds a third, its 10px "VENUE" eyebrow. About 50 to 60px goes before the first fact at 390, and heading navigation hears each title twice.
+
+**Accepted, not fixed.** Exception (a): the panel card's title is ratified by spec §6.1 (the crew card is the admin card, titled with the registry label), so dropping or demoting it is a spec amendment, and it interacts with the search group heading the h3 carries.
+
+**Un-defer trigger:** a spec §6.1 amendment on the panel card title inside a section that already has a heading, or PR C's plan.
+
+### CREWPANEL-MIXED-CARD-HEADERS-1 — impeccable critique/audit P2: Venue and Transport mix two card header styles (2026-11-02)
+
+**Effort:** S
+
+Venue's panel card sits beside the crew-only Facilities and Venue status cards, and Transport's "Your flight" card sits above its panel card. The panel card has a bold 16px sentence-case h3 and a shadow; the crew SectionCard has a 12px uppercase eyebrow and none.
+
+**Accepted, not fixed.** Exception (b), a ratified scope fence: spec §6.2 keeps the crew-only blocks as their own cards in PR B, and PR C moves the remaining sections and decides the crew-only cards' treatment with them.
+
+**Un-defer trigger:** PR C.

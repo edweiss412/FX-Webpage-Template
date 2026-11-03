@@ -1,15 +1,16 @@
 /**
  * The INV-1 viewer matrix (spec §11.1): one named case per gate the parity and
- * leak suites must see flipped, each a ready `SectionBuildInput` plus a name.
+ * leak suites must see flipped, each a ready `SearchIndexInput` plus a name.
  *
  * This module asserts nothing. Each section task states, per case it uses, the
  * premise its own render must show (tests/_shared/premise.ts), because only a
  * render can prove a gate actually flipped. Cap-crossing counts are derived
- * from the exported caps, never typed, and `budgetVisible` is computed the way
- * `CrewShell` computes it, so a case cannot claim an entitlement the shell
- * would not grant.
+ * from the exported caps, never typed, and `billingVisible` and the member list
+ * `sections` are computed the way `CrewShell` computes them, so a case cannot
+ * claim an entitlement the shell would not grant.
  */
-import { CONTACTS_INLINE_CAP, CREW_INLINE_CAP } from "@/components/crew/sections/CrewSection";
+import { CONTACTS_INLINE_CAP } from "@/components/crew/sections/ContactsSection";
+import { CREW_INLINE_CAP } from "@/components/crew/sections/CrewSection";
 import { CASE_CAP, ROOM_DETAIL_CAP } from "@/components/crew/sections/GearSection";
 import { SOURCE_CAP, TRUNCATE_AT } from "@/components/crew/sections/todayRows";
 import { SHOWS_CAP } from "@/components/crew/primitives/KeyTimesStrip";
@@ -29,11 +30,12 @@ import type {
   ScheduleDay,
   TransportationRow,
 } from "@/lib/parser/types";
-import type { SectionBuildInput } from "@/lib/search/sections";
+import type { SearchIndexInput } from "@/lib/search/buildSearchIndex";
+import { crewSectionsFor } from "@/lib/crew/crewSections";
 import { financialsVisible } from "@/lib/visibility/scopeTiles";
 import { makeShowForViewer } from "@/tests/fixtures/showForViewer";
 
-export type ViewerCase = SectionBuildInput & { name: string };
+export type ViewerCase = SearchIndexInput & { name: string };
 
 /** The pinned request clock. 16:00Z is noon in the default venue timezone (America/New_York). */
 export const MATRIX_TODAY = new Date("2026-05-14T16:00:00Z");
@@ -161,9 +163,14 @@ function base(over: Overrides = {}): ShowForViewer {
   });
 }
 
-function budgetVisibleFor(viewer: Viewer, data: ShowForViewer): boolean {
+function billingVisibleFor(viewer: Viewer, data: ShowForViewer): boolean {
   const ctx = resolveViewerContext(viewer, data);
   return financialsVisible(ctx.viewerFlags, ctx.isAdmin);
+}
+
+/** The shell's member list for this viewer (`crewSectionsFor`, as `CrewShell` lists it). */
+export function memberIdsFor(viewer: Viewer, data: ShowForViewer): SearchIndexInput["sections"] {
+  return crewSectionsFor(data, resolveViewerContext(viewer, data)).map((s) => s.id);
 }
 
 function makeCase(name: string, viewer: Viewer, data: ShowForViewer): ViewerCase {
@@ -172,8 +179,9 @@ function makeCase(name: string, viewer: Viewer, data: ShowForViewer): ViewerCase
     data,
     viewer,
     today: MATRIX_TODAY,
-    budgetVisible: budgetVisibleFor(viewer, data),
+    billingVisible: billingVisibleFor(viewer, data),
     staticPreview: false,
+    sections: memberIdsFor(viewer, data),
   };
 }
 
@@ -210,7 +218,7 @@ export const crewWithTransport = makeCase(
   }),
 );
 
-/** A LEAD crew viewer with financials loaded: the Budget section renders. */
+/** A LEAD crew viewer with financials loaded: the Billing section renders. */
 export const leadWithFinancials = makeCase(
   "leadWithFinancials",
   CREW_VIEWER,
@@ -353,11 +361,16 @@ export const diagramsNamedAndUnnamed = makeCase(
   base({ diagrams: diagrams([embedded(1, "FOH plot"), embedded(2, undefined)]) }),
 );
 
-/** An admin viewer: all flags, no restrictions, transport and budget visible. */
+/**
+ * An admin viewer: all flags, no restrictions, transport and billing visible, and
+ * an agenda PDF with a file, so the Agenda is listed too (crew page redesign PR B,
+ * Task 10): the one case listed every section.
+ */
 export const adminViewer = makeCase(
   "adminViewer",
   { kind: "admin" },
   base({
+    show: { agenda_links: [{ label: "AGENDA", fileId: "agenda-admin" }] },
     viewerId: null,
     transportation: transport("Pat Driver"),
     financials: {

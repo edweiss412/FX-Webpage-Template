@@ -10,7 +10,7 @@
  * It is also T8's RED contract. Documentation tasks have no natural failing test, so
  * plan review round 6 was right that calling T8 a "documentation task" did not waive
  * invariant 1 — a real contract existed, and this is it: T5 added `empty:hidden` to
- * TravelSection while §7a still listed only OverviewSection and ScheduleDayRow.
+ * the Travel section while §7a still listed only OverviewSection and ScheduleDayRow.
  */
 import { readFileSync, readdirSync, statSync } from "node:fs";
 import { stripCommentsForFile } from "../_shared/stripComments";

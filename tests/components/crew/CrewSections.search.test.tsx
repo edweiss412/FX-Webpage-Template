@@ -111,7 +111,7 @@ const VENUE_TARGET = "venue:venue-facilities:k3x9";
 const TODAY_TARGET = "today:today-notes:p01";
 
 function entries(): CrewSectionEntry[] {
-  return (["schedule", "venue", "travel", "crew", "gear"] as const).map((id) => ({
+  return (["schedule", "venue", "hotels", "crew", "gear"] as const).map((id) => ({
     id,
     label: CREW_SECTION_LABELS[id],
     peek: null,
@@ -148,7 +148,7 @@ function nodes(): Partial<Record<SectionId, ReactNode>> {
       </div>
     ),
     schedule: <div data-testid="body-schedule">schedule</div>,
-    travel: <div data-testid="body-travel">travel</div>,
+    hotels: <div data-testid="body-hotels">hotels</div>,
     crew: <div data-testid="body-crew">crew</div>,
     gear: <div data-testid="body-gear">gear</div>,
   };
@@ -537,7 +537,7 @@ describe("openSectionAndReveal, wide: the page scrolls to the line", () => {
 // chose the last one; the nav cleared its indicator while hidden; and ending
 // search re-ran neither, so the nav stayed on Gear with no indicator.
 describe("wide: search leaves the section nav where the page actually is (3A-2)", () => {
-  const ORDER = ["schedule", "venue", "travel", "crew", "gear"] as const;
+  const ORDER = ["schedule", "venue", "hotels", "crew", "gear"] as const;
   const VIEWPORT = 900;
   const STEP = 1000;
 

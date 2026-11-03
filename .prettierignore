@@ -109,6 +109,13 @@ tests/components/admin/review/__fixtures__/
 tests/components/admin/showpage/__fixtures__/published-attention-pill-baseline.html
 tests/components/admin/showpage/__fixtures__/published-attention-menu-baseline.html
 
+# The admin section DOM goldens (crew page redesign PR B, Task 1) are byte-compared
+# against a live render of the seven shared section bodies
+# (tests/components/admin/wizard/adminSectionDom.test.tsx). Prettier would re-flow
+# the captured markup, and the comparison would then hold the bodies to bytes they
+# never emitted.
+tests/components/admin/wizard/__golden__/
+
 # The captured VenueSection raw-Wi-Fi baseline is byte-compared against a live
 # render (tests/components/crew/sections/VenueSection.wifiRoom.test.tsx, the
 # fail-soft regression pin). Prettier would re-flow the captured markup and the

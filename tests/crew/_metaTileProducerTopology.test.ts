@@ -22,11 +22,14 @@ const SECTIONS_DIR = join("components", "crew", "sections");
 const SECTION_COMPONENTS = [
   "HomeSection",
   "ScheduleSection",
+  "AgendaSection",
   "VenueSection",
-  "TravelSection",
+  "HotelsSection",
+  "TransportSection",
   "CrewSection",
+  "ContactsSection",
   "GearSection",
-  "BudgetSection",
+  "BillingSection",
 ] as const;
 
 /**
@@ -42,14 +45,28 @@ const EXPECTED_TILE_BY_FILE: Record<string, string> = {
   // server-built props, outside every WrappedSection, and own no tileId.
   "HomeSection.tsx": "crew:today:notes",
   "ScheduleSection.tsx": "crew:schedule:days",
-  "VenueSection.tsx": "crew:venue:diagrams",
-  "TravelSection.tsx": "crew:travel:transport",
+  // PR B plan Task 10: the agenda left the Schedule section, where it sat outside
+  // every wrapper, for its own section and a new tile id (decision 6).
+  "AgendaSection.tsx": "crew:agenda:schedule",
+  // PR B plan Task 5: the shared Venue body is called inside its own wrapper
+  // (spec §6.1, error containment), ahead of the diagrams block in source order.
+  "VenueSection.tsx": "crew:venue:where,crew:venue:diagrams",
+  // PR B plan Task 9: Travel split in two. Transport keeps Travel's tile id
+  // (decision 6: its open alerts stay resolvable); Hotels gets a new one.
+  "HotelsSection.tsx": "crew:hotels:list",
+  "TransportSection.tsx": "crew:travel:transport",
   "CrewSection.tsx": "crew:crew:roster",
+  // PR B plan Task 7: the contacts left the Crew section's wrapper for their own
+  // section and a new tile id (decision 6), so neither id is shared.
+  "ContactsSection.tsx": "crew:contacts:list",
   "GearSection.tsx": "crew:gear:scope",
-  "BudgetSection.tsx": "crew:budget:rows",
+  "BillingSection.tsx": "crew:budget:rows",
 };
 
-const EXPECTED_TILE_IDS = Object.values(EXPECTED_TILE_BY_FILE).slice().sort();
+// A file that owns several wrappers lists their ids comma-joined, in source order.
+const EXPECTED_TILE_IDS = Object.values(EXPECTED_TILE_BY_FILE)
+  .flatMap((ids) => ids.split(","))
+  .sort();
 
 function walk(dir: string, acc: string[] = []): string[] {
   for (const entry of readdirSync(join(ROOT, dir))) {

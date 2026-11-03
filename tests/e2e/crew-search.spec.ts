@@ -30,6 +30,8 @@
  */
 import { expect, test, type Locator, type Page } from "@playwright/test";
 
+import { showSection } from "@/lib/showSections/registry";
+
 import { deleteSeededShow, seedShowWithCrew, type SeededShow } from "./helpers/seedShowWithCrew";
 import { expectClearOfStickyChrome } from "./helpers/stickyClearance";
 import { TEST_AUTH_SECRET } from "./helpers/testAuthConfig";
@@ -421,6 +423,124 @@ test.describe("crew search: a Today run-of-show result shows the day it was inde
         const entryId = await openLineResult(page);
         await expect(card).toHaveAttribute("data-selection", `day:${SHOW_DAY_1}`);
         await expectRevealed(page, entryId);
+      });
+    });
+  }
+});
+
+/**
+ * PR B plan Task 9: a hotel-name result opens the Hotels section with that line
+ * focused, in view and highlighted, asserted as the Venue reveal case above
+ * asserts its Wi-Fi line: inside the Hotels sheet on the phone, on the wide
+ * page's Hotels section at 1280px. Travel's hotel lines moved to Hotels, so the
+ * entry is a `hotels:` one and the reveal lands in `section-hotels`.
+ *
+ * The crew viewer is on the reservation's guest list: a crew viewer sees only the
+ * stays naming them (`hotelVisibleToViewer`, lib/data/getShowForViewer.ts). Both
+ * clocks are pinned to a show day, as the run-of-show cases above pin them. The
+ * label reads from the show section registry, a moved section's label source.
+ */
+test.describe("crew search: a hotel-name result reveals its line in Hotels (PR B Task 9)", () => {
+  const HOTELS_LABEL = showSection("hotels").label;
+  const HOTEL_NAME = "Larkspur Harbor Hotel";
+  const QUERY = "larkspur";
+  const PINNED = "2026-04-21T16:00:00.000Z";
+
+  let lodged: SeededShow;
+
+  test.beforeAll(async () => {
+    lodged = await seedShowWithCrew({
+      title: "Crew Search Hotels Show",
+      crew: [{ name: CREW_NAME, role: "A1" }],
+      dates: {
+        travelIn: "2026-04-19",
+        set: "2026-04-20",
+        showDays: ["2026-04-21", "2026-04-22"],
+        travelOut: "2026-04-23",
+      },
+      hotelReservations: [
+        {
+          ordinal: 1,
+          hotelName: HOTEL_NAME,
+          hotelAddress: "88 Quay Street",
+          checkIn: "2026-04-18",
+          checkOut: "2026-04-24",
+          confirmationNo: "LHH-60417",
+          names: [CREW_NAME],
+        },
+      ],
+    });
+  });
+
+  test.afterAll(async () => {
+    if (lodged !== undefined) await deleteSeededShow(lodged.driveFileId);
+  });
+
+  for (const viewport of [
+    { name: "phone", width: 390, height: 844 },
+    { name: "wide", width: 1280, height: 800 },
+  ] as const) {
+    test.describe(`at ${viewport.name} width (${viewport.width}px)`, () => {
+      test.use({ viewport: { width: viewport.width, height: viewport.height } });
+
+      test("hotels: a hotel-name result opens Hotels with its line focused, in view and highlighted", async ({
+        page,
+      }) => {
+        await page.setExtraHTTPHeaders({
+          "X-Screenshot-Frozen-Now": PINNED,
+          Authorization: `Bearer ${TEST_AUTH_SECRET}`,
+        });
+        await page.clock.setFixedTime(new Date(PINNED));
+        await openAsCrew(page, lodged);
+
+        await searchBox(page).fill(QUERY);
+        const hotelsGroup = page.locator(
+          '[data-testid="crew-search-group"][data-section="hotels"]',
+        );
+        await expect(hotelsGroup).toBeVisible();
+        await expect(hotelsGroup.getByRole("heading")).toContainText(HOTELS_LABEL);
+
+        // The hotel's name line: its displayed value is the name alone (the stay's
+        // other lines carry the name as context, under another value).
+        const row = page
+          .getByTestId("crew-search-row")
+          .filter({
+            has: page
+              .getByTestId("crew-search-row-value")
+              .filter({ hasText: new RegExp(`^${HOTEL_NAME}$`) }),
+          })
+          .and(page.locator('[data-entry-id^="hotels:"]'));
+        await expect(row).toHaveCount(1);
+        const entryId = (await row.getAttribute("data-entry-id"))!;
+        await row.getByTestId("crew-search-row-open").click();
+
+        await expect(page).toHaveURL(/[?&]s=hotels\b/);
+        await expect(page.getByTestId("crew-search-panel")).toHaveCount(0);
+        const line = page
+          .getByTestId("section-hotels")
+          .locator(`[data-search-target="${entryId}"]`);
+        await expect(line).toHaveAttribute("data-search-reveal", "");
+        await expect(line).toBeFocused();
+        await expect(line).toBeInViewport();
+        await expectClearOfStickyChrome(line, "the hotel name line");
+        await expect(line).toContainText(HOTEL_NAME);
+        // Ending search by a result tap keeps the query (spec §6.2).
+        await expect(searchBox(page)).toHaveValue(QUERY);
+
+        // Below 1024px the line opened inside the Hotels sheet; the wide page has no sheet.
+        const sheet = page.getByRole("dialog");
+        if (viewport.width < 1024) {
+          await expect(sheet).toBeVisible();
+          await expect(page.getByTestId("crew-section-sheet-dialog")).toHaveAttribute(
+            "data-section",
+            "hotels",
+          );
+          await expect(sheet.locator(`[data-search-target="${entryId}"]`)).toHaveCount(1);
+          await page.getByRole("button", { name: `Close ${HOTELS_LABEL.toLowerCase()}` }).click();
+          await expect(sheet).toHaveCount(0);
+        } else {
+          await expect(sheet).toHaveCount(0);
+        }
       });
     });
   }

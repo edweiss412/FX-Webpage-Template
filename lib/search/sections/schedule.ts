@@ -1,6 +1,5 @@
 import {
   keyTimeEntries,
-  scheduleAgendaRows,
   scheduleDayRows,
   scheduleVisibleDays,
   SCHEDULE_CALL_TIMES_REGION,
@@ -15,16 +14,15 @@ import { todayIsoInShowTimezone } from "@/lib/visibility/packList";
 import { transportTileVisible } from "@/lib/visibility/scopeTiles";
 
 /**
- * Schedule search entries (spec §4), in render order: the agenda area, the day
- * cards with their run of show, the Crew Schedule key times. Mirrors
- * `ScheduleSection` through the same rows module (components/crew/sections/scheduleRows.ts).
+ * Schedule search entries (spec §4), in render order: the day cards with their
+ * run of show, the Crew Schedule key times. Mirrors `ScheduleSection` through the
+ * same rows module (components/crew/sections/scheduleRows.ts). The agenda's lines
+ * are the Agenda section's (lib/search/sections/agenda.ts) since it moved there
+ * (crew page redesign PR B, Task 10).
  *
  * - An `unknown_asterisk` viewer sees only the unconfirmed message: no entries.
- * - The agenda is outside every error boundary in the section, so a fault there
- *   throws here too, as it does in the render.
  * - The day cards and the key-times card share one `WrappedSection`: a fault in
- *   their derivation renders the fallback, so this builder contributes no entry
- *   for either and keeps the agenda's.
+ *   their derivation renders the fallback, so this builder contributes no entry.
  */
 export function buildScheduleEntries({ data, viewer, today }: SectionBuildInput): SearchEntry[] {
   // Outside every boundary in the section, as there: a malformed projection throws.
@@ -47,20 +45,16 @@ export function buildScheduleEntries({ data, viewer, today }: SectionBuildInput)
     stageRestriction,
   );
 
-  const agenda = scheduleAgendaRows(data.show.agenda_links).entries;
-
-  let days: SearchEntry[] = [];
   try {
     const visibleDays = scheduleVisibleDays(data, dateRestriction);
     const todayIso = todayIsoInShowTimezone(data.show, today);
-    days = [
+    return [
       ...scheduleDayRows({ data, visibleDays, todayIso, transportVisible }).entries,
       ...keyTimeEntries("schedule", SCHEDULE_CALL_TIMES_REGION, SCHEDULE_CALL_TIMES_TITLE, anchors)
         .entries,
     ];
   } catch {
     // The section renders this block's TileErrorFallback, which holds no line.
-    days = [];
+    return [];
   }
-  return [...agenda, ...days];
 }

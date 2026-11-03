@@ -9,10 +9,11 @@
  * the asset-key derivation and the MIME allowlist), and each URL from
  * `makeDiagramLoader`, the Gallery's next/image loader. The agenda URL is the
  * shape `AgendaEmbed` opens. tests/lib/offline/assetList.test.ts renders both
- * components, and ScheduleSection, and compares.
+ * components, and AgendaSection, and compares.
  *
- * Only what this viewer's own page renders is listed: ScheduleSection withholds
- * every agenda from a viewer whose days are unconfirmed, so the list does too,
+ * Only what this viewer's own page renders is listed: the Agenda section is
+ * withheld from a viewer whose days are unconfirmed (crew page redesign PR B,
+ * Task 10, which moved the agenda out of ScheduleSection), so the list does too,
  * decided by the same viewer resolution and the same predicate.
  *
  * Every URL is a same-origin `/api/asset/` path, which the marker reader
@@ -70,8 +71,9 @@ export function savedCopyAssetUrls(showId: string, data: ShowForViewer, viewer: 
     }
   }
 
-  // ScheduleSection's privacy branch: no agenda at all for a viewer whose days
-  // are withheld (components/crew/sections/ScheduleSection.tsx).
+  // The Agenda section's privacy branch: no agenda at all for a viewer whose days
+  // are withheld (components/crew/sections/AgendaSection.tsx, which the shell
+  // does not even build for them).
   const { dateRestriction } = resolveViewerContext(viewer, data);
   if (!suppressesDates(dateRestriction)) {
     for (const link of data.show.agenda_links) {

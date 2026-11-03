@@ -148,32 +148,10 @@ export const FIXTURE_INDEX: SearchIndex = {
       label: null,
       value: "Grand Ballroom floor plan",
     },
-    // Travel
+    // Hotels (PR B Task 9: the Hotels card of the retired Travel section)
+    { section: "hotels", region: "travel-hotels", group: "Hotels", label: null, value: HYATT },
     {
-      section: "travel",
-      region: "travel-flight",
-      group: "Your flight",
-      label: null,
-      value: "UA 1452 ORD to LGA, 7:05 PM",
-    },
-    {
-      section: "travel",
-      region: "travel-flight",
-      group: "Your flight",
-      label: "Confirmation",
-      value: "QX7RTP",
-      copy: { kind: "flightConfirmation", text: "QX7RTP" },
-    },
-    {
-      section: "travel",
-      region: "travel-getting-there",
-      group: "Getting there",
-      label: "Load out",
-      value: "Truck departs 11:00 PM from the Balbo Dr entrance",
-    },
-    { section: "travel", region: "travel-hotels", group: "Hotels", label: null, value: HYATT },
-    {
-      section: "travel",
+      section: "hotels",
       region: "travel-hotels",
       group: "Hotels",
       label: "Check-in",
@@ -181,13 +159,36 @@ export const FIXTURE_INDEX: SearchIndex = {
       context: [HYATT],
     },
     {
-      section: "travel",
+      section: "hotels",
       region: "travel-hotels",
       group: "Hotels",
       label: "Confirmation",
       value: "83920174",
       context: [HYATT],
       copy: { kind: "hotelConfirmation", text: "83920174" },
+    },
+    // Transport (PR B Task 9: Your flight and Getting there, now "Transport")
+    {
+      section: "transport",
+      region: "travel-flight",
+      group: "Your flight",
+      label: null,
+      value: "UA 1452 ORD to LGA, 7:05 PM",
+    },
+    {
+      section: "transport",
+      region: "travel-flight",
+      group: "Your flight",
+      label: "Confirmation",
+      value: "QX7RTP",
+      copy: { kind: "flightConfirmation", text: "QX7RTP" },
+    },
+    {
+      section: "transport",
+      region: "travel-getting-there",
+      group: "Transport",
+      label: "Load out",
+      value: "Truck departs 11:00 PM from the Balbo Dr entrance",
     },
     // Crew
     {
@@ -198,12 +199,14 @@ export const FIXTURE_INDEX: SearchIndex = {
       value: "Producer",
     },
     { section: "crew", region: "crew-roster", group: "Crew", label: "Maria Chen", value: "A1" },
+    // Contacts: their own section from crew page redesign PR B Task 7. The crew page
+    // never lists the client contact, so the fixture's contact is the venue's.
     {
-      section: "crew",
+      section: "contacts",
       region: "crew-contacts",
-      group: "Key contacts",
+      group: "Contacts",
       label: "Priya Patel",
-      value: "Client contact",
+      value: "Venue contact",
     },
     // Gear
     {
@@ -248,12 +251,18 @@ export const FIXTURE_INDEX: SearchIndex = {
       label: null,
       value: "Client laptops at the lectern with a presenter clicker",
     },
-    // Budget
-    { section: "budget", region: "budget", group: "Budget", label: "PO", value: "PO-44821" },
+    // Billing
     {
-      section: "budget",
-      region: "budget",
-      group: "Budget",
+      section: "billing",
+      region: "billing",
+      group: "Billing & docs",
+      label: "PO",
+      value: "PO-44821",
+    },
+    {
+      section: "billing",
+      region: "billing",
+      group: "Billing & docs",
       label: "Invoice notes",
       value: "Net 30, send to accounts payable",
     },

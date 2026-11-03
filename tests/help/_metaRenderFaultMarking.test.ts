@@ -110,7 +110,7 @@ const REPORTED_RESIDUE: Record<string, string> = {
  *
  * RE-FILE TRIGGER for the decline, computed rather than promised: the count of
  * server-component ternaries that are unclassifiable, fault-vocabulary AND
- * unregistered rises above 7, its resting value today. The suite asserts that
+ * unregistered rises above 8, its resting value today (7 until PR B Task 9). The suite asserts that
  * bound, and re-derives the two figures the SCANNER's own comment declares, so
  * neither of those can go stale silently -- which is how the pair before them
  * (714 and 91) did in eight days. The copies in this header are prose and are
@@ -255,13 +255,13 @@ describe("the ConditionalExpression arm's decline is pinned, not just written do
     expect(Number(declared![2])).toBe(TERNARY_SURVEY.unclassifiedVocab.length);
   });
 
-  it("the re-file trigger has not tripped: at most 7 unregistered server-side sites", () => {
+  it("the re-file trigger has not tripped: at most 8 unregistered server-side sites", () => {
     // The computable set with NO unstated exclusion. An earlier draft set this at
     // 3, which discounted four emptiness checks by a rule the assertion never
     // applied and was tripped the moment it was written.
     //
     // DOCUMENTED LIMIT: a bound on a COUNT does not pin site identity. Swapping a
-    // registered site for a new one leaves the count at 7 and passes. That is
+    // registered site for a new one leaves the count at 8 and passes. That is
     // deliberate -- this asks one question, has the unreached server-side
     // population GROWN, and a count is the right instrument. Site identity is
     // pinned in the residue registry, for the entries that carry a declared cause.
@@ -269,7 +269,7 @@ describe("the ConditionalExpression arm's decline is pinned, not just written do
     expect(
       unregistered.length,
       unregistered.map((r) => `${r.file}:${r.line}`).join("\n"),
-    ).toBeLessThanOrEqual(7);
+    ).toBeLessThanOrEqual(8);
   });
 
   it("the arm still does not reach the sites the decline is about", () => {
@@ -601,7 +601,62 @@ describe("the scanner's population is pinned against resolver drift", () => {
     // The same rooms / hotel / contacts `SectionTileError` rows, still marked. Nothing
     // joined or left: membership is still 34, and mapping those three rows back to
     // 192/193/194 reproduces ce25e4d6... byte-for-byte (recomputed from scanCandidates()).
-    expect(digest).toBe("706b9565ba595545f70f6c6f2615b6199406a8c22134f6fa9a19d9e467d641da");
+    // Regenerated for feat/crew-page-redesign-pr-b Task 4, to the same bar. EXACTLY ONE
+    // input changed, the one row of the retired Budget section, which changed FILE as well
+    // as line: the Budget section file's line 75 -> components/crew/sections/BillingSection.tsx:76
+    // (the section was rebuilt on the shared Billing body). Same `tile-errors` row, still
+    // marked (the guard reads `budgetFetchFailed(data.tileErrors, ctx)`). Nothing joined or
+    // left: membership is still 34, and mapping that ONE row back reproduces 706b9565...
+    // byte-for-byte (recomputed from scanCandidates()).
+    // Regenerated for feat/crew-page-redesign-pr-b Task 5, to the same bar. EXACTLY ONE
+    // input changed, a line number, in the one file of this set the task edits:
+    //   components/crew/sections/VenueSection.tsx 310 -> 332 (+22: the Venue panel's
+    //   WrappedSection, PanelCard and shared-body call replace the Where SectionCard, and
+    //   the header comment names the body)
+    // Same transportation `tile-errors` row, still marked. Nothing joined or left:
+    // membership is still 34, and mapping that ONE row back reproduces 189d511e...
+    // byte-for-byte (recomputed from scanCandidates()).
+    // Regenerated for feat/crew-page-redesign-pr-b Task 6, to the same bar. EXACTLY ONE
+    // input changed, a line number, in the one file of this set the task edits:
+    //   components/crew/sections/CrewSection.tsx 134 -> 138 (+4: the header comment
+    //   names the shared Crew body the roster column now calls)
+    // Same contacts `tile-errors` row (`contactsFetchFailed ? <SectionTileError`), still
+    // marked. Nothing joined or left: membership is still 34, and mapping that ONE row
+    // back reproduces 22d5aa03... byte-for-byte (recomputed from scanCandidates()).
+    // Regenerated for feat/crew-page-redesign-pr-b Task 7, to the same bar. EXACTLY ONE
+    // input changed, the file and line of one row: the contacts left the Crew section
+    // for their own, and their fetch-failure block with them:
+    //   components/crew/sections/CrewSection.tsx:138 -> components/crew/sections/ContactsSection.tsx:84
+    // Same contacts `tile-errors` row (`contactsFetchFailed ? <SectionTileError`), still
+    // marked. Nothing joined or left: membership is still 34, and mapping that ONE row
+    // back reproduces ad0554f5... byte-for-byte (recomputed from scanCandidates()).
+    // Regenerated for feat/crew-page-redesign-pr-b Task 9, to the same bar. EXACTLY TWO
+    // inputs changed, the file and line of Travel's two fetch-failure rows, which left
+    // with the section's split:
+    //   components/crew/sections/TravelSection.tsx:485 -> components/crew/sections/HotelsSection.tsx:87
+    //   components/crew/sections/TravelSection.tsx:484 -> components/crew/sections/TransportSection.tsx:131
+    // Same hotel and transportation `tile-errors` rows, still marked. Nothing joined or
+    // left: membership is still 34, and mapping those TWO rows back reproduces 94cc5057...
+    // byte-for-byte (recomputed from scanCandidates()).
+    // Regenerated for feat/crew-page-redesign-pr-b Task 10, to the same bar. EXACTLY ONE
+    // input changed, a line number, in the one file of this set the task edits:
+    //   components/crew/sections/ScheduleSection.tsx 400 -> 314 (-86: the agenda area
+    //   left for the new AgendaSection, and the day derivation moved into the wrapper)
+    // Same rooms `tile-errors` row (`roomsFetchFailed ? <SectionTileError`), still marked.
+    // AgendaSection adds no candidate (no fetch-failure block). Nothing joined or left:
+    // membership is still 34, and mapping that ONE row back reproduces b264b363...
+    // byte-for-byte (recomputed from scanCandidates()).
+    // Regenerated for feat/crew-page-redesign-pr-b's invariant-8 gate repairs, to the
+    // same bar. EXACTLY TWO inputs changed, line numbers, in the two files of this set
+    // the repairs edit:
+    //   components/crew/sections/ContactsSection.tsx 84 -> 87 (+3: the comment on the
+    //   section's rendered-rows gate, gate row 13)
+    //   components/crew/sections/VenueSection.tsx 332 -> 338 (+6: the comments on the
+    //   Maps link's underline and the crew body props, gate rows 3, 7, 18)
+    // Same contacts and transportation `tile-errors` rows, still marked. Nothing joined
+    // or left: membership is still 34, and mapping those TWO rows back reproduces
+    // 4c65a019... byte-for-byte (recomputed from scanCandidates()).
+    expect(digest).toBe("64e901050b3a4671806a61c99ae854287e4bafc661d8e100ac494ca4f23580f2");
   });
 });
 

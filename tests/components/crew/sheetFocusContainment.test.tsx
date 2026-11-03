@@ -151,7 +151,7 @@ afterEach(() => {
   sessionStorage.clear();
 });
 
-const SECTIONS: CrewSectionId[] = ["schedule", "venue", "travel", "crew", "gear"];
+const SECTIONS: CrewSectionId[] = ["schedule", "venue", "hotels", "crew", "gear"];
 
 function controller(bodies: Partial<Record<SectionId, ReactNode>>) {
   return (
@@ -300,19 +300,19 @@ describe("an open sheet keeps focus inside it when the focused content leaves (2
 
   it("removing a report card while its report modal is open keeps focus in the sheet", async () => {
     const card = (
-      <div data-testid="body-travel">
+      <div data-testid="body-hotels">
         <CardReportTrigger cardId="travel-hotels" region="hotels" showId={SHOW_ID} />
       </div>
     );
-    const { rerender } = render(controller({ travel: card }));
-    openFromRow("travel");
+    const { rerender } = render(controller({ hotels: card }));
+    openFromRow("hotels");
     const trigger = screen.getByTestId("card-report-trigger");
     trigger.focus();
     fireEvent.click(trigger);
     const modal = screen.getByTestId("report-modal-submit").closest('[aria-modal="true"]')!;
     expect(modal, "PREMISE: the report modal is open").not.toBeNull();
     expect(modal.contains(document.activeElement), "PREMISE: focus is in the modal").toBe(true);
-    rerender(controller({ travel: <div data-testid="body-travel">travel</div> }));
+    rerender(controller({ hotels: <div data-testid="body-hotels">hotels</div> }));
     expect(modal.isConnected, "PREMISE: the modal left with its card").toBe(false);
     await settle();
     expectFocusInSheet("report card removed");
