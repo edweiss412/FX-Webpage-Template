@@ -607,7 +607,11 @@ export const DISPOSITION_RULES: DispositionRule[] = [
     // variable again, once in crew-section-toggle.spec.ts (loadPath) and once in
     // crew-wide-nav.spec.ts (loadIn). Same disposition: a crew page. Re-derived from
     // the failure's own count (33 candidates).
-    expectedCount: 33,
+    // 34 since PR B's invariant-8 gate repairs (rows 1 and 3): the transport
+    // route-fit cases in crew-section-toggle.spec.ts load the share route through a
+    // `path` variable at each width. Same disposition: a crew page. Re-derived from
+    // the failure's own count (34 candidates).
+    expectedCount: 34,
     match: (c) =>
       !c.file.startsWith("tests/e2e/published-review-modal.") &&
       !/\bcrewPage\.goto\(/.test(c.matchLineText) &&

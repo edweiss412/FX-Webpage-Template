@@ -924,6 +924,9 @@ const CONDITIONAL_RENDERS: Record<string, { presences: number; renders: Conditio
       { match: "d.notes !== null ? (", treatment: T.serverPresence },
       // The admin's end-of-row actions or the crew's actions under the identity.
       { match: 'return actionsPlacement === "end" ? (', treatment: T.serverPresence },
+      // PR B invariant-8 gate row 20: the crew's actions under the identity until
+      // the crew threshold, at its row's end from it (a prop, decided on the server).
+      { match: ') : actionsPlacement === "below-until-split" ? (', treatment: T.serverPresence },
       { match: "{notesLine === null ? (", treatment: T.serverPresence },
       { match: "{blocks.length === 0 ? (", treatment: T.serverPresence },
       {

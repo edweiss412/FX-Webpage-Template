@@ -56,7 +56,11 @@ export const REQUIRED = {
   // popstate, a refresh that suppresses the previewed viewer's dates, the list
   // order and labels); the two nested-dialog agenda cases moved from Schedule to
   // Agenda in place. Re-derived from the wiring guard's live Playwright resolution (44).
-  "crew-section-toggle.spec.ts": 44,
+  // 47 since PR B's invariant-8 gate repairs (rows 1 and 3) added the transport
+  // route-fit case at 320, 390 and 768 (no text in the eight-leg route paints over
+  // another; the driver's phone and email each hold one line). Re-derived from the
+  // wiring guard's live Playwright resolution (47).
+  "crew-section-toggle.spec.ts": 47,
   "picker-flow.spec.ts": 7,
   "alert-action-links.spec.ts": 4,
   // 3 SFS-1 cases + 3 seeded agenda-fold cases.

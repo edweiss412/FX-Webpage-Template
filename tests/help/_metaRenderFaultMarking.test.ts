@@ -646,7 +646,17 @@ describe("the scanner's population is pinned against resolver drift", () => {
     // AgendaSection adds no candidate (no fetch-failure block). Nothing joined or left:
     // membership is still 34, and mapping that ONE row back reproduces b264b363...
     // byte-for-byte (recomputed from scanCandidates()).
-    expect(digest).toBe("4c65a019e6d3f20c7316f47166d8b03d2eaca6db1343b051a0b7787ed1c9ccc9");
+    // Regenerated for feat/crew-page-redesign-pr-b's invariant-8 gate repairs, to the
+    // same bar. EXACTLY TWO inputs changed, line numbers, in the two files of this set
+    // the repairs edit:
+    //   components/crew/sections/ContactsSection.tsx 84 -> 87 (+3: the comment on the
+    //   section's rendered-rows gate, gate row 13)
+    //   components/crew/sections/VenueSection.tsx 332 -> 338 (+6: the comments on the
+    //   Maps link's underline and the crew body props, gate rows 3, 7, 18)
+    // Same contacts and transportation `tile-errors` rows, still marked. Nothing joined
+    // or left: membership is still 34, and mapping those TWO rows back reproduces
+    // 4c65a019... byte-for-byte (recomputed from scanCandidates()).
+    expect(digest).toBe("64e901050b3a4671806a61c99ae854287e4bafc661d8e100ac494ca4f23580f2");
   });
 });
 

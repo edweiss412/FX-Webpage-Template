@@ -113,7 +113,11 @@ export function rosterPanel(data: ShowForViewer, viewer: Viewer): RosterPanel {
       smsHref: crewSmsHref,
       mailtoHref: crewMailtoHref,
       ...options,
-      actionsPlacement: "below",
+      // PR B invariant-8 gate rows 17 and 20: the actions drawn in body text with
+      // the home buttons' hover, under the identity until the crew threshold and
+      // at the row's end from it.
+      actionsPlacement: "below-until-split",
+      actionTone: "text",
       targets,
       testIdPrefix: "crew-panel",
     },

@@ -340,3 +340,71 @@ describe("error containment (spec line 291, line 507)", () => {
     expect(screen.getByTestId("section-crew")).not.toHaveTextContent("Pat");
   });
 });
+
+/**
+ * PR B invariant-8 UI gate rows 17 and 20: the crew roster's contact actions.
+ * Both props default to the admin's markup (pinned by the golden).
+ */
+describe("CrewBody crew presentation (gate rows 17, 20)", () => {
+  const withActions = [bodyMember("a", { phone: "215-555-0100", email: "a@example.com" })];
+  /** Each action's drawn square: the visual inside the 44px anchor. */
+  const squares = (root: Element) =>
+    [...root.querySelectorAll("a[aria-label]")].map((a) => a.firstElementChild as HTMLElement);
+
+  test('actionTone "text": the glyph is body text with the home "Who to call" hover (sunken plate, accent glyph); the default glyph stays subtle with no hover', () => {
+    const plain = render(body(withActions)).container;
+    const rest = squares(plain);
+    premise("drawn actions", rest.length, 1);
+    for (const sq of rest) {
+      expect(sq.className).toContain("text-text-subtle");
+      expect(sq.className).not.toMatch(/hover:/);
+    }
+    cleanup();
+    const root = render(body(withActions, { actionTone: "text" })).container;
+    const drawn = squares(root);
+    premise("drawn actions", drawn.length, 1);
+    for (const sq of drawn) {
+      const cls = sq.className.split(/\s+/);
+      expect(cls).toContain("text-text");
+      expect(cls).not.toContain("text-text-subtle");
+      expect(cls).toEqual(
+        expect.arrayContaining(["group-hover:bg-surface-sunken", "group-hover:text-accent-on-bg"]),
+      );
+      // The hover is the anchor's (the 44px hit box), carried to the square by `group`.
+      expect(sq.parentElement!.className.split(/\s+/)).toContain("group");
+    }
+  });
+
+  test('actionsPlacement "below-until-split": the actions sit under the identity below @min-crew-split and close the row from it', () => {
+    const root = render(body(withActions, { actionsPlacement: "below-until-split" })).container;
+    const row = root.querySelector("li")!;
+    const actions = row.querySelector("a[aria-label]")!.parentElement!;
+    const column = actions.parentElement!;
+    // Below the threshold: the identity, then the actions, in one column.
+    expect(column.className.split(/\s+/)).toEqual(
+      expect.arrayContaining([
+        "flex-col",
+        "@min-crew-split:flex-row",
+        "@min-crew-split:items-center",
+      ]),
+    );
+    expect(column.firstElementChild).toHaveTextContent("Person a");
+    expect(column.lastElementChild).toBe(actions);
+    // From it: the actions lose the column's hanging indent.
+    expect(actions.className.split(/\s+/)).toContain("@min-crew-split:ml-0");
+    // No viewport variant anywhere in the row.
+    const classes = [row, ...row.querySelectorAll("*")].flatMap((el) =>
+      (el.getAttribute("class") ?? "").split(/\s+/),
+    );
+    expect(classes.filter((c) => /^(?:sm|md|lg|xl|2xl|min-\[[^\]]+\]):/.test(c))).toEqual([]);
+  });
+
+  test("the crew roster passes both: its actions are drawn in body text and close the row from the threshold", () => {
+    renderCrew([member("c1", { name: "Pat Rivera", phone: "215-555-0100" })]);
+    const row = rows()[0]!;
+    premiseHolds("the roster row rendered", row !== undefined);
+    const square = row.querySelector("a[aria-label] > span")!;
+    expect(square.className.split(/\s+/)).toContain("text-text");
+    expect(row.querySelector("[class*='@min-crew-split:flex-row']")).not.toBeNull();
+  });
+});

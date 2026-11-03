@@ -18,6 +18,12 @@
  *   under the identity, a search target per identity and note line, and
  *   `rowTestId` (`contactsRows.ts`, `contactsPanel`).
  *
+ * Crew presentation (PR B invariant-8 UI gate rows 17 and 20), each a prop whose
+ * default is the admin's markup: `actionTone: "text"` draws the action glyphs in
+ * body text with the home "Who to call" buttons' hover, and `actionsPlacement:
+ * "below-until-split"` moves the actions to the identity's row end at the crew
+ * section container's `@min-crew-split`.
+ *
  * Plain props, hook-free, no context: the crew page calls it as a function
  * inside `WrappedSection`'s render callback (spec §6.1, error containment).
  */
@@ -132,8 +138,14 @@ export type ContactsBodyProps = ClientOption & {
   mailtoHref: (email: string) => string | null;
   /** "show": a sentinel name or note renders as parsed (admin). "hide": it is omitted (crew). */
   sentinels: "show" | "hide";
-  /** "end": the actions close the row (admin). "below": they sit under the identity (crew). */
-  actionsPlacement: "end" | "below";
+  /**
+   * "end": the actions close the row (admin). "below": they sit under the
+   * identity. "below-until-split" (crew): under the identity below the crew
+   * section container's `@min-crew-split`, closing the identity's row from it.
+   */
+  actionsPlacement: "end" | "below" | "below-until-split";
+  /** "subtle" (the default, admin): the drawn glyph muted. "text" (crew): body text, with the home buttons' hover. */
+  actionTone?: "subtle" | "text";
   /** Search targets by block key (crew). Given, the avatar and the actions are skipped. */
   targets?: Readonly<Record<string, ContactsBodyTargets>>;
   /** Given, each action is `${testIdPrefix}-contact-${key}-${slot}` (the admin's ids). */
@@ -203,6 +215,7 @@ export function contactsBodyLines(
 
 export function ContactsBody(props: ContactsBodyProps) {
   const { cap, actionsPlacement, targets } = props;
+  const tone = props.actionTone ?? "subtle";
   const blocks = contactsBodyBlocks(
     props.includeClient ? props.clientContact : null,
     props.contacts,
@@ -238,7 +251,9 @@ export function ContactsBody(props: ContactsBodyProps) {
           className={
             actionsPlacement === "end"
               ? "flex shrink-0 items-center"
-              : "-ml-1.5 flex shrink-0 items-center"
+              : actionsPlacement === "below-until-split"
+                ? "-ml-1.5 flex shrink-0 items-center @min-crew-split:ml-0"
+                : "-ml-1.5 flex shrink-0 items-center"
           }
         >
           {d.actions.map(({ verb, slot, href, isEmail }) => {
@@ -253,9 +268,17 @@ export function ContactsBody(props: ContactsBodyProps) {
                     : undefined
                 }
                 aria-label={`${verb} ${d.heading}`}
-                className="inline-flex size-tap-min items-center justify-center focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring"
+                className={`${tone === "text" ? "group " : ""}inline-flex size-tap-min items-center justify-center focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring`}
               >
-                <span className="grid size-8 place-items-center rounded-sm border border-text-faint text-text-subtle">
+                {/* The crew's square, as the roster's (CrewBody): body-text glyph, the
+                    home buttons' hover, instant. */}
+                <span
+                  className={
+                    tone === "text"
+                      ? "grid size-8 place-items-center rounded-sm border border-text-faint bg-surface text-text group-hover:bg-surface-sunken group-hover:text-accent-on-bg"
+                      : "grid size-8 place-items-center rounded-sm border border-text-faint text-text-subtle"
+                  }
+                >
                   <Icon aria-hidden="true" className="size-4" />
                 </span>
               </a>
@@ -289,6 +312,19 @@ export function ContactsBody(props: ContactsBodyProps) {
           </span>
         )}
         {actionLinks}
+      </li>
+    ) : actionsPlacement === "below-until-split" ? (
+      // The crew's (PR B invariant-8 gate row 20): the identity and its actions
+      // share a row from the crew threshold; the note stays under both.
+      <li key={block.key} {...rowId} className="flex items-start gap-3 py-1">
+        {avatar}
+        <span className="flex min-w-0 flex-1 flex-col gap-1">
+          <span className="flex min-w-0 flex-col gap-1 @min-crew-split:flex-row @min-crew-split:items-center @min-crew-split:gap-3">
+            {identityBlock}
+            {actionLinks}
+          </span>
+          {notesLine}
+        </span>
       </li>
     ) : (
       <li key={block.key} {...rowId} className="flex items-start gap-3 py-1">

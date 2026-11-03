@@ -1001,7 +1001,13 @@ export function scanCandidates(): Candidate[] {
       // early return and its per-link blocks with a ternary whose JSX is the false arm.
       // None was a fault branch. Re-derived by running the guard.
       //
-      // Probed: 796 such ternaries under the derived roots, 79 on a
+      // 796 -> 799 on feat/crew-page-redesign-pr-b's invariant-8 gate repairs: the
+      // crew Transport body's vertical-route segment between two legs and its "With"
+      // riders line (gate rows 1 and 2), and the crew Contacts row that puts the
+      // actions beside the identity from the crew threshold (row 20). None is a
+      // fault branch. Re-derived by running the guard.
+      //
+      // Probed: 799 such ternaries under the derived roots, 79 on a
       // fault-vocabulary guard and unclassifiable. 69 of those 79 sit in
       // `"use client"` files, where the guard is interaction state -- `errorCode`,
       // `state.kind === "error"`, `switchStatus === "error"` -- and not a server-render

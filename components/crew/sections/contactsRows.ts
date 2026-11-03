@@ -48,6 +48,12 @@ export type ContactsSearchLine = Omit<SearchEntry, "section" | "copy">;
 export type ContactsPanel = {
   body: Omit<Extract<ContactsBodyProps, { includeClient: false }>, "overflow">;
   lines: ContactsSearchLine[];
+  /**
+   * Whether any contact renders a row: a name the crew sees or something to tap.
+   * False when every contact lacks both, and the section then shows its own empty
+   * state rather than an empty card (PR B invariant-8 gate, row 13).
+   */
+  hasRows: boolean;
 };
 
 /**
@@ -68,7 +74,10 @@ export function contactsPanel(data: ShowForViewer): ContactsPanel {
   const seen = new Map<string, number>();
   const targets: Record<string, ContactsBodyTargets> = {};
   const lines: ContactsSearchLine[] = [];
-  for (const block of contactsBodyBlocks(null, data.contacts).slice(0, CONTACTS_INLINE_CAP)) {
+  const blocks = contactsBodyBlocks(null, data.contacts);
+  // The body's own predicate: a block renders exactly when it has an identity line.
+  const hasRows = blocks.some((block) => contactsBodyLines(block, options).identity !== null);
+  for (const block of blocks.slice(0, CONTACTS_INLINE_CAP)) {
     const { identity, notes } = contactsBodyLines(block, options);
     const target: ContactsBodyTargets = {};
     for (const [slot, line] of [
@@ -88,10 +97,13 @@ export function contactsPanel(data: ShowForViewer): ContactsPanel {
       contacts: data.contacts,
       cap: CONTACTS_INLINE_CAP,
       ...options,
-      actionsPlacement: "below",
+      // PR B invariant-8 gate rows 17 and 20, as the roster.
+      actionsPlacement: "below-until-split",
+      actionTone: "text",
       targets,
       rowTestId: "crew-panel-contact-row",
     },
     lines,
+    hasRows,
   };
 }

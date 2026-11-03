@@ -19,6 +19,13 @@
  *   8), a search target per identity line, and `crew-panel` row test ids
  *   (`crewRows.ts`, `rosterPanel`).
  *
+ * Crew presentation (PR B invariant-8 UI gate rows 17 and 20), each a prop whose
+ * default is the admin's markup: `actionTone: "text"` draws the action glyphs in
+ * body text with the home "Who to call" buttons' hover, and `actionsPlacement:
+ * "below-until-split"` keeps the actions under the identity on a phone or in the
+ * sheet and moves them to the row's end at the crew section container's
+ * `@min-crew-split` (DESIGN.md §6).
+ *
  * The role line renders the role as the sheet writes it and wraps (spec §9.2);
  * it is never cut to one line, so a trailing position code ("A1", "V1") stays.
  *
@@ -72,8 +79,18 @@ export type CrewBodyProps = {
   sentinels: "show" | "hide";
   /** "line": the partial label joins the role line (admin). "chip": a chip by the name (crew). */
   partialAs: "line" | "chip";
-  /** "end": the actions close the row (admin). "below": they sit under the identity (crew). */
-  actionsPlacement: "end" | "below";
+  /**
+   * "end": the actions close the row (admin). "below": they sit under the
+   * identity. "below-until-split" (crew): under the identity below the crew
+   * section container's `@min-crew-split`, closing the row from it.
+   */
+  actionsPlacement: "end" | "below" | "below-until-split";
+  /**
+   * "subtle" (the default, admin): the drawn glyph muted, no hover. "text" (crew):
+   * the glyph in body text, and on hover the home "Who to call" buttons' sunken
+   * plate and accent glyph (components/crew/CrewQuickFacts.tsx `ICON_LINK`).
+   */
+  actionTone?: "subtle" | "text";
   /** Search target ids by member key (crew). Given, the avatar and the actions are skipped. */
   targets?: Readonly<Record<string, string>>;
   /** Given, each row is `${testIdPrefix}-crew-row`. */
@@ -129,10 +146,15 @@ type ContactAction = { verb: string; href: string; Icon: LucideIcon };
 
 export function CrewBody(props: CrewBodyProps) {
   const { members, cap, overflow, sentinels, partialAs, actionsPlacement, targets } = props;
+  const tone = props.actionTone ?? "subtle";
   const hidden = Math.max(0, members.length - cap);
   const skip = targets === undefined ? {} : { "data-search-skip": "" };
   const rowClass =
-    actionsPlacement === "end" ? "flex items-center gap-3" : "flex items-start gap-3";
+    actionsPlacement === "end"
+      ? "flex items-center gap-3"
+      : actionsPlacement === "below-until-split"
+        ? "flex items-start gap-3 @min-crew-split:items-center"
+        : "flex items-start gap-3";
 
   const rows = members.slice(0, cap).map((member) => {
     const identity = crewBodyIdentity(member, { sentinels, partialAs });
@@ -196,7 +218,9 @@ export function CrewBody(props: CrewBodyProps) {
         className={
           actionsPlacement === "end"
             ? "flex shrink-0 items-center"
-            : "-ml-1.5 flex shrink-0 items-center"
+            : actionsPlacement === "below-until-split"
+              ? "-ml-1.5 flex shrink-0 items-center @min-crew-split:ml-0"
+              : "-ml-1.5 flex shrink-0 items-center"
         }
       >
         {actions.map(({ verb, href, Icon }) => (
@@ -204,9 +228,21 @@ export function CrewBody(props: CrewBodyProps) {
             key={verb}
             href={href}
             aria-label={`${verb} ${actionTarget}`}
-            className="inline-flex size-tap-min items-center justify-center focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring"
+            // The crew's (`actionTone: "text"`) carries `group`, so the hover the
+            // home "Who to call" buttons show lands on the drawn square below.
+            className={`${tone === "text" ? "group " : ""}inline-flex size-tap-min items-center justify-center focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring`}
           >
-            <span className="grid size-8 place-items-center rounded-sm border border-text-faint text-text-subtle">
+            {/* The crew's square: the glyph in body text, and on hover the home
+                buttons' sunken plate and accent glyph (CrewQuickFacts `ICON_LINK`),
+                instant: its outline colour never changes, so it stays a §15 table 3
+                instant visual (docs/superpowers/specs/2026-08-26-control-outline-cover-widening-design.md). */}
+            <span
+              className={
+                tone === "text"
+                  ? "grid size-8 place-items-center rounded-sm border border-text-faint bg-surface text-text group-hover:bg-surface-sunken group-hover:text-accent-on-bg"
+                  : "grid size-8 place-items-center rounded-sm border border-text-faint text-text-subtle"
+              }
+            >
               <Icon aria-hidden="true" className="size-4" />
             </span>
           </a>
@@ -223,7 +259,13 @@ export function CrewBody(props: CrewBodyProps) {
             {actionLinks}
           </>
         ) : (
-          <span className="flex min-w-0 flex-1 flex-col gap-1">
+          <span
+            className={
+              actionsPlacement === "below-until-split"
+                ? "flex min-w-0 flex-1 flex-col gap-1 @min-crew-split:flex-row @min-crew-split:items-center @min-crew-split:gap-3"
+                : "flex min-w-0 flex-1 flex-col gap-1"
+            }
+          >
             {identityBlock}
             {actionLinks}
           </span>

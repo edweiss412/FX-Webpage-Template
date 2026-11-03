@@ -81,7 +81,10 @@ const PAIRS: ReadonlyArray<{
     label: "contacts body contact icon: 32px visual inside the 44px link",
     file: "components/show-panels/ContactsBody.tsx",
     anchor: "aria-label={`${verb} ${d.heading}`}",
-    window: 500,
+    // 700, not 500: since the PR B invariant-8 gate (row 17) the square carries two
+    // arms (the admin's and the crew's) and the link a crew-only `group` prefix, so
+    // the square's arms close ~530 and ~640 characters past the anchor. Still one control.
+    window: 700,
     parentClass: "size-tap-min",
     childMarker: "place-items-center",
     childClass: "size-8",

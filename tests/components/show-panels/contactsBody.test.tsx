@@ -442,3 +442,83 @@ describe("error containment (spec line 291, line 507)", () => {
     expect(screen.getByTestId("section-contacts")).not.toHaveTextContent("Pat Venue");
   });
 });
+
+/**
+ * PR B invariant-8 UI gate rows 13, 17 and 20: the crew contacts' empty case
+ * and contact actions. The body props default to the admin's markup.
+ */
+describe("Contacts crew presentation (gate rows 13, 17, 20)", () => {
+  const withActions = [contact("Vic Venue", { phone: "555 0120", email: "vic@venue.example" })];
+  const squares = (root: Element) =>
+    [...root.querySelectorAll("a[aria-label]")].map((a) => a.firstElementChild as HTMLElement);
+
+  test('actionTone "text": the glyph is body text with the home "Who to call" hover; the default stays subtle with no hover', () => {
+    const plain = render(body(withActions)).container;
+    const rest = squares(plain);
+    premise("drawn actions", rest.length, 1);
+    for (const sq of rest) expect(sq.className).toContain("text-text-subtle");
+    cleanup();
+    const drawn = squares(render(body(withActions, { actionTone: "text" })).container);
+    premise("drawn actions", drawn.length, 1);
+    for (const sq of drawn) {
+      const cls = sq.className.split(/\s+/);
+      expect(cls).toContain("text-text");
+      expect(cls).not.toContain("text-text-subtle");
+      expect(cls).toEqual(
+        expect.arrayContaining(["group-hover:bg-surface-sunken", "group-hover:text-accent-on-bg"]),
+      );
+      expect(sq.parentElement!.className.split(/\s+/)).toContain("group");
+    }
+  });
+
+  test('actionsPlacement "below-until-split": under the identity below the threshold, at the row end from it; the note stays under both', () => {
+    const noted = [
+      contact("Vic Venue", { phone: "555 0120", email: "vic@venue.example", notes: "Ask for Vic" }),
+    ];
+    const root = render(body(noted, { actionsPlacement: "below-until-split" })).container;
+    const actions = root.querySelector("a[aria-label]")!.parentElement!;
+    const pair = actions.parentElement!;
+    expect(pair.className.split(/\s+/)).toEqual(
+      expect.arrayContaining([
+        "flex-col",
+        "@min-crew-split:flex-row",
+        "@min-crew-split:items-center",
+      ]),
+    );
+    expect(pair.firstElementChild).toHaveTextContent("Vic Venue");
+    expect(pair.lastElementChild).toBe(actions);
+    expect(actions.className.split(/\s+/)).toContain("@min-crew-split:ml-0");
+    // The note follows the identity-and-actions pair, in the same column.
+    expect(pair.nextElementSibling).toHaveTextContent("Ask for Vic");
+  });
+
+  test("every contact without a name or anything to tap: the section's own empty state, never the admin's \"No contacts parsed.\" or an empty card", () => {
+    // Two blocks the body drops: a sentinel name with a digit-less phone, and a
+    // nameless contact whose only email is a sentinel.
+    const unrenderable = [
+      contact("TBD", { phone: "ask at desk" }),
+      contact(null, { email: "N/A" }),
+    ];
+    renderContacts(unrenderable);
+    const root = screen.getByTestId("section-contacts");
+    expect(root).not.toHaveTextContent("No contacts parsed.");
+    expect(within(root).getByTestId("section-empty").textContent).toBe("No contacts on file yet.");
+    expect(contactsCard()).toBeNull();
+    cleanup();
+    // POSITIVE CONTROL: one renderable contact among them brings the card back.
+    renderContacts([...unrenderable, contact("Vic Venue", { phone: "555 0120" })]);
+    expect(contactsCard()).not.toBeNull();
+    expect(
+      screen.getByTestId("section-contacts").querySelector('[data-testid="section-empty"]'),
+    ).toBeNull();
+  });
+
+  test("the crew contacts pass both: their actions are drawn in body text and close the row from the threshold", () => {
+    renderContacts(withActions);
+    const row = rows()[0]!;
+    premiseHolds("the contact row rendered", row !== undefined);
+    const square = row.querySelector("a[aria-label] > span")!;
+    expect(square.className.split(/\s+/)).toContain("text-text");
+    expect(row.querySelector("[class*='@min-crew-split:flex-row']")).not.toBeNull();
+  });
+});

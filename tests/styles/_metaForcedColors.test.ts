@@ -453,7 +453,7 @@ describe("forced-colors state collapse (Arm 1)", () => {
 
   // The census size, pinned once so the case title cannot drift from the assertion
   // (it read 41 over an assertion of 42 on main and 45 here, whole-diff review R4-F5).
-  const COLLAPSE_ROWS = 45;
+  const COLLAPSE_ROWS = 47;
   it(`holds exactly ${COLLAPSE_ROWS} collapse rows, each disposed once`, () => {
     // The anti-vacuity literal. A subset assertion passes while the census grows
     // silently, and the family sum is what stops a new site landing in no family.
@@ -468,6 +468,9 @@ describe("forced-colors state collapse (Arm 1)", () => {
     // 45 on the merge of origin/main (feat/warning-card-fixes) into
     // feat/crew-page-redesign, re-derived by running this guard: that arc's two moves
     // net to zero, and the sub-nav tab row it still carried left with the sub-nav.
+    // 45 -> 47 on feat/crew-page-redesign-pr-b's invariant-8 gate repairs (row 17): the
+    // roster's and the contacts' drawn action squares each carry the admin's arm and the
+    // crew's (`actionTone`), two not-a-state rows.
     expect(COLLAPSE_CENSUS).toHaveLength(COLLAPSE_ROWS);
     expect(new Set(COLLAPSE_CENSUS.map((r) => r.site)).size).toBe(COLLAPSE_ROWS);
     const repaired = COLLAPSE_CENSUS.filter((r) => r.disposition === "repaired");

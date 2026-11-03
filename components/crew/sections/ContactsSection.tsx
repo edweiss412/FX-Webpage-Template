@@ -78,7 +78,10 @@ export function ContactsSection({
         render={() => {
           // The shared body's crew props (capped, notes, search targets) from contactsRows.ts.
           const panel = contactsPanel(data);
-          const hasContacts = data.contacts.length > 0;
+          // A contact the body would drop (no name the crew sees, nothing to tap)
+          // is not a contact on file: when every one is dropped, the section's own
+          // empty state, never the body's admin wording (PR B invariant-8 gate, row 13).
+          const hasContacts = panel.hasRows;
           return (
             <>
               {contactsFetchFailed ? <SectionTileError domain="contacts" /> : null}
