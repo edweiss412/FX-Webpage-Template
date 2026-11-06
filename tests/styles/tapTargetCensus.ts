@@ -430,7 +430,8 @@ export const TAP_TARGET_CENSUS: readonly TapCensusRow[] = [
     // 4601 -> 4259 on feat/crew-page-redesign-pr-b Task 8 (MiniAvatar moved to components/show-panels/MiniAvatar.tsx, nightsBetween to components/show-panels/HotelCardBody.tsx, and TransportBody with its cells and contact anchors to components/show-panels/TransportBody.tsx, three lucide and four helper imports left and two imports landed, and HotelCard's markup with its date stub became one HotelCardBody call, all above it); located by its own element (5-line context match).
     // 4259 -> 4077 on feat/crew-page-redesign-pr-c Task 2 (EVENT_DETAIL_GROUPS moved to lib/crew/eventDetailsSpecs.ts, its boolean helpers and EventDetailsBreakdown's group list to components/show-panels/EventDetailsBody.tsx, five imports left, one landed); located by its own element (5-line context match).
     // 4077 -> 3859 on feat/crew-page-redesign-pr-c Task 3 (the Rooms breakdown's room list moved to components/show-panels/RoomsBody.tsx and its scope rules to components/show-panels/roomScope.ts, five lucide imports left and three imports landed); located by its own element (5-line context match).
-    line: 3859,
+    // 3859 -> 3736 on feat/crew-page-redesign-pr-c Task 4 (the pack list's case list moved to components/show-panels/PackListBody.tsx, arr to components/show-panels/fieldRows.ts and packItemLabel with them, and two imports left and two landed); located by its own element (5-line context match).
+    line: 3736,
     tag: "a",
     category: "full-bleed",
     reason:

@@ -153,7 +153,8 @@ export const SUBTLE_INTERACTIVE_EXEMPTIONS: readonly SubtleExemption[] = [
     // 1600 -> 1373 on feat/crew-page-redesign-pr-b Task 8 (MiniAvatar moved to components/show-panels/MiniAvatar.tsx, nightsBetween to components/show-panels/HotelCardBody.tsx, and TransportBody with its cells and contact anchors to components/show-panels/TransportBody.tsx, three lucide and four helper imports left and two imports landed, all above it); located by its own element (5-line context match).
     // 1373 -> 1331 on feat/crew-page-redesign-pr-c Task 2 (EVENT_DETAIL_GROUPS moved to lib/crew/eventDetailsSpecs.ts and its boolean helpers to components/show-panels/EventDetailsBody.tsx, five imports left, one landed above it; EventDetailsBreakdown's group list moved below it); located by its own element (5-line context match).
     // 1331 -> 1265 on feat/crew-page-redesign-pr-c Task 3 (the Rooms breakdown's scope rules moved to components/show-panels/roomScope.ts, five lucide imports left and three imports landed above it; its room list moved below it); located by its own element (5-line context match).
-    line: 1265,
+    // 1265 -> 1260 on feat/crew-page-redesign-pr-c Task 4 (the pack list's case list moved to components/show-panels/PackListBody.tsx, arr to components/show-panels/fieldRows.ts and packItemLabel with them, and two imports left and two landed); located by its own element (5-line context match).
+    line: 1260,
     tag: "summary",
     token: "text-text-subtle",
     family: "summary-disclosure",
@@ -206,7 +207,8 @@ export const SUBTLE_INTERACTIVE_EXEMPTIONS: readonly SubtleExemption[] = [
     // 3689 -> 3347 on feat/crew-page-redesign-pr-b Task 8 (MiniAvatar moved to components/show-panels/MiniAvatar.tsx, nightsBetween to components/show-panels/HotelCardBody.tsx, and TransportBody with its cells and contact anchors to components/show-panels/TransportBody.tsx, three lucide and four helper imports left and two imports landed, and HotelCard's markup with its date stub became one HotelCardBody call, all above it); located by its own element (5-line context match).
     // 3347 -> 3165 on feat/crew-page-redesign-pr-c Task 2 (EVENT_DETAIL_GROUPS moved to lib/crew/eventDetailsSpecs.ts, its boolean helpers and EventDetailsBreakdown's group list to components/show-panels/EventDetailsBody.tsx, five imports left, one landed); located by its own element (5-line context match).
     // 3165 -> 2947 on feat/crew-page-redesign-pr-c Task 3 (the Rooms breakdown's room list moved to components/show-panels/RoomsBody.tsx and its scope rules to components/show-panels/roomScope.ts, five lucide imports left and three imports landed); located by its own element (5-line context match).
-    line: 2947,
+    // 2947 -> 2824 on feat/crew-page-redesign-pr-c Task 4 (the pack list's case list moved to components/show-panels/PackListBody.tsx, arr to components/show-panels/fieldRows.ts and packItemLabel with them, and two imports left and two landed); located by its own element (5-line context match).
+    line: 2824,
     tag: "summary",
     token: "text-text-subtle",
     family: "summary-disclosure",
@@ -235,7 +237,8 @@ export const SUBTLE_INTERACTIVE_EXEMPTIONS: readonly SubtleExemption[] = [
     // 3721 -> 3379 on feat/crew-page-redesign-pr-b Task 8 (MiniAvatar moved to components/show-panels/MiniAvatar.tsx, nightsBetween to components/show-panels/HotelCardBody.tsx, and TransportBody with its cells and contact anchors to components/show-panels/TransportBody.tsx, three lucide and four helper imports left and two imports landed, and HotelCard's markup with its date stub became one HotelCardBody call, all above it); located by its own element (5-line context match).
     // 3379 -> 3197 on feat/crew-page-redesign-pr-c Task 2 (EVENT_DETAIL_GROUPS moved to lib/crew/eventDetailsSpecs.ts, its boolean helpers and EventDetailsBreakdown's group list to components/show-panels/EventDetailsBody.tsx, five imports left, one landed); located by its own element (5-line context match).
     // 3197 -> 2979 on feat/crew-page-redesign-pr-c Task 3 (the Rooms breakdown's room list moved to components/show-panels/RoomsBody.tsx and its scope rules to components/show-panels/roomScope.ts, five lucide imports left and three imports landed); located by its own element (5-line context match).
-    line: 2979,
+    // 2979 -> 2856 on feat/crew-page-redesign-pr-c Task 4 (the pack list's case list moved to components/show-panels/PackListBody.tsx, arr to components/show-panels/fieldRows.ts and packItemLabel with them, and two imports left and two landed); located by its own element (5-line context match).
+    line: 2856,
     tag: "summary",
     token: "text-text-subtle",
     family: "summary-disclosure",

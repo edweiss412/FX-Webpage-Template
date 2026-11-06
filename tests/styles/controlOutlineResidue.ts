@@ -1035,7 +1035,7 @@ export const RESIDUE_CENSUS: readonly ResidueRow[] = [
       "the auto-fixed signal chip on the row title area; a status chip, not the row control's boundary (DESIGN.md §1.2a); 1.27:1 light / 1.27:1 dark against the row card's surface ground, which it does not fill",
   },
   {
-    file: "components/admin/wizard/step3ReviewSections.tsx",
+    file: "components/show-panels/PackListBody.tsx",
     tag: "span",
     paint: ["bg-surface-sunken border border-border"],
     category: "inner-chrome",

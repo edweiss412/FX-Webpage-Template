@@ -179,6 +179,10 @@ const EVENT_DETAILS_BODY = "components/show-panels/EventDetailsBody.tsx";
 // PR C plan Task 3: the shared Rooms body (admin side first; the crew page renders it
 // from Task 7).
 const ROOMS_BODY = "components/show-panels/RoomsBody.tsx";
+// PR C plan Task 4: the shared Pack list body and its one client leaf (admin side
+// first; the crew page renders the body from Task 6 and never mounts the leaf).
+const PACK_LIST_BODY = "components/show-panels/PackListBody.tsx";
+const PACK_CASE_ITEMS = "components/show-panels/PackCaseItems.tsx";
 // PR B plan Task 9: the crew Hotels and Transport sections that replace Travel.
 const HOTELS = "components/crew/sections/HotelsSection.tsx";
 const TRANSPORT = "components/crew/sections/TransportSection.tsx";
@@ -715,6 +719,8 @@ const T = {
     "L354 the pass body per live state: the existing 66-pair transitionTreatment table, unchanged",
   sheetBody:
     "L353 the open section's body crossfades inside the sheet (CrewSectionTransition), reduced motion one commit; empty while closed (L348/L349)",
+  packToggle:
+    "instant: the items toggle grows or shrinks the case's list in place, no animation (admin only; the crew page never mounts it)",
 } as const;
 
 type Conditional = {
@@ -1005,6 +1011,31 @@ const CONDITIONAL_RENDERS: Record<string, { presences: number; renders: Conditio
       { match: "{hasScope ? (", treatment: T.serverPresence },
       { match: "{shown.length > 0 ? (", treatment: T.serverPresence },
       { match: "{note ? (", treatment: T.serverPresence },
+    ],
+  },
+  [PACK_LIST_BODY]: {
+    presences: 0,
+    renders: [
+      // The pill's noun, and the raw snippet's row.
+      { match: '{count === 1 ? "item" : "items"}', treatment: T.serverPresence },
+      { match: "{showRawSnippet && hasContent(item.rawSnippet) ? (", treatment: T.serverPresence },
+      // A case with no items is a plain line, the disclosure's early return.
+      { match: "return (\n<li", treatment: T.serverPresence },
+      // Every item, or the leaf under an items cap.
+      {
+        match: "{itemsCap === null ? rows : <PackCaseItems",
+        treatment: T.serverPresence,
+      },
+      // What follows a list the cap cut short.
+      { match: "{cases.length > cap ? overflow : null}", treatment: T.serverPresence },
+    ],
+  },
+  [PACK_CASE_ITEMS]: {
+    presences: 0,
+    renders: [
+      { match: "{showAll ? rows : rows.slice(0, cap)}", treatment: T.packToggle },
+      { match: "{overflow > 0 ? (", treatment: T.packToggle },
+      { match: '{showAll ? "Show fewer items"', treatment: T.packToggle },
     ],
   },
   [TRANSPORT_BODY]: {

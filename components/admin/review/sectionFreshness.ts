@@ -381,7 +381,7 @@ function renderedPullSheet(d: PublishedSectionData): unknown {
         items
           .slice(0, PACK_LIST_ITEMS_CAP)
           // BL-FRESHNESS-PROJECTION-NARROWING: the item paints as
-          // `packItemLabel(item)` and nothing else (`step3ReviewSections.tsx:2383`),
+          // `packItemLabel(item)` and nothing else (`components/show-panels/PackListBody.tsx`),
           // which erases `TBD`/`N/A`/`TBA` from `cat`/`subCat` through
           // `shouldHideGenericOptional`. One sentinel edited into another is a
           // byte-identical row. Calling the shipped label rather than the four

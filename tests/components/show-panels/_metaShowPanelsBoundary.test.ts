@@ -49,10 +49,15 @@ const ROOT = process.cwd();
 const DIR = join("components", "show-panels");
 
 /**
- * Interactive client leaves (spec line 288), repo-relative. Starts empty: no PR B
- * body needs one (plan clause map, L288). A row is a deliberate act with a reason.
+ * Interactive client leaves (spec line 288), repo-relative. A row is a deliberate
+ * act with a reason.
  */
-const LEAF_ACCEPT_LIST = new Set<string>([]);
+const LEAF_ACCEPT_LIST = new Set<string>([
+  // The pack list's "Show all" toggle, the spec's own example of a leaf: it holds the
+  // one useState a case's item list needs (PR C plan Task 4). It mounts only under an
+  // items cap, which only the admin passes, so the crew page carries no client code here.
+  "components/show-panels/PackCaseItems.tsx",
+]);
 
 type Resolver = (specifier: string, fromFile: string) => string | null;
 

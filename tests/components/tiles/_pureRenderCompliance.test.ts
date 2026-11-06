@@ -84,9 +84,14 @@ function listSectionFiles(): string[] {
  *     is the smallest possible island so FactRows and VenueSection stay server
  *     components; it awaits `navigator.clipboard.writeText`, which is a browser
  *     API call in an event handler, not data fetching in a render path.
+ *   - PackCaseItems.tsx — the pack list's "Show all" toggle, the spec's own
+ *     example of an interactive leaf (crew page redesign spec line 288). It holds
+ *     one useState and renders rows its body built; it mounts only under an items
+ *     cap, which only the admin passes, so no crew render path reaches it.
  */
 const CLIENT_ISLANDS = new Set<string>([
   join("components", "crew", "primitives", "CopyFactValue.tsx"),
+  join("components", "show-panels", "PackCaseItems.tsx"),
 ]);
 
 /** Files subject to the server-component assertions (everything not declared). */

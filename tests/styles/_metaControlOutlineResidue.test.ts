@@ -1544,6 +1544,8 @@ describe("a defect planted in the theme, not in the module (AC-16)", () => {
       "components/admin/nav/AdminNav.tsx:222",
       "components/admin/showpage/AttentionMenu.tsx:304",
       "components/admin/telemetry/EventFilters.tsx:97",
+      // 191 -> 196 on feat/crew-show-search (Schedule search entries); the same overflow `<summary>` divider.
+      "components/crew/primitives/KeyTimesStrip.tsx:196",
       // Moved on the merge of origin/main (6441d5e4c). Located on the merged tree, not
       // bumped: 2436 is the `PackCountPill` <span> carrying `border-border`.
       // Then 2436 -> 2441 with the announce-log import block; located again, 2441 is the
@@ -1594,9 +1596,8 @@ describe("a defect planted in the theme, not in the module (AC-16)", () => {
       // 2360 -> 2133 on feat/crew-page-redesign-pr-b Task 8 (MiniAvatar moved to components/show-panels/MiniAvatar.tsx, nightsBetween to components/show-panels/HotelCardBody.tsx, and TransportBody with its cells and contact anchors to components/show-panels/TransportBody.tsx, three lucide and four helper imports left and two imports landed, all above it); located by its own element (5-line context match).
       // 2133 -> 1951 on feat/crew-page-redesign-pr-c Task 2 (EVENT_DETAIL_GROUPS moved to lib/crew/eventDetailsSpecs.ts, its boolean helpers and EventDetailsBreakdown's group list to components/show-panels/EventDetailsBody.tsx, five imports left, one landed); located by its own element (5-line context match).
       // 1951 -> 1733 on feat/crew-page-redesign-pr-c Task 3 (the Rooms breakdown's room list moved to components/show-panels/RoomsBody.tsx and its scope rules to components/show-panels/roomScope.ts, five lucide imports left and three imports landed); located by its own element (5-line context match).
-      "components/admin/wizard/step3ReviewSections.tsx:1733",
-      // 191 -> 196 on feat/crew-show-search (Schedule search entries); the same overflow `<summary>` divider.
-      "components/crew/primitives/KeyTimesStrip.tsx:196",
+      // step3ReviewSections.tsx:1733 -> PackListBody.tsx:92 on feat/crew-page-redesign-pr-c Task 4 (the pack list's case list moved to components/show-panels/PackListBody.tsx, the pill with it); located by its own element, the same PackCountPill <span>.
+      "components/show-panels/PackListBody.tsx:92",
     ]);
 
     const stale = validateCensus(RESIDUE_CENSUS, under, blind, ledger).filter((p) =>

@@ -61,7 +61,6 @@ import type {
   PersistedEmbeddedImage,
   PersistedLinkedFolderItem,
   PullSheetCase,
-  PullSheetItem,
   RoomRow,
   RunOfShow,
   ShowRow,
@@ -141,7 +140,6 @@ import {
   showStartDisplayEntry,
   type SchedulePhase,
 } from "@/lib/crew/agendaDisplay";
-import { shouldHideGenericOptional } from "@/lib/visibility/emptyState";
 import { isWarnSeverity } from "@/lib/parser/dataGaps";
 import { candidateLabel } from "@/lib/parser/candidateLabel";
 import { labelFromRawSnippet } from "@/lib/parser/rawSnippet";
@@ -176,9 +174,10 @@ import { EventDetailsBody, eventDetailGroups } from "@/components/show-panels/Ev
 import { CrewBody } from "@/components/show-panels/CrewBody";
 import { ContactsBody, contactBlocks } from "@/components/show-panels/ContactsBody";
 import { EYEBROW_CLASS, EYEBROW_STYLE, contentRows } from "@/components/show-panels/FieldRowList";
+import { PackListBody } from "@/components/show-panels/PackListBody";
 import { RoomsBody } from "@/components/show-panels/RoomsBody";
 import { VenueBody } from "@/components/show-panels/VenueBody";
-import { hasContent } from "@/components/show-panels/fieldRows";
+import { arr, hasContent } from "@/components/show-panels/fieldRows";
 import { roomHasScope } from "@/components/show-panels/roomScope";
 import { HotelCardBody, hotelCardLabel } from "@/components/show-panels/HotelCardBody";
 import {
@@ -208,9 +207,11 @@ export const PACK_LIST_ITEMS_CAP = 8;
 export const SCHEDULE_DAYS_CAP = 14;
 export const SCHEDULE_ENTRIES_CAP = 6;
 
-// `hasContent` and the room scope rules moved with the Rooms body (PR C plan Task 3);
-// `components/admin/review/sectionFreshness.ts` reads both from here.
-export { hasContent } from "@/components/show-panels/fieldRows";
+// `hasContent` and the room scope rules moved with the Rooms body (PR C plan Task 3),
+// and `arr` and `packItemLabel` with the Pack list body (Task 4);
+// `components/admin/review/sectionFreshness.ts` and Step3SheetCard read them from here.
+export { arr, hasContent } from "@/components/show-panels/fieldRows";
+export { packItemLabel } from "@/components/show-panels/PackListBody";
 export { roomHasScope } from "@/components/show-panels/roomScope";
 
 /**
@@ -220,12 +221,6 @@ export { roomHasScope } from "@/components/show-panels/roomScope";
  * is re-exported here under the same name, so every admin import is unchanged.
  */
 export { contentRows } from "@/components/show-panels/FieldRowList";
-
-// Defensive coercion for the untyped-on-the-wire JSONB (§4.3/§4.6): anything
-// that isn't an array becomes [].
-export function arr<T>(value: T[] | undefined | null): T[] {
-  return Array.isArray(value) ? value : [];
-}
 
 // ── Summary date rendering (§4.2 / plan Task 3; moved here in Task 4 so the
 // review modal's header subline reuses it without importing the card — the
@@ -1710,42 +1705,13 @@ export function EventDetailsBreakdown({
   );
 }
 
-// One parsed PULL-sheet item rendered as the crew GearSection renders it
-// (GearSection.tsx:339-345): `qty × item (cat / subCat)`, with the decorative
-// cat/subCat taxonomy sentinel-guarded (hidden when TBD/N/A/empty) and the qty
-// prefix dropped when null. The item NAME itself is shown as-parsed — this is a
-// review surface, so a garbled name must be visible, not hidden.
-export function packItemLabel(item: PullSheetItem): string {
-  const cat = shouldHideGenericOptional(item.cat) ? null : item.cat;
-  const subCat = shouldHideGenericOptional(item.subCat) ? null : item.subCat;
-  const taxonomy = [cat, subCat].filter(Boolean).join(" / ");
-  const qtyPart = item.qty !== null && item.qty !== undefined ? `${item.qty} × ` : "";
-  // Defensive (§4.6, untyped-on-wire JSONB): the type says `item: string`, but a
-  // malformed row must never render the literal "undefined". A nameless item is
-  // itself a parse signal worth seeing on a review surface, so label it.
-  const name = hasContent(item.item) ? item.item : "(unnamed item)";
-  return `${qtyPart}${name}${taxonomy ? ` (${taxonomy})` : ""}`;
-}
-
-/** The §8 pack-case count pill ("N items", singular-aware — copy preserved). */
-function PackCountPill({ count }: { count: number }) {
-  return (
-    <span className="shrink-0 rounded-pill border border-border bg-surface-sunken px-2 py-0.5 text-xs font-medium text-text-subtle">
-      <span className="tabular-nums">{count}</span> {count === 1 ? "item" : "items"}
-    </span>
-  );
-}
-
 // The parsed PULL-tab pack list (`pr.pullSheet`) — the same data the crew
 // GearSection renders, surfaced here so the operator can verify it parsed at the
-// publish gate. Each case is a native <details>: the COLLAPSED summary is the
-// case label (or "Case N" fallback) + item count; EXPANDING reveals the parsed
-// items (qty × item (cat/subCat)), capped at PACK_LIST_ITEMS_CAP, so the default
-// view stays compact while full crew parity is one click away. Cases are capped
-// at PACK_LIST_CASES_CAP (the crew CASE_CAP). UNGATED — unlike the crew page
-// (which date-gates pack-list visibility via isPackListVisibleToday), a review
-// surface always shows what parsed. A case with zero items renders as a plain
-// non-expandable line.
+// publish gate. The case list is the shared body (components/show-panels/PackListBody.tsx,
+// PR C plan Task 4); items are capped at PACK_LIST_ITEMS_CAP and cases at
+// PACK_LIST_CASES_CAP (the crew CASE_CAP). UNGATED — unlike the crew page (which
+// date-gates pack-list visibility via isPackListVisibleToday), a review surface
+// always shows what parsed.
 
 /** Published-mode archived-tab include payload (spec 2026-07-23 §2.1). Built by
  *  `_showReviewModal` (post-augmentation after the warning model), never by the adapter.
@@ -1807,6 +1773,7 @@ export function PackListBreakdown({
   // BEFORE it unmounts (impeccable audit P2).
   const sectionRef = useRef<HTMLDivElement>(null);
   const focusSection = () => sectionRef.current?.focus();
+  const note = overflowNote(cases.length, PACK_LIST_CASES_CAP, "cases");
 
   return (
     <BreakdownSection
@@ -1821,7 +1788,15 @@ export function PackListBreakdown({
         className="flex flex-col gap-3 outline-none"
       >
         {isEmpty ? <p className="text-sm text-text-subtle">No pack list parsed.</p> : null}
-        {hasCases ? <PackListCases dfid={dfid} cases={cases} /> : null}
+        {hasCases ? (
+          <PackListBody
+            cases={cases}
+            cap={PACK_LIST_CASES_CAP}
+            itemsCap={PACK_LIST_ITEMS_CAP}
+            overflow={<p className="text-xs text-text-subtle">{note}</p>}
+            testIdPrefix={`wizard-step3-card-${dfid}`}
+          />
+        ) : null}
         {divergent && dfid != null && wizardSessionId != null ? (
           <ArchivedTabRescanNeeded dfid={dfid} wizardSessionId={wizardSessionId} />
         ) : null}
@@ -1895,104 +1870,6 @@ function PublishedArchivedTabAffordance({
           {`and ${overflow} more archived tabs. Resolve these in the sheet.`}
         </p>
       ) : null}
-    </>
-  );
-}
-
-/** An expanded case's item list. Shows PACK_LIST_ITEMS_CAP items by default;
- *  the overflow tail is a toggle (Show all / Show fewer) so the full parsed
- *  list is one click away without letting a fat case dominate the column. The
- *  caller guarantees items.length > 0. */
-function PackCaseItems({ items }: { items: PullSheetItem[] }) {
-  const [showAll, setShowAll] = useState(false);
-  const overflow = items.length - PACK_LIST_ITEMS_CAP;
-  const visible = showAll ? items : items.slice(0, PACK_LIST_ITEMS_CAP);
-  return (
-    <ul className="mb-2 flex flex-col gap-0.5 pl-6 text-xs text-text-subtle">
-      {visible.map((item, j) => (
-        <li key={`${item.item}-${j}`} className="wrap-break-word">
-          {packItemLabel(item)}
-        </li>
-      ))}
-      {overflow > 0 ? (
-        <li>
-          {/* Instant — deliberate (in-place list length change, no animation). */}
-          <button
-            type="button"
-            onClick={() => setShowAll((v) => !v)}
-            aria-expanded={showAll}
-            // Class A tap-floor recipe (spec 2026-08-10-tap-target-inline-controls §2, site 4),
-            // applied verbatim. Growth is in flow: the tail row gets taller, nothing overlaps.
-            // `w-fit` is belt-and-braces HERE specifically — this control is inline-level inside a
-            // plain <li>, so it already shrink-wraps. It carries load at the recipe's other sites,
-            // where the control is a direct flex child and CSS blockifies it to full width.
-            //
-            // The underline is AT REST, not `hover:` (spec 2026-08-15-step3-tap-cluster §2.4).
-            // Hover-only left 44px of text looking exactly like the static items above it, on a
-            // surface read at venues where nothing can hover. This is the codebase's at-rest
-            // underline idiom, already worn by every sibling text toggle in this file.
-            className="inline-flex w-fit min-h-tap-min items-center rounded-sm font-medium text-text underline underline-offset-2 hover:text-text-strong focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring focus-visible:ring-offset-2 focus-visible:ring-offset-surface"
-          >
-            {showAll ? "Show fewer items" : `Show all ${items.length} items`}
-          </button>
-        </li>
-      ) : null}
-    </ul>
-  );
-}
-
-/** The parsed PULL-tab case list — the disclosure body shared by the normal
- *  pack list and the S3/S4-mixed states (current gear renders even when an
- *  archived-tab offer or included note is also present). */
-function PackListCases({ dfid, cases }: { dfid: string | null; cases: PullSheetCase[] }) {
-  const shown = cases.slice(0, PACK_LIST_CASES_CAP);
-  const note = overflowNote(cases.length, PACK_LIST_CASES_CAP, "cases");
-  return (
-    <>
-      <ul className="flex flex-col">
-        {shown.map((c, i) => {
-          const items = arr(c.items);
-          const label = c.caseLabel || `Case ${i + 1}`;
-          // No items → nothing to expand; render a plain line (the count still
-          // tells the operator the case parsed but is empty).
-          if (items.length === 0) {
-            return (
-              <li
-                key={`${label}-${i}`}
-                className="flex min-h-tap-min items-center gap-2 border-b border-border text-sm text-text last:border-0"
-              >
-                <span aria-hidden="true" className="size-4 shrink-0" />
-                <span className="wrap-break-word flex-1 font-medium text-text-strong">{label}</span>
-                <PackCountPill count={items.length} />
-              </li>
-            );
-          }
-          return (
-            <li
-              key={`${label}-${i}`}
-              className="border-b border-border text-sm text-text last:border-0"
-            >
-              <details className="group" data-testid={`wizard-step3-card-${dfid}-pack-case-${i}`}>
-                {/* §8 summary row: ≥44px tap target, chevron rotate on open
-                    (transform only), count pill. Native marker hidden — the
-                    chevron IS the disclosure affordance. */}
-                <summary className="flex min-h-tap-min cursor-pointer list-none items-center gap-2 [&::-webkit-details-marker]:hidden">
-                  <ChevronRight
-                    aria-hidden="true"
-                    className="size-4 shrink-0 text-text-subtle transition-transform duration-fast group-open:rotate-90"
-                  />
-                  <span className="wrap-break-word flex-1 font-medium text-text-strong">
-                    {label}
-                  </span>
-                  <PackCountPill count={items.length} />
-                </summary>
-                <PackCaseItems items={items} />
-              </details>
-            </li>
-          );
-        })}
-      </ul>
-      {note ? <p className="text-xs text-text-subtle">{note}</p> : null}
     </>
   );
 }
