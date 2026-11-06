@@ -566,7 +566,9 @@ export const COLLAPSE_CENSUS: readonly CollapseCensusRow[] = [
     // effect's `hidden` dependency and its note sit above. Same <Icon>.
     // 141 -> 142 (origin/main merge, saved-copy bar): the header comment's
     // dimension rule names the saved-copy bar's height. Same <Icon>.
-    site: "components/crew/CrewWideNav.tsx:142",
+    // 142 -> 134 (PR C Task 9): the item moved into `renderItem`, above the JSX return,
+    // so one body serves a bare item and a group's. Same <Icon>.
+    site: "components/crew/CrewWideNav.tsx:134",
     disposition: "carrier-survives",
     reason:
       "an icon inside the crew wide nav item; the item itself carries the state, as aria-current (the forced-colors Highlight fill) and as weight (font-semibold on the active path only)",

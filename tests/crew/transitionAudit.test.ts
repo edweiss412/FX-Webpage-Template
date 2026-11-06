@@ -434,6 +434,10 @@ const ROWS: Record<number, Row> = {
         WIDE_E2E,
         "wide nav: the accent indicator is one element that moves to the active item at --duration-fast",
       ],
+      [
+        WIDE_E2E,
+        "registry groups: on a short window a jump keeps the active item inside the nav's box, down to Billing and back up",
+      ],
     ],
     unit: [
       [
@@ -446,9 +450,15 @@ const ROWS: Record<number, Row> = {
       ],
     ],
     source: () => {
-      expect(read(WIDE_NAV)).toContain(
+      const s = read(WIDE_NAV);
+      expect(s).toContain(
         "transition-transform duration-fast ease-out-quart motion-reduce:transition-none",
       );
+      // The nav's own scroll to keep the item in view is instant (PR C transition
+      // inventory): plain `scrollTop` writes, never a smooth scroll beside the bar's slide.
+      expect(s).toContain("nav.scrollTop -=");
+      expect(s).toContain("nav.scrollTop +=");
+      expect(s).not.toMatch(/scrollIntoView|scrollTo\(|scroll-smooth|behavior:/);
       expectNoFramer(WIDE_NAV);
     },
   },
@@ -777,7 +787,12 @@ const CONDITIONAL_RENDERS: Record<string, { presences: number; renders: Conditio
   [TRANSITION]: { presences: 1, renders: [] },
   [WIDE_NAV]: {
     presences: 0,
-    renders: [{ match: "{indicator !== null ? (", treatment: T.indicator }],
+    renders: [
+      { match: "{indicator !== null ? (", treatment: T.indicator },
+      // A group's label and wrapper: a run with no group draws its items bare, and only a
+      // server render changes who is listed (PR C transition inventory).
+      { match: "run.group === undefined ? (", treatment: T.serverPresence },
+    ],
   },
   [ALL_SECTIONS]: {
     presences: 0,

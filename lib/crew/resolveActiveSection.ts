@@ -6,10 +6,14 @@
  * the loading skeleton all derive from the exports here, so no reader spells
  * its own list of ids (crew page redesign PR B plan, Task 3).
  */
+import type { ShowSectionId } from "@/lib/showSections/registry";
 
 /**
  * The crew sections, in nav order: the registry's order (crew page redesign PR C
  * plan, decision 2). `today` is the home, not a section, so it is not one of them.
+ * A literal, because lib/auth/validateNextParam.ts imports this module and the
+ * registry pulls in `lucide-react`; the import above is erased, and
+ * tests/showSections/registry.test.ts pins the equality.
  */
 export const CREW_SECTION_IDS = [
   "venue",
@@ -23,7 +27,7 @@ export const CREW_SECTION_IDS = [
   "rooms",
   "packlist",
   "billing",
-] as const;
+] as const satisfies readonly ShowSectionId[];
 
 /** A `?s=` value the page resolves: the home or a crew section. */
 export type SectionId = "today" | (typeof CREW_SECTION_IDS)[number];

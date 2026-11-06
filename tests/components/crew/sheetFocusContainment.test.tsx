@@ -175,11 +175,12 @@ function controller(bodies: Partial<Record<SectionId, ReactNode>>) {
 }
 
 function openFromRow(id: CrewSectionId): HTMLElement {
-  fireEvent.click(
-    within(screen.getByTestId("crew-all-sections")).getByRole("link", {
-      name: new RegExp(`^${CREW_SECTION_LABELS[id]}\\b`),
-    }),
-  );
+  // By id, because one label starts another ("Crew", "Crew schedule").
+  const row = within(screen.getByTestId("crew-all-sections"))
+    .getAllByRole("link")
+    .find((link) => link.getAttribute("data-section") === id);
+  if (row === undefined) throw new Error(`no "All sections" row for ${id}`);
+  fireEvent.click(row);
   return screen.getByTestId("crew-section-sheet-dialog");
 }
 

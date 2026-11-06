@@ -4,9 +4,11 @@
  * components/crew/CrewWideNav.tsx: the crew page's wide-layout left nav (crew
  * page redesign spec §5.3), 1024px and up.
  *
- * "Today" first, then the viewer's sections from `crewSectionsFor`, one level,
- * no group headings in PR A, and nothing beside a label: no counts, no status
- * dots (spec §9.2, numbers beside nav labels read as alerts).
+ * "Today" first, then the viewer's sections from `crewSectionsFor`, each run of a
+ * registry group under a plain label (spec line 239, PR C plan decision 11), and
+ * nothing beside a label: no counts, no status dots (spec §9.2, numbers beside nav
+ * labels read as alerts). A label is a `div`, never an `h*`, so the page outline does
+ * not move, and an item with no group (Today) draws neither a label nor a wrapper.
  *
  * Presentational. The active item comes from the controller's scroll-spy
  * (`CrewSections`, the shared `activeSectionFor` rule) and carries
@@ -27,20 +29,24 @@
  * bottom edge of everything that sticks (`--crew-sticky-bottom`: the header's
  * bottom edge, which adds the preview banner's height on the admin preview
  * route, plus the saved-copy bar's height while that bar shows), and exactly
- * the viewport less that tall, scrolling on its own.
+ * the viewport less that tall, scrolling on its own. With the group labels its
+ * content runs past a short window, so the measure effect also keeps the active
+ * item inside the nav's box, instantly.
  *
- * data-testid: crew-wide-nav (each item data-section), crew-wide-nav-indicator.
+ * data-testid: crew-wide-nav (each item data-section), crew-wide-nav-group (each
+ * group's label), crew-wide-nav-indicator.
  */
 
-import { useEffect, useLayoutEffect, useRef, useState } from "react";
+import { useEffect, useId, useLayoutEffect, useRef, useState } from "react";
 import { SECTION_ICON } from "@/components/crew/sectionIcon";
+import { crewNavRuns } from "@/lib/crew/crewSections";
 import type { SectionId } from "@/lib/crew/resolveActiveSection";
 import { cn } from "@/lib/ui/cn";
 
 /** Vertical inset of the accent bar inside its item (painted, but measured at runtime). */
 const INDICATOR_INSET_PX = 10;
 
-export type CrewWideNavItem = { id: SectionId; label: string };
+export type CrewWideNavItem = { id: SectionId; label: string; group?: string };
 
 export interface CrewWideNavProps {
   items: readonly CrewWideNavItem[];
@@ -53,6 +59,7 @@ export interface CrewWideNavProps {
 export function CrewWideNav({ items, active, hrefFor, hidden = false }: CrewWideNavProps) {
   const navRef = useRef<HTMLElement | null>(null);
   const itemRefs = useRef(new Map<SectionId, HTMLAnchorElement>());
+  const groupIdBase = useId();
   // `base` is the bar's layout height, fixed at its first placement; every size
   // after that is a scaleY of it, so a move animates transform alone (DESIGN.md
   // §5.4, critique F15).
@@ -78,6 +85,14 @@ export function CrewWideNav({ items, active, hrefFor, hidden = false }: CrewWide
       h,
       base: prev?.base ?? h,
     }));
+    // Spec line 513: the nav tracks the section in view, so a nav that runs past its
+    // box brings the active item back inside it. The bar above is placed in the nav's
+    // scroll coordinates, so this moves them together. A nav that fits never scrolls,
+    // which also keeps a mocked rect in jsdom away from `scrollTop`.
+    if (nav.scrollHeight > nav.clientHeight) {
+      if (itemRect.top < navRect.top) nav.scrollTop -= navRect.top - itemRect.top;
+      else if (itemRect.bottom > navRect.bottom) nav.scrollTop += itemRect.bottom - navRect.bottom;
+    }
     // `hidden` too: a nav hidden by search measures nothing, and showing it
     // again must place the bar for the active item (whole-diff review round 2,
     // round 3, 3A-2).
@@ -93,6 +108,36 @@ export function CrewWideNav({ items, active, hrefFor, hidden = false }: CrewWide
     const raf = requestAnimationFrame(() => setTransitionsOn(true));
     return () => cancelAnimationFrame(raf);
   }, [placed, transitionsOn]);
+
+  const renderItem = (item: CrewWideNavItem) => {
+    const isActive = item.id === active;
+    const Icon = SECTION_ICON[item.id];
+    return (
+      <a
+        key={item.id}
+        ref={(el) => {
+          if (el) itemRefs.current.set(item.id, el);
+          else itemRefs.current.delete(item.id);
+        }}
+        data-section={item.id}
+        href={hrefFor(item.id)}
+        aria-current={isActive ? "true" : undefined}
+        // Today's href has no `s`, so the controller needs this to know it as home.
+        data-crew-home-link={item.id === "today" ? "" : undefined}
+        className={cn(
+          "ml-3 flex min-h-tap-min items-center gap-3 rounded-sm px-3 text-sm transition-colors duration-fast focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring focus-visible:ring-offset-2 focus-visible:ring-offset-bg",
+          isActive
+            ? "bg-surface-sunken font-semibold text-text-strong"
+            : "text-text hover:bg-surface-sunken hover:text-text-strong",
+        )}
+      >
+        <Icon
+          className={cn("size-4 shrink-0", isActive ? "text-accent-on-bg" : "text-text-subtle")}
+        />
+        {item.label}
+      </a>
+    );
+  };
 
   return (
     <nav
@@ -117,35 +162,28 @@ export function CrewWideNav({ items, active, hrefFor, hidden = false }: CrewWide
           }}
         />
       ) : null}
-      {items.map((item) => {
-        const isActive = item.id === active;
-        const Icon = SECTION_ICON[item.id];
-        return (
-          <a
-            key={item.id}
-            ref={(el) => {
-              if (el) itemRefs.current.set(item.id, el);
-              else itemRefs.current.delete(item.id);
-            }}
-            data-section={item.id}
-            href={hrefFor(item.id)}
-            aria-current={isActive ? "true" : undefined}
-            // Today's href has no `s`, so the controller needs this to know it as home.
-            data-crew-home-link={item.id === "today" ? "" : undefined}
-            className={cn(
-              "ml-3 flex min-h-tap-min items-center gap-3 rounded-sm px-3 text-sm transition-colors duration-fast focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring focus-visible:ring-offset-2 focus-visible:ring-offset-bg",
-              isActive
-                ? "bg-surface-sunken font-semibold text-text-strong"
-                : "text-text hover:bg-surface-sunken hover:text-text-strong",
-            )}
+      {crewNavRuns(items).map((run, index) =>
+        run.group === undefined ? (
+          run.items.map(renderItem)
+        ) : (
+          // The wrapper carries no `data-section`, so `[data-section]` still reads items alone.
+          <div
+            key={run.group}
+            role="group"
+            aria-labelledby={`${groupIdBase}-${index}`}
+            className="flex flex-col gap-1"
           >
-            <Icon
-              className={cn("size-4 shrink-0", isActive ? "text-accent-on-bg" : "text-text-subtle")}
-            />
-            {item.label}
-          </a>
-        );
-      })}
+            <div
+              id={`${groupIdBase}-${index}`}
+              data-testid="crew-wide-nav-group"
+              className="ml-3 px-3 pt-3 text-xs font-semibold uppercase tracking-eyebrow text-text-subtle"
+            >
+              {run.group}
+            </div>
+            {run.items.map(renderItem)}
+          </div>
+        ),
+      )}
     </nav>
   );
 }

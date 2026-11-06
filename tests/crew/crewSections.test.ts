@@ -13,11 +13,10 @@ import { existsSync, readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
 import {
   CREW_ALWAYS_SECTION_IDS,
-  CREW_MOVED_IDS,
   CREW_SECTION_LABELS,
+  crewNavRuns,
   crewSectionEntitled,
   crewSectionsFor,
-  isCrewMovedSection,
   type CrewSectionId,
 } from "@/lib/crew/crewSections";
 import {
@@ -29,7 +28,7 @@ import { premise, premiseHolds } from "@/tests/_shared/premise";
 import type { ShowForViewer, Viewer } from "@/lib/data/getShowForViewer";
 import { resolveViewerContext } from "@/lib/data/viewerContext";
 import type { RoleFlag, WorkPhase } from "@/lib/parser/types";
-import { showSection } from "@/lib/showSections/registry";
+import { SHOW_SECTIONS, showSection } from "@/lib/showSections/registry";
 import { isPackListVisibleToday, PACK_LIST_VISIBLE_PHASES } from "@/lib/visibility/packList";
 import { financialsVisible } from "@/lib/visibility/scopeTiles";
 import { makeShowForViewer } from "../fixtures/showForViewer";
@@ -201,6 +200,15 @@ describe("crewSectionsFor (sections, PR A membership)", () => {
     }
   });
 
+  it("sections: CREW_SECTION_IDS is the registry's ids in the registry's order, and every label is the registry's (AC-10)", () => {
+    expect([...CREW_SECTION_IDS]).toEqual(SHOW_SECTIONS.map((s) => s.id));
+    for (const id of CREW_SECTION_IDS) {
+      expect(CREW_SECTION_LABELS[id], id).toBe(showSection(id).label);
+    }
+    // Spec line 238: `schedule` is the case the crew used to name itself.
+    expect(CREW_SECTION_LABELS.schedule).toBe("Crew schedule");
+  });
+
   it("sections: each label comes from CREW_SECTION_LABELS, and no other module keeps its own label table", () => {
     const ctx = ctxFor({ kind: "admin" }, healthyShow());
     const sections = crewSectionsFor(healthyShow(), ctx);
@@ -208,32 +216,28 @@ describe("crewSectionsFor (sections, PR A membership)", () => {
     for (const section of sections) {
       expect(section.label, section.id).toBe(CREW_SECTION_LABELS[section.id]);
     }
-    // The one source: a second `schedule: "<label>"` table anywhere in the product
-    // tree is a copy that can drift (the retired sub-nav kept one; so did both
-    // loading skeletons until they read this module). Walked from disk, so a new
-    // file is covered by default. The canary is a section the crew still names
-    // itself: `venue` read its label from the registry from PR B Task 5 on, so the
-    // crew's table no longer holds it, and `schedule` never moves in PR B
-    // (decision 2).
-    premiseHolds("schedule keeps its crew label", !isCrewMovedSection("schedule"));
+    // The one source: a second `"<label>"` literal anywhere in the product tree is a
+    // copy that can drift (the retired sub-nav kept one; so did both loading skeletons
+    // until they read this module, and the crew's own table until PR C Task 9). Walked
+    // from disk, so a new file is covered by default. The canary is the one label the
+    // registry alone says: no group or heading shares "Crew schedule".
     const files = execFileSync("git", ["ls-files", "app", "components", "lib"], {
       encoding: "utf8",
     })
       .split("\n")
       .filter((f) => /\.(ts|tsx)$/.test(f) && existsSync(f));
     expect(files.length, "the walk saw the product tree").toBeGreaterThan(100);
-    const pattern = new RegExp(`\\bschedule:\\s*"${CREW_SECTION_LABELS.schedule}"`);
-    const copies = files.filter((f) => pattern.test(readFileSync(f, "utf8")));
-    expect(copies).toEqual(["lib/crew/crewSections.ts"]);
+    const literal = `"${CREW_SECTION_LABELS.schedule}"`;
+    const copies = files.filter((f) => readFileSync(f, "utf8").includes(literal));
+    expect(copies).toEqual(["lib/showSections/registry.ts"]);
   });
 
-  it("sections: contacts is a moved crew id right after crew, entitled and listed for every viewer kind, with or without contacts (PR B Task 7)", () => {
+  it("sections: contacts sits right after crew, entitled and listed for every viewer kind, with or without contacts (PR B Task 7)", () => {
     // Spec line 240: every moved registry section other than the gated three is
     // always a member, showing its empty state when empty; spec line 304 moves
     // the contacts out of the Crew section into their own.
     const ids: readonly string[] = CREW_SECTION_IDS;
     expect(ids.indexOf("contacts")).toBe(ids.indexOf("crew") + 1);
-    expect(CREW_MOVED_IDS as readonly string[]).toContain("contacts");
     const contacts = "contacts" as CrewSectionId;
     expect(CREW_SECTION_LABELS[contacts]).toBe(showSection("contacts").label);
     const kinds = new Set<string>();
@@ -324,7 +328,7 @@ describe("hotels and transport replace travel (PR B Task 9, spec line 240, plan 
   /** A rider on no roster: the name-aware gate matches surnames, so no "... Crew". */
   const RIDER = "Riley Rider";
 
-  it("sections: hotels then transport take travel's slot in nav order, both moved ids; travel is no id", () => {
+  it("sections: hotels then transport take travel's slot in nav order; travel is no id", () => {
     const ids: readonly string[] = CREW_SECTION_IDS;
     expect(ids).not.toContain("travel");
     // Travel's slot was right after schedule; Agenda (PR B Task 10) sits between them now.
@@ -332,25 +336,21 @@ describe("hotels and transport replace travel (PR B Task 9, spec line 240, plan 
     expect(ids.indexOf("transport")).toBe(ids.indexOf("hotels") + 1);
     expect(ids.indexOf("rooms")).toBe(ids.indexOf("transport") + 1);
     for (const id of ["hotels", "transport"] as const) {
-      expect(CREW_MOVED_IDS as readonly string[], id).toContain(id);
       expect(CREW_SECTION_LABELS[id as CrewSectionId], id).toBe(showSection(id).label);
     }
   });
 
-  it("sections: rooms comes before packlist in nav order, a moved id every viewer is listed, with its registry label", () => {
+  it("sections: rooms comes before packlist in nav order, every viewer is listed it, with its registry label", () => {
     const rooms: CrewSectionId = "rooms";
     const ids: readonly string[] = CREW_SECTION_IDS;
     expect(ids.indexOf("packlist")).toBe(ids.indexOf("rooms") + 1);
-    expect(CREW_MOVED_IDS as readonly string[]).toContain(rooms);
-    expect(isCrewMovedSection(rooms)).toBe(true);
     expect(CREW_SECTION_LABELS[rooms]).toBe(showSection("rooms").label);
     expect(CREW_ALWAYS_SECTION_IDS as readonly string[]).toContain(rooms);
   });
 
-  it("sections: event follows venue in nav order, a moved id every viewer is listed, with its registry label", () => {
+  it("sections: event follows venue in nav order, every viewer is listed it, with its registry label", () => {
     const ids: readonly string[] = CREW_SECTION_IDS;
     expect(ids.indexOf("event")).toBe(ids.indexOf("venue") + 1);
-    expect(CREW_MOVED_IDS as readonly string[]).toContain("event");
     expect(CREW_SECTION_LABELS.event).toBe(showSection("event").label);
     expect(CREW_ALWAYS_SECTION_IDS).toContain("event");
   });
@@ -470,11 +470,10 @@ describe("agenda: its own section, entitled and listed apart (PR B Task 10, spec
     });
   }
 
-  it("sections: agenda takes the slot after schedule in nav order, a moved id labelled from the registry", () => {
+  it("sections: agenda takes the slot after schedule in nav order, labelled from the registry", () => {
     const ids: readonly string[] = CREW_SECTION_IDS;
     expect(ids.indexOf("agenda")).toBe(ids.indexOf("schedule") + 1);
     expect(ids.indexOf("hotels")).toBe(ids.indexOf("agenda") + 1);
-    expect(CREW_MOVED_IDS as readonly string[]).toContain("agenda");
     expect(CREW_SECTION_LABELS[agenda]).toBe(showSection("agenda").label);
   });
 
@@ -684,8 +683,54 @@ describe("packlist: the pack list's entitlement gate (PR C Task 6)", () => {
   });
 
   it("packlist: it reads its label from the registry", () => {
-    expect(CREW_MOVED_IDS as readonly string[]).toContain("packlist");
     expect(CREW_SECTION_LABELS[packlist]).toBe(showSection("packlist").label);
-    expect(isCrewMovedSection(packlist)).toBe(true);
+  });
+});
+
+describe("crewNavRuns: the wide nav's runs (PR C plan decision 11)", () => {
+  const run = (group: string | undefined, ...ids: string[]) => ({
+    group,
+    items: ids.map((id) => ({ id, ...(group === undefined ? {} : { group }) })),
+  });
+
+  it("a run starts where an item's group differs from the one before it, and an item with no group stands apart", () => {
+    const items = [
+      { id: "today" },
+      { id: "venue", group: "The show" },
+      { id: "event", group: "The show" },
+      { id: "crew", group: "People" },
+    ];
+    expect(crewNavRuns(items)).toEqual([
+      run(undefined, "today"),
+      run("The show", "venue", "event"),
+      run("People", "crew"),
+    ]);
+  });
+
+  it("a group with no member has no run, whatever the group list holds", () => {
+    const runs = crewNavRuns(
+      SHOW_SECTIONS.filter((s) => s.id !== "billing").map(({ id, group }) => ({ id, group })),
+    );
+    premiseHolds(
+      "billing is the only section in its group",
+      SHOW_SECTIONS.filter((s) => s.group === showSection("billing").group).length === 1,
+    );
+    expect(runs.map((r) => r.group)).not.toContain(showSection("billing").group);
+  });
+
+  it("no item falls out of the nav: every item lands in one run, in entry order, even when a group returns", () => {
+    const items = [
+      { id: "a", group: "One" },
+      { id: "b", group: "Two" },
+      { id: "c", group: "One" },
+      { id: "d" },
+      { id: "e" },
+    ];
+    expect(crewNavRuns(items).flatMap((r) => r.items)).toEqual(items);
+    expect(crewNavRuns(items).map((r) => r.group)).toEqual(["One", "Two", "One", undefined]);
+  });
+
+  it("no items, no runs", () => {
+    expect(crewNavRuns([])).toEqual([]);
   });
 });

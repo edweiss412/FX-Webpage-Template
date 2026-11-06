@@ -311,5 +311,7 @@ describe("CREW_SECTION_IDS and the always table are read where they are used", (
       ...probe.map((id) => CREW_SECTION_LABELS[id]),
     ]);
     expect(texts("crew-loading-list-row")).toEqual(probe.map((id) => CREW_SECTION_LABELS[id]));
+    // The nav column's runs follow the table too: one label per run, in table order.
+    expect(texts("crew-loading-nav-group")).toEqual(["Gear", "People"]);
   });
 });

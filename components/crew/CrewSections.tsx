@@ -133,6 +133,7 @@ import type { DayRowProps, PassProps } from "@/lib/crew/passModel";
 import { canonicalSectionParam, type SectionId } from "@/lib/crew/resolveActiveSection";
 import type { RunCardProps } from "@/lib/crew/runOfShowCard";
 import { buildHomeHref, buildSectionHref } from "@/lib/crew/sectionHref";
+import { showSection } from "@/lib/showSections/registry";
 import { cn } from "@/lib/ui/cn";
 import { forHistory } from "@/lib/ui/historyState";
 import {
@@ -902,7 +903,8 @@ export function CrewSections({
   const navItems: CrewWideNavItem[] = useMemo(
     () => [
       { id: "today", label: CREW_TODAY_LABEL },
-      ...sections.map(({ id, label }) => ({ id, label })),
+      // `today` has no registry record, so only a section takes a group.
+      ...sections.map(({ id, label }) => ({ id, label, group: showSection(id).group })),
     ],
     [sections],
   );

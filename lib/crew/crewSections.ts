@@ -33,7 +33,7 @@ import { suppressesDates } from "@/lib/crew/dateSuppression";
 import { viewerFlightShown } from "@/lib/crew/flightDisplay";
 import { CREW_SECTION_IDS, type SectionId } from "@/lib/crew/resolveActiveSection";
 import { sectionPeek, type SectionPeekViewer } from "@/lib/crew/sectionPeek";
-import { showSection, type ShowSectionId } from "@/lib/showSections/registry";
+import { showSection } from "@/lib/showSections/registry";
 import { isPackListVisibleToday } from "@/lib/visibility/packList";
 import { financialsVisible, transportTileVisible } from "@/lib/visibility/scopeTiles";
 
@@ -50,48 +50,12 @@ export type CrewSection = { id: CrewSectionId; label: string };
 export type CrewSectionsViewer = SectionPeekViewer;
 
 /**
- * The crew sections moved onto a shared body (components/show-panels/), named
- * explicitly rather than derived (PR B plan, decision 2): `schedule`, `venue` and
- * `crew` are registry ids long before they move, and `schedule` never does. Each
- * section task appends its own ids in its own commit. A moved section's label and
- * glyph are its registry record's (decisions 2 and 3), so the crew page and the
- * admin popup name and draw it the same way.
- */
-export const CREW_MOVED_IDS = [
-  "billing",
-  "venue",
-  "crew",
-  "contacts",
-  "hotels",
-  "transport",
-  "agenda",
-  "event",
-  "packlist",
-  "rooms",
-] as const satisfies readonly (CrewSectionId & ShowSectionId)[];
-
-type CrewMovedId = (typeof CREW_MOVED_IDS)[number];
-
-/** Whether the section reads its label and glyph from the registry. */
-export function isCrewMovedSection(id: CrewSectionId): id is CrewMovedId {
-  return (CREW_MOVED_IDS as readonly string[]).includes(id);
-}
-
-/** The crew's own names for the sections not yet moved (spec §5.1, PR A's labels). */
-const CREW_OWN_LABELS: Readonly<Record<Exclude<CrewSectionId, CrewMovedId>, string>> = {
-  schedule: "Schedule",
-};
-
-/**
- * The crew sections' labels: the registry's for a moved section, the crew's own
- * for the rest. The one label source: the "All sections" rows, the wide nav, the
- * sheet's title and its close button's name all read it.
+ * The crew sections' labels, each the registry's, so the crew page and the admin
+ * popup name a section the same way (AC-10). The one label source: the "All sections"
+ * rows, the wide nav, the sheet's title and its close button's name all read it.
  */
 export const CREW_SECTION_LABELS: Readonly<Record<CrewSectionId, string>> = Object.fromEntries(
-  CREW_SECTION_IDS.map((id) => [
-    id,
-    isCrewMovedSection(id) ? showSection(id).label : CREW_OWN_LABELS[id],
-  ]),
+  CREW_SECTION_IDS.map((id) => [id, showSection(id).label]),
 ) as Record<CrewSectionId, string>;
 
 /** The wide nav's first item, the Today block (spec §5.3). */
@@ -103,6 +67,25 @@ export const CREW_TODAY_LABEL = "Today";
  */
 export function crewSectionLabel(id: SectionId): string {
   return id === "today" ? CREW_TODAY_LABEL : CREW_SECTION_LABELS[id];
+}
+
+/** A stretch of nav entries under one group; an entry with no group has none. */
+export type CrewNavRun<T> = { group: string | undefined; items: T[] };
+
+/**
+ * The wide nav's entries as contiguous runs of a group (PR C plan decision 11). A run
+ * starts where an entry's group differs from the one before it, so a group with no
+ * member draws nothing and no entry can fall out, which a filter over the group list
+ * could not promise. The live nav and the loading skeleton both draw these.
+ */
+export function crewNavRuns<T extends { group?: string }>(items: readonly T[]): CrewNavRun<T>[] {
+  const runs: CrewNavRun<T>[] = [];
+  for (const item of items) {
+    const last = runs.at(-1);
+    if (last !== undefined && last.group === item.group) last.items.push(item);
+    else runs.push({ group: item.group, items: [item] });
+  }
+  return runs;
 }
 
 /** A listed section plus its one-line peek, as the client receives it. */

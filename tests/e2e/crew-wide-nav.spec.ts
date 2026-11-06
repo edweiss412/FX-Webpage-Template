@@ -52,10 +52,16 @@ import { readFileSync } from "node:fs";
 import { join } from "node:path";
 
 import { test, expect, type Page } from "@playwright/test";
-import { CREW_MOVED_IDS, CREW_SECTION_LABELS, type CrewSectionId } from "@/lib/crew/crewSections";
+import { CREW_SECTION_LABELS, type CrewSectionId } from "@/lib/crew/crewSections";
 import { CREW_SECTION_IDS } from "@/lib/crew/resolveActiveSection";
-import { showSection, type ShowSectionId } from "@/lib/showSections/registry";
+import {
+  SHOW_SECTION_GROUPS,
+  SHOW_SECTIONS,
+  showSection,
+  type ShowSectionId,
+} from "@/lib/showSections/registry";
 import { SCROLL_SPY_OFFSET_PX, activeSectionFor } from "@/lib/ui/scrollSpy";
+import { premise, premiseHolds } from "@/tests/_shared/premise";
 import { refreshFromServer, renderFresh } from "./helpers/crewRefresh";
 import { ADMIN_FIXTURE } from "./helpers/fixtures";
 import { updateShowLocked } from "./helpers/lockedShowCopy";
@@ -1756,7 +1762,7 @@ test.describe("agenda: the Agenda section, wide (PR B Task 10)", () => {
   const stackedAgenda = (page: Page) =>
     page.locator('[data-testid="crew-wide-section"][data-section="agenda"]');
 
-  test("agenda: the wide nav lists Today then the viewer's members in CREW_SECTION_IDS order, each moved id with its registry label, and stacks them in that order", async ({
+  test("agenda: the wide nav lists Today then the viewer's members in CREW_SECTION_IDS order, each with its registry label, and stacks them in that order", async ({
     page,
   }) => {
     // A pack-list phase on the pinned day (PR C Task 6: Pack list's gate).
@@ -1766,10 +1772,7 @@ test.describe("agenda: the Agenda section, wide (PR B Task 10)", () => {
       await loadIn(page, `/show/${seeded.slug}/${seeded.shareToken}`, "wide");
       // An admin on a show with an agenda file, on a pack-list day, is a member of every
       // crew section.
-      const moved: readonly string[] = CREW_MOVED_IDS;
-      const expected = CREW_SECTION_IDS.map((id) =>
-        moved.includes(id) ? showSection(id as ShowSectionId).label : CREW_SECTION_LABELS[id],
-      );
+      const expected = CREW_SECTION_IDS.map((id) => showSection(id as ShowSectionId).label);
       const items = page.getByTestId("crew-wide-nav").locator("[data-section]");
       const sections = await items.evaluateAll((els) =>
         els.map((e) => e.getAttribute("data-section")),
@@ -2020,6 +2023,315 @@ test.describe("pack list: the Pack list section, wide (PR C Task 6)", () => {
       expect(Math.abs(m.rawLeft - m.textLeft)).toBeLessThanOrEqual(0.5);
       // The row spans the card's content box, so the count sits at its far edge.
       expect(m.summaryWidth).toBeGreaterThan(m.panelWidth / 2);
+    } finally {
+      await deleteSeededShow(seeded.driveFileId);
+    }
+  });
+});
+
+/**
+ * PR C plan Task 9: the nav shows the registry's groups (spec line 239, AC-10), as runs
+ * of a group in entry order (plan decision 11). Everything expected here is derived from
+ * `SHOW_SECTIONS`, never typed, so a group or a label that moved in the registry moves
+ * the expectation with it. A seeded show of its own: Waldorf has no agenda file and shuts
+ * Pack list on the pinned day, so only a seeded admin is a member of every section.
+ */
+test.describe("registry groups: the wide nav's group headings (PR C Task 9)", () => {
+  test.setTimeout(180_000);
+
+  /** The pinned clock's day in the show's timezone. */
+  const PINNED_DAY = "2026-04-21";
+  const CREW_MEMBER = "Wide Groups Crew";
+
+  test.beforeEach(async ({ page }) => {
+    await page.setExtraHTTPHeaders({
+      "X-Screenshot-Frozen-Now": SHOW_DAY_N_INSTANT,
+      Authorization: `Bearer ${TEST_AUTH_SECRET}`,
+    });
+    await page.clock.setFixedTime(new Date(SHOW_DAY_N_INSTANT));
+    await page.setViewportSize(WIDE);
+    await signOut(page);
+    await signInAs(page, ADMIN_FIXTURE);
+  });
+
+  /** An agenda file, and the pinned day's phase, which is what Pack list's gate reads. */
+  function seedGroupsShow(title: string, phase: "Set" | "Show") {
+    return seedShowWithCrew({
+      title,
+      dates: {
+        travelIn: "2026-04-19",
+        set: "2026-04-20",
+        showDays: [PINNED_DAY, "2026-04-22"],
+        travelOut: "2026-04-23",
+      },
+      agendaLinks: [
+        {
+          label: "AGENDA",
+          fileId: "registryGroupsWideE2E01",
+          extracted: {
+            confidence: "high",
+            corrections: 0,
+            extractorVersion: 2,
+            days: [
+              {
+                dayLabel: "Tuesday, April 21, 2026",
+                date: null,
+                sessions: [
+                  {
+                    time: "9:00 AM",
+                    title: "Groups rehearsal",
+                    room: "Ballroom B",
+                    tracks: [],
+                    drift: null,
+                  },
+                ],
+              },
+            ],
+          },
+        },
+      ] as never,
+      schedulePhases: { [PINNED_DAY]: [phase] },
+      crew: [{ name: CREW_MEMBER, role: "A1" }],
+    });
+  }
+
+  async function loadWide(page: Page, path: string) {
+    const res = await page.goto(path, { waitUntil: "domcontentloaded" });
+    expect(res?.status(), `${path} must render`).toBe(200);
+    const root = page.getByTestId("crew-shell-sections");
+    await expect(root).toHaveAttribute("data-crew-controller-ready", "true", { timeout: 30_000 });
+    await expect(root).toHaveAttribute("data-crew-mode", "wide");
+  }
+
+  const navEl = (page: Page) => page.getByTestId("crew-wide-nav");
+  const navItem = (page: Page, id: string) => navEl(page).locator(`[data-section="${id}"]`);
+
+  type Run = { heading: string | null; items: string[] };
+
+  /** The nav as a reader meets it, top to bottom: each heading with the items under it. */
+  function readRuns(page: Page): Promise<Run[]> {
+    return navEl(page).evaluate((nav) => {
+      const label = (a: Element) => a.textContent ?? "";
+      const runs: Run[] = [];
+      for (const child of nav.children) {
+        if (child.matches("a[data-section]")) {
+          runs.push({ heading: null, items: [label(child)] });
+        } else if (child.getAttribute("role") === "group") {
+          const id = child.getAttribute("aria-labelledby") ?? "";
+          runs.push({
+            heading: document.getElementById(id)?.textContent ?? null,
+            items: [...child.querySelectorAll("a[data-section]")].map(label),
+          });
+        }
+      }
+      return runs;
+    });
+  }
+
+  test("registry groups: an admin with every member reads Today, then each registry group in order, each followed by exactly its sections", async ({
+    page,
+  }) => {
+    const seeded = await seedGroupsShow("Registry Groups Full Show", "Set");
+    try {
+      await loadWide(page, `/show/${seeded.slug}/${seeded.shareToken}`);
+      expect(await readRuns(page)).toEqual([
+        { heading: null, items: ["Today"] },
+        ...SHOW_SECTION_GROUPS.map((group) => ({
+          heading: group,
+          items: SHOW_SECTIONS.filter((s) => s.group === group).map((s) => s.label),
+        })),
+      ]);
+      // Painted, not only in the DOM: an element a reader cannot see still has text.
+      for (const label of await navEl(page).getByTestId("crew-wide-nav-group").all()) {
+        await expect(label).toBeVisible();
+      }
+      // Each run is a labelled group to assistive tech, with its items and only them.
+      for (const group of SHOW_SECTION_GROUPS) {
+        const run = navEl(page).getByRole("group", { name: group, exact: true });
+        await expect(run.getByRole("link"), group).toHaveText(
+          SHOW_SECTIONS.filter((s) => s.group === group).map((s) => s.label),
+        );
+      }
+      // A heading is a plain label, so the page outline does not move (decision 11).
+      await expect(navEl(page).getByRole("heading")).toHaveCount(0);
+    } finally {
+      await deleteSeededShow(seeded.driveFileId);
+    }
+  });
+
+  test("registry groups: a non-lead on a Show day has no Money heading, and Gear lists Rooms alone", async ({
+    page,
+  }) => {
+    const seeded = await seedGroupsShow("Registry Groups Non-Lead Show", "Show");
+    try {
+      const member = seeded.crew.find((c) => c.name === CREW_MEMBER);
+      if (!member) throw new Error(`no seeded crew member ${CREW_MEMBER}`);
+      await loadWide(page, `/admin/show/${seeded.slug}/preview/${member.id}`);
+      const runs = await readRuns(page);
+      // Positive control: this viewer's nav has headings to be absent from.
+      expect(runs.map((r) => r.heading)).toContain(showSection("rooms").group);
+      const money = showSection("billing").group;
+      premiseHolds(
+        "Billing is the only section in its group",
+        SHOW_SECTIONS.filter((s) => s.group === money).length === 1,
+      );
+      expect(runs.map((r) => r.heading)).not.toContain(money);
+      expect(runs.find((r) => r.heading === showSection("rooms").group)?.items).toEqual([
+        showSection("rooms").label,
+      ]);
+    } finally {
+      await deleteSeededShow(seeded.driveFileId);
+    }
+  });
+
+  test("registry groups: no number sits beside a label, and every item's accessible name is its label alone", async ({
+    page,
+  }) => {
+    const seeded = await seedGroupsShow("Registry Groups Copy Show", "Set");
+    try {
+      await loadWide(page, `/show/${seeded.slug}/${seeded.shareToken}`);
+      const labels = ["Today", ...SHOW_SECTIONS.map((s) => s.label)];
+      await expect(navEl(page).getByRole("link")).toHaveCount(labels.length);
+      for (const label of labels) {
+        await expect(navEl(page).getByRole("link", { name: label, exact: true })).toHaveCount(1);
+      }
+      // Spec line 421. The read sees every label and heading, so its silence is evidence.
+      const text = (await navEl(page).textContent()) ?? "";
+      for (const line of [...labels, ...SHOW_SECTION_GROUPS]) expect(text).toContain(line);
+      expect(text).not.toMatch(/\d/);
+    } finally {
+      await deleteSeededShow(seeded.driveFileId);
+    }
+  });
+
+  test("registry groups: dimensional: the nav holds spec §8 item 5 with group headings, every item at the tap floor, and the accent bar on the active item under its heading", async ({
+    page,
+  }) => {
+    const TOL = 0.5;
+    const seeded = await seedGroupsShow("Registry Groups Dimension Show", "Set");
+    try {
+      // Crew opens the People run, so a heading sits straight above the active item.
+      await loadWide(page, `/show/${seeded.slug}/${seeded.shareToken}?s=crew`);
+      await expect(navItem(page, "crew")).toHaveAttribute("aria-current", "true");
+
+      const readDims = () =>
+        page.evaluate(() => {
+          const box = (el: Element) => {
+            const r = el.getBoundingClientRect();
+            return {
+              top: r.top,
+              bottom: r.bottom,
+              left: r.left,
+              right: r.right,
+              w: r.width,
+              h: r.height,
+            };
+          };
+          const nav = document.querySelector('[data-testid="crew-wide-nav"]')!;
+          const header = document.querySelector('[data-testid="page-header"]')!;
+          const main = document.querySelector('[data-testid="page-container"]')!;
+          const row = main.parentElement!;
+          const rs = getComputedStyle(row);
+          const ns = getComputedStyle(nav);
+          const active = nav.querySelector('[aria-current="true"]')!;
+          const run = active.parentElement!;
+          return {
+            innerHeight: window.innerHeight,
+            nav: {
+              ...box(nav),
+              position: ns.position,
+              overflowY: ns.overflowY,
+              shrink: ns.flexShrink,
+            },
+            header: box(header),
+            main: { ...box(main), minWidth: getComputedStyle(main).minWidth },
+            rowGap: Number.parseFloat(rs.columnGap),
+            rowRight: row.getBoundingClientRect().right - Number.parseFloat(rs.paddingRight),
+            items: [...nav.querySelectorAll("a[data-section]")].map(box),
+            runs: [...nav.querySelectorAll('[role="group"]')].map(box),
+            active: box(active),
+            bar: box(document.querySelector('[data-testid="crew-wide-nav-indicator"]')!),
+            heading: box(run.firstElementChild!),
+            activeIsFirstInRun: run.querySelector("a[data-section]") === active,
+          };
+        });
+
+      // The bar slides at --duration-fast from its first placement: wait until it lands.
+      await expect
+        .poll(async () => {
+          const m = await readDims();
+          return Math.abs(m.bar.top - m.active.top - (m.active.bottom - m.bar.bottom));
+        })
+        .toBeLessThanOrEqual(TOL);
+
+      const m = await readDims();
+      const at = JSON.stringify(m);
+      // Spec §8 item 5, read through the 2026-10-31 amendment.
+      expect(Math.abs(m.nav.w - 240), at).toBeLessThanOrEqual(TOL);
+      expect(m.nav.shrink, at).toBe("0");
+      expect(m.nav.position, at).toBe("sticky");
+      expect(m.nav.overflowY, at).toBe("auto");
+      expect(Math.abs(m.nav.top - m.header.bottom), at).toBeLessThanOrEqual(TOL);
+      expect(Math.abs(m.nav.bottom - m.innerHeight), at).toBeLessThanOrEqual(TOL);
+      expect(Math.abs(m.main.left - (m.nav.right + m.rowGap)), at).toBeLessThanOrEqual(TOL);
+      expect(Math.abs(m.main.right - m.rowRight), at).toBeLessThanOrEqual(TOL);
+      // `min-w-0`, so a wide child never pushes the column past the row.
+      expect(m.main.minWidth, at).toBe("0px");
+
+      // A wrapper changes no item's box: each keeps the tap floor and Today's left edge
+      // and width, and every run spans the column the items sit in.
+      premise("nav items", m.items.length, SHOW_SECTIONS.length);
+      const [today] = m.items;
+      for (const item of m.items) {
+        expect(item.h, at).toBeGreaterThanOrEqual(44 - TOL);
+        expect(Math.abs(item.left - today!.left), at).toBeLessThanOrEqual(TOL);
+        expect(Math.abs(item.w - today!.w), at).toBeLessThanOrEqual(TOL);
+      }
+      premise("nav runs", m.runs.length, 0);
+      for (const run of m.runs) {
+        expect(Math.abs(run.right - today!.right), at).toBeLessThanOrEqual(TOL);
+      }
+
+      // The bar sits on the active item, inside its height, and clear of the heading.
+      premiseHolds("the active item opens its run", m.activeIsFirstInRun);
+      expect(m.heading.h, at).toBeGreaterThan(0);
+      expect(m.heading.bottom, at).toBeLessThanOrEqual(m.active.top + TOL);
+      expect(Math.abs(m.bar.top - (m.active.top + 10)), at).toBeLessThanOrEqual(TOL);
+      expect(Math.abs(m.bar.bottom - (m.active.bottom - 10)), at).toBeLessThanOrEqual(TOL);
+      expect(m.bar.top, at).toBeGreaterThan(m.heading.bottom);
+    } finally {
+      await deleteSeededShow(seeded.driveFileId);
+    }
+  });
+
+  test("registry groups: on a short window a jump keeps the active item inside the nav's box, down to Billing and back up", async ({
+    page,
+  }) => {
+    const seeded = await seedGroupsShow("Registry Groups Short Window Show", "Set");
+    try {
+      await page.setViewportSize({ width: 1024, height: 640 });
+      await loadWide(page, `/show/${seeded.slug}/${seeded.shareToken}`);
+      const overflow = await navEl(page).evaluate((nav) => nav.scrollHeight - nav.clientHeight);
+      premise("the nav's overflow past its box, in px", overflow, 0);
+
+      // A DOM click, because a Playwright click scrolls its target into view first, which
+      // would do the nav's job for it. Then the item's place in the box is the evidence.
+      const insideNav = (id: string) =>
+        navItem(page, id).evaluate((item) => {
+          const nav = item.closest('[data-testid="crew-wide-nav"]')!.getBoundingClientRect();
+          const r = item.getBoundingClientRect();
+          return r.top >= nav.top - 0.5 && r.bottom <= nav.bottom + 0.5;
+        });
+      expect(await insideNav("billing"), "the premise: Billing starts below the fold").toBe(false);
+
+      await navItem(page, "billing").evaluate((item) => (item as HTMLElement).click());
+      await expect(navItem(page, "billing")).toHaveAttribute("aria-current", "true");
+      await expect.poll(() => insideNav("billing")).toBe(true);
+      expect(await insideNav("today"), "the premise: Today left the box").toBe(false);
+
+      await navItem(page, "today").evaluate((item) => (item as HTMLElement).click());
+      await expect(navItem(page, "today")).toHaveAttribute("aria-current", "true");
+      await expect.poll(() => insideNav("today")).toBe(true);
     } finally {
       await deleteSeededShow(seeded.driveFileId);
     }

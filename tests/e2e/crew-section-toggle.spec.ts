@@ -38,7 +38,7 @@ import { join } from "node:path";
 
 import { test, expect, type Locator, type Page } from "@playwright/test";
 import { DRAG_DISMISS_THRESHOLD_PX } from "@/components/shared/sheetConstants";
-import { CREW_MOVED_IDS, CREW_SECTION_LABELS, type CrewSectionId } from "@/lib/crew/crewSections";
+import { CREW_SECTION_LABELS, type CrewSectionId } from "@/lib/crew/crewSections";
 import { CREW_SECTION_IDS } from "@/lib/crew/resolveActiveSection";
 import { showSection, type ShowSectionId } from "@/lib/showSections/registry";
 import { refreshFromServer, renderFresh } from "./helpers/crewRefresh";
@@ -1509,8 +1509,8 @@ test.describe("billing: the budget alias, compact (PR B Task 4)", () => {
  * preview route (the harness rule "Viewer per case").
  *
  * The new ids are spelled as strings here and their labels read from the show
- * section registry, which is where a moved section's label comes from
- * (`isCrewMovedSection` in lib/crew/crewSections.ts): these cases are written
+ * section registry, which is where every section's label comes from
+ * (`CREW_SECTION_LABELS` in lib/crew/crewSections.ts): these cases are written
  * before the crew id union carries `hotels` and `transport`, and typecheck on
  * both trees.
  */
@@ -2159,37 +2159,14 @@ test.describe("agenda: the Agenda section, compact (PR B Task 10)", () => {
         .evaluateAll((els) => els.map((e) => e.getAttribute("data-section")));
       expect(ids).toEqual([...CREW_SECTION_IDS]);
       expect(ids.indexOf("agenda")).toBe(ids.indexOf("schedule") + 1);
-      const moved: readonly string[] = CREW_MOVED_IDS;
       for (const id of CREW_SECTION_IDS) {
-        const label = page.locator(`#crew-all-sections-label-${id}`);
-        if (moved.includes(id)) {
-          await expect(label, id).toHaveText(showSection(id as ShowSectionId).label);
-        } else {
-          // A section not yet moved keeps the crew's own label, which is not the registry's.
-          await expect(label, id).toHaveText(CREW_SECTION_LABELS[id]);
-        }
+        await expect(page.locator(`#crew-all-sections-label-${id}`), id).toHaveText(
+          showSection(id as ShowSectionId).label,
+        );
       }
-      await expect(page.locator("#crew-all-sections-label-schedule")).not.toHaveText(
-        showSection("schedule").label,
-      );
-      // The moved set, pinned whole in this one place: the seven sections spec line
-      // 324 moves in PR B, and each PR C moves in its own task. Every other check
-      // reads CREW_MOVED_IDS, so this is what catches a section left out of it (it
-      // would keep its crew label and glyph).
-      expect([...moved].sort()).toEqual(
-        [
-          "agenda",
-          "billing",
-          "contacts",
-          "crew",
-          "event",
-          "hotels",
-          "packlist",
-          "rooms",
-          "transport",
-          "venue",
-        ].sort(),
-      );
+      // AC-10: the crew's own "Schedule" is gone, spelled here so the registry is not
+      // the only witness (spec line 238).
+      await expect(page.locator("#crew-all-sections-label-schedule")).toHaveText("Crew schedule");
     } finally {
       await deleteSeededShow(seeded.driveFileId);
     }

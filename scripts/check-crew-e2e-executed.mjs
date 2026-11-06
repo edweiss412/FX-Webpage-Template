@@ -181,7 +181,9 @@ export const REQUIRED = {
   // 1280). Re-derived from `playwright test --list` (38).
   // 39 since PR C's Task 7 added the "rooms" deep link. Re-derived from --list.
   // 40 since PR C's Task 8 added the "gear alias" landing. Re-derived from --list.
-  "crew-wide-nav.spec.ts": 40,
+  // 45 since PR C's Task 9 added five "registry groups" cases (the full nav, a non-lead's
+  // Show day, the copy, the dimensional case, the short window). Re-derived from --list.
+  "crew-wide-nav.spec.ts": 45,
   // 9, and the number is the MATRIX rather than a multiple (plan
   // 2026-08-09-quick-wins-2 "e2e harness readiness"). theme-toggle runs two arms:
   //   arm (a) — 4 standalone-toggle cases, BOTH projects            = 8

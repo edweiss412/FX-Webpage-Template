@@ -17,7 +17,10 @@
  *  - the admin rail's group list (`STEP3_SECTION_GROUPS`) diverging from the
  *    registry's six groups plus the admin-only "Checks";
  *  - the registry importing the admin (directly or through a repo-local module),
- *    which would drag admin code into every crew bundle that reads a label.
+ *    which would drag admin code into every crew bundle that reads a label;
+ *  - the crew page's ids, labels or groups differing from the admin popup's (AC-10):
+ *    `CREW_SECTION_IDS` out of the registry's order, a crew literal standing in for a
+ *    registry label, or a group split in two, which the nav would draw twice.
  *
  * The consumption proof (that the admin READS these values rather than holding
  * equal literals) is tests/showSections/registryConsumption.test.ts; equality
@@ -32,6 +35,8 @@ import { buildStagedSectionData, type SectionData } from "@/components/admin/rev
 import { includesAgenda } from "@/components/admin/review/sectionInclusion";
 import { STEP3_SECTION_GROUPS, step3Sections } from "@/components/admin/wizard/step3ReviewSections";
 import type { AdminAgendaItem } from "@/lib/agenda/agendaAdminPreview";
+import { CREW_SECTION_LABELS } from "@/lib/crew/crewSections";
+import { CREW_SECTION_IDS } from "@/lib/crew/resolveActiveSection";
 import {
   SHOW_SECTION_GROUPS,
   SHOW_SECTIONS,
@@ -103,6 +108,11 @@ describe("show-section registry: shape (spec §5.1 line 238)", () => {
   it("showSection(id) returns that id's entry, for every id", () => {
     for (const s of SHOW_SECTIONS) expect(showSection(s.id)).toEqual(s);
   });
+
+  it("each group's sections are contiguous, so the crew nav's runs are the groups (PR C plan decision 11)", () => {
+    const runs = SHOW_SECTIONS.map((s) => s.group).filter((g, i, all) => g !== all[i - 1]);
+    expect(runs).toEqual(SPEC_GROUPS);
+  });
 });
 
 describe("show-section registry: parity with the admin popup (spec line 490)", () => {
@@ -131,6 +141,30 @@ describe("show-section registry: parity with the admin popup (spec line 490)", (
   it("STEP3_SECTION_GROUPS is the registry's groups plus the admin-only Checks", () => {
     expect([...STEP3_SECTION_GROUPS]).toEqual([...SHOW_SECTION_GROUPS, "Checks"]);
   });
+});
+
+describe("the crew page's ids, labels and groups equal the admin popup's (AC-10, spec lines 490, 520)", () => {
+  it("CREW_SECTION_IDS is the registry's ids, in the registry's order", () => {
+    expect([...CREW_SECTION_IDS]).toEqual(SHOW_SECTIONS.map((s) => s.id));
+  });
+
+  it.each(FIXTURES)(
+    "%s: every crew id's label and group equal the step3Sections entry's",
+    (_mode, build) => {
+      const d = build();
+      premiseHolds("the fixture includes the conditional agenda entry", includesAgenda(d));
+      const admin = new Map(step3Sections(d).map((def) => [def.id as string, def]));
+      premise("crew section ids", CREW_SECTION_IDS.length, 0);
+      for (const id of CREW_SECTION_IDS) {
+        const def = admin.get(id);
+        premiseHolds(`the popup renders ${id}`, def !== undefined);
+        expect({ label: CREW_SECTION_LABELS[id], group: showSection(id).group }, id).toEqual({
+          label: def!.label,
+          group: def!.group,
+        });
+      }
+    },
+  );
 });
 
 // ── The registry imports nothing from the admin ─────────────────────────────

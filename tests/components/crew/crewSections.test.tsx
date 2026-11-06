@@ -175,10 +175,13 @@ function sheet(): HTMLElement | null {
   return screen.queryByRole("dialog");
 }
 
+/** By id, because one label starts another ("Crew", "Crew schedule"). */
 function row(id: CrewSectionId): HTMLElement {
-  return within(screen.getByTestId("crew-all-sections")).getByRole("link", {
-    name: new RegExp(`^${CREW_SECTION_LABELS[id]}\\b`),
-  });
+  const found = within(screen.getByTestId("crew-all-sections"))
+    .getAllByRole("link")
+    .find((link) => link.getAttribute("data-section") === id);
+  if (found === undefined) throw new Error(`no "All sections" row for ${id}`);
+  return found;
 }
 
 function closeButton(id: CrewSectionId): HTMLElement {

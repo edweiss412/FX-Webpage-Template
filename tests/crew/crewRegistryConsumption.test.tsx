@@ -5,22 +5,22 @@
  * consumption proof", decisions 2 and 3; spec
  * docs/superpowers/specs/2026-10-26-crew-page-redesign-design.md §5.1 line 238)
  *
- * The claim: for every section the crew page has moved onto a shared body
- * (`CREW_MOVED_IDS`), every crew surface that names or draws the section reads
- * its label and glyph FROM lib/showSections/registry.ts: `crewSectionLabel`,
- * `SECTION_ICON`, the "All sections" row, the wide nav item, the sheet's title
- * and its close button's name, the crew panel card's h3 and chip, and the search
- * results' chip and group heading. A literal equal to the registry's value
- * ("Billing & docs") passes any equality test, so the registry accessor is
+ * The claim: for every crew section (`CREW_SECTION_IDS`), every crew surface that
+ * names or draws the section reads its label and glyph FROM
+ * lib/showSections/registry.ts: `crewSectionLabel`, `SECTION_ICON`, the "All
+ * sections" row, the wide nav item, the sheet's title and its close button's name,
+ * the crew panel card's h3 and chip, and the search results' chip and group heading.
+ * The wide nav's group label reads the same record. A literal equal to the registry's
+ * value ("Billing & docs") passes any equality test, so the registry accessor is
  * mocked to return probe values no literal can hold, distinct per id, and every
  * reader has to follow them.
  *
- * The converse is pinned under the same mock: a section not yet moved keeps its
- * crew label and glyph (so `schedule` stays "Schedule", not the registry's "Crew
- * schedule", and `gear` stays "Gear", plan decision 2).
+ * The home has no record: under the same mock `today` keeps `CREW_TODAY_LABEL` and
+ * `HomeIcon`, and `showSection` is never asked for it (PR C plan Task 9).
  *
- * The cases iterate `CREW_MOVED_IDS`, so each later section task's ids are
- * covered with no edit here.
+ * The cases iterate `CREW_SECTION_IDS`, so a new section is covered with no edit here.
+ * The one exception is the panel card: `schedule` takes the registry's label and glyph
+ * but no shared body (spec line 305), so that loop reads `SHARED_PANEL_IDS`.
  */
 import "@testing-library/jest-dom/vitest";
 import { act, cleanup, fireEvent, render, screen, within } from "@testing-library/react";
@@ -83,14 +83,14 @@ import { CrewSections } from "@/components/crew/CrewSections";
 import { CrewSearchField } from "@/components/crew/search/CrewSearchField";
 import { CrewSearchProvider } from "@/components/crew/search/CrewSearchProvider";
 import { CrewSearchResults } from "@/components/crew/search/CrewSearchResults";
+import { HomeIcon } from "@/components/crew/icons/sectionIcons";
 import { SectionControllerContext } from "@/components/crew/sectionController";
 import { SECTION_ICON } from "@/components/crew/sectionIcon";
 import {
-  CREW_MOVED_IDS,
+  CREW_TODAY_LABEL,
   crewSectionEntries,
   crewSectionLabel,
   type CrewSectionEntry,
-  type CrewSectionId,
 } from "@/lib/crew/crewSections";
 import { CREW_SECTION_IDS, type SectionId } from "@/lib/crew/resolveActiveSection";
 import type { ShowForViewer, Viewer } from "@/lib/data/getShowForViewer";
@@ -102,7 +102,7 @@ import { makeShowForViewer } from "@/tests/fixtures/showForViewer";
 const ADMIN: Viewer = { kind: "admin" };
 const TODAY = new Date("2026-05-14T15:00:00Z");
 
-/** Every section entitled and with content, so every moved section renders its card. */
+/** Every section entitled and with content, so every shared section renders its card. */
 function fullData(): ShowForViewer {
   return makeShowForViewer({
     // The Agenda is listed, and draws its panel card, only over an agenda link with
@@ -156,9 +156,11 @@ function entries(): CrewSectionEntry[] {
   return crewSectionEntries(data, { ...resolveViewerContext(ADMIN, data), today: TODAY });
 }
 
-const NOT_MOVED: CrewSectionId[] = CREW_SECTION_IDS.filter(
-  (id) => !(CREW_MOVED_IDS as readonly string[]).includes(id),
-);
+/**
+ * The sections with a shared panel: every id but `schedule`, which keeps its own
+ * `DayCard` and `SectionCard` (spec line 305).
+ */
+const SHARED_PANEL_IDS = CREW_SECTION_IDS.filter((id) => id !== "schedule");
 
 function stubMatchMedia(wide: boolean) {
   vi.stubGlobal(
@@ -198,54 +200,48 @@ afterEach(() => {
   vi.restoreAllMocks();
 });
 
-describe("moved sections read the registry; the rest keep their crew names", () => {
-  test("crewSectionLabel and SECTION_ICON follow the registry for every moved id", () => {
-    premise("moved crew sections", CREW_MOVED_IDS.length, 0);
-    for (const id of CREW_MOVED_IDS) {
+describe("every crew section reads the registry; the home keeps its own name", () => {
+  test("crewSectionLabel and SECTION_ICON follow the registry for every crew id", () => {
+    premise("crew sections", CREW_SECTION_IDS.length, 0);
+    for (const id of CREW_SECTION_IDS) {
       expect(crewSectionLabel(id), id).toBe(probe.label(id));
       expect(SECTION_ICON[id], id).toBe(probe.icon(id));
     }
   });
 
-  test("a section not yet moved keeps its crew label and glyph under the same mock", () => {
-    premise("crew sections not yet moved", NOT_MOVED.length, 0);
-    for (const id of NOT_MOVED) {
-      expect(crewSectionLabel(id), id).not.toBe(probe.label(id));
-      expect(SECTION_ICON[id], id).not.toBe(probe.icon(id));
-    }
-    // Plan decision 2: `schedule` keeps its crew name, not the registry's.
-    expect(NOT_MOVED).toContain("schedule");
-    expect(crewSectionLabel("schedule")).toBe("Schedule");
+  test("today keeps the crew's label and glyph under the same mock: the home has no record", () => {
+    expect(crewSectionLabel("today")).toBe(CREW_TODAY_LABEL);
+    expect(SECTION_ICON.today).toBe(HomeIcon);
   });
 
-  test('the "All sections" row shows the probe label and glyph for every moved id', () => {
+  test('the "All sections" row shows the probe label and glyph for every crew id', () => {
     renderController();
     const list = screen.getByTestId("crew-all-sections");
-    for (const id of CREW_MOVED_IDS) {
+    for (const id of CREW_SECTION_IDS) {
       const row = list.querySelector(`[data-section="${id}"]`) as HTMLElement | null;
       premiseHolds(`the ${id} row is listed`, row !== null);
       expect(row, id).toHaveTextContent(probe.label(id));
       expect(row!.querySelector(`svg[data-probe-icon="${id}"]`), id).not.toBeNull();
     }
-    for (const id of NOT_MOVED) {
-      const row = list.querySelector(`[data-section="${id}"]`);
-      expect(row?.textContent ?? "", id).not.toContain(probe.label(id));
-    }
   });
 
-  test("the wide nav item shows the probe label and glyph for every moved id", () => {
+  test("the wide nav item shows the probe label and glyph for every crew id, under the probe group", () => {
     stubMatchMedia(true);
     renderController();
     const navEl = screen.getByTestId("crew-wide-nav");
-    for (const id of CREW_MOVED_IDS) {
+    for (const id of CREW_SECTION_IDS) {
       const item = navEl.querySelector(`[data-section="${id}"]`) as HTMLElement | null;
       premiseHolds(`the ${id} nav item is listed`, item !== null);
       expect(item, id).toHaveTextContent(probe.label(id));
       expect(item!.querySelector(`svg[data-probe-icon="${id}"]`), id).not.toBeNull();
     }
+    // Every section is mocked to one group, so one run holds them all: the group's
+    // consumption proof, since nothing in the nav filters on the real group list.
+    const labels = within(navEl).getAllByTestId("crew-wide-nav-group");
+    expect(labels.map((el) => el.textContent)).toEqual(["Probe group"]);
   });
 
-  test.each(CREW_MOVED_IDS.map((id) => [id]))(
+  test.each(CREW_SECTION_IDS.map((id) => [id]))(
     "the sheet's title and its close button's name follow the registry (%s)",
     (id) => {
       renderController(id);
@@ -257,9 +253,9 @@ describe("moved sections read the registry; the rest keep their crew names", () 
     },
   );
 
-  test("the search results' chip and group heading follow the registry for every moved id", () => {
+  test("the search results' chip and group heading follow the registry for every crew id", () => {
     const index = {
-      entries: CREW_MOVED_IDS.map(
+      entries: CREW_SECTION_IDS.map(
         (id): SearchEntry => ({
           id: `${id}:probe:1`,
           section: id,
@@ -291,7 +287,7 @@ describe("moved sections read the registry; the rest keep their crew names", () 
       fireEvent.change(input, { target: { value: "zanzibar" } });
     });
     const chipNav = screen.getByRole("navigation", { name: "Filter results by section" });
-    for (const id of CREW_MOVED_IDS) {
+    for (const id of CREW_SECTION_IDS) {
       expect(
         within(chipNav).getByRole("button", { name: new RegExp(probe.label(id)) }),
       ).toBeInTheDocument();
@@ -306,8 +302,8 @@ describe("moved sections read the registry; the rest keep their crew names", () 
   });
 });
 
-describe("the crew panel card of every moved section reads the registry", () => {
-  test("each moved section's panel card h3 and chip carry the probe label and glyph", async () => {
+describe("the crew panel card of every shared section reads the registry", () => {
+  test("each shared section's panel card h3 and chip carry the probe label and glyph; Schedule holds no panel card", async () => {
     const captured: { nodes: Partial<Record<SectionId, ReactNode>> } = { nodes: {} };
     vi.doMock("@/components/crew/CrewSections", () => ({
       CrewSections: (props: { sectionNodes: Partial<Record<SectionId, ReactNode>> }) => {
@@ -334,7 +330,7 @@ describe("the crew panel card of every moved section reads the registry", () => 
     });
     render(element);
     vi.doUnmock("@/components/crew/CrewSections");
-    for (const id of CREW_MOVED_IDS) {
+    for (const id of SHARED_PANEL_IDS) {
       const node = screen.getByTestId(`node-${id}`);
       const cards = [...node.querySelectorAll('[data-testid="crew-panel-card"]')];
       premise(`${id} panel cards rendered`, cards.length, 0);
@@ -343,5 +339,10 @@ describe("the crew panel card of every moved section reads the registry", () => 
         expect(card.querySelector(`svg[data-probe-icon="${id}"]`), id).not.toBeNull();
       }
     }
+    // The exception, pinned: Schedule draws its own cards, so its node holds content
+    // and no panel. An empty node would pass the absence, so the premise reads it first.
+    const schedule = screen.getByTestId("node-schedule");
+    premiseHolds("the Schedule node renders content", (schedule.textContent ?? "") !== "");
+    expect(schedule.querySelector('[data-testid="crew-panel-card"]')).toBeNull();
   });
 });

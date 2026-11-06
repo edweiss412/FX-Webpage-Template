@@ -13,10 +13,11 @@
  * `PlaneIcon` (flight legs / Travel section). Task 8.5 adds the seven crew
  * section glyphs: `HomeIcon` (Today), `CalendarIcon` (Schedule), `MapPinIcon`
  * (Venue), `PlaneIcon` (Travel — reused).
- * A section moved onto a shared body draws its registry glyph instead
+ * Every section draws its registry glyph instead since PR C Task 9
  * (components/crew/sectionIcon.ts), so the Billing receipt left with Budget, the
  * Crew pair of people with the roster's move (PR B Task 6), and the Gear box with
- * the section (PR C Task 8).
+ * the section (PR C Task 8). `HomeIcon` still draws the home, and `CalendarIcon` the
+ * run card's Full schedule chip.
  * Additional glyphs can join as surfaces adopt them.
  */
 import type { SVGProps } from "react";

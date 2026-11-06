@@ -22,6 +22,7 @@ import { Header } from "@/components/layout/Header";
 import { CrewWideNav } from "@/components/crew/CrewWideNav";
 import { CREW_PAGE_CONTAINER } from "@/lib/crew/pageContainer";
 import { CREW_ALWAYS_SECTION_IDS, crewSectionLabel } from "@/lib/crew/crewSections";
+import { showSection } from "@/lib/showSections/registry";
 import Loading from "@/app/show/[slug]/[shareToken]/loading";
 
 afterEach(cleanup);
@@ -107,6 +108,39 @@ describe("crew route loading skeleton", () => {
     expect(items.map((el) => el.textContent)).toEqual(
       ["today" as const, ...CREW_ALWAYS_SECTION_IDS].map(crewSectionLabel),
     );
+  });
+
+  it("the nav column draws the live nav's group runs, over the always-listed sections, so the swap does not jump", () => {
+    const { getAllByTestId: getReal } = render(
+      <CrewWideNav
+        items={[
+          { id: "today", label: "Today" },
+          { id: "venue", label: "Venue", group: "The show" },
+        ]}
+        active="today"
+        hrefFor={() => "#"}
+      />,
+    );
+    const realLabel = getReal("crew-wide-nav-group")[0] as HTMLElement;
+    const realLabelClass = realLabel.className;
+    const realRunClass = (realLabel.parentElement as HTMLElement).className;
+    cleanup();
+
+    const { getByTestId } = render(<Loading />);
+    const nav = getByTestId("crew-loading-nav");
+    const labels = within(nav).getAllByTestId("crew-loading-nav-group");
+    // Derived from the always table, so a gated group's heading can never flash here.
+    const groups = CREW_ALWAYS_SECTION_IDS.map((id) => showSection(id).group);
+    expect(labels.map((el) => el.textContent)).toEqual(
+      groups.filter((g, i) => g !== groups[i - 1]),
+    );
+    for (const label of labels) {
+      expect(label.className).toBe(realLabelClass);
+      expect((label.parentElement as HTMLElement).className).toBe(realRunClass);
+    }
+    // Today stands apart from the runs, as it does in the live nav.
+    const today = within(nav).getAllByTestId("crew-loading-nav-item")[0] as HTMLElement;
+    expect(today.parentElement).toBe(nav);
   });
 
   it("the body row is the shared page container and stretches its columns (DESIGN.md §7)", () => {
@@ -202,6 +236,7 @@ describe("crew route loading skeleton", () => {
     const { container } = render(<Loading />);
     const text = (container.textContent ?? "").toLowerCase();
     expect(text).not.toContain(crewSectionLabel("billing").toLowerCase());
+    expect(text).not.toContain(showSection("billing").group.toLowerCase());
     // Pack list's gate reads the day and the viewer's stages (PR C Task 6), so the
     // skeleton, drawn before the page knows either, never shows its row.
     expect(text).not.toContain(crewSectionLabel("packlist").toLowerCase());

@@ -65,6 +65,10 @@ export const RETIRED_IDENTIFIERS = [
   "GearSection",
   "gearRows",
   "packListItemLabel",
+  // Crew page redesign PR C, Task 9: every crew section reads its label and glyph from
+  // lib/showSections/registry.ts, so there is no moved set left to name.
+  "CREW_MOVED_IDS",
+  "isCrewMovedSection",
 ] as const;
 
 /**
