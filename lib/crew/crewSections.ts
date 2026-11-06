@@ -9,13 +9,15 @@
  * at all: the shell builds a body for every entitled id and resolves `?s=`
  * against them. Membership, `crewSectionsFor`, is the entitled ids in
  * `CREW_SECTION_IDS` order, narrowed by one content rule: an Agenda with no
- * agenda file is entitled and unlisted (PR B Task 10). Three gates (spec line
+ * agenda file is entitled and unlisted (PR B Task 10). Four gates (spec line
  * 240): `billing` only when `financialsVisible` holds; `transport` for an admin,
  * a viewer `transportTileVisible` admits, or a viewer whose "Your flight" card
  * renders a row (PR B Task 9), since a viewer with neither has nothing the
  * section may show them, and an empty state there would claim no transport
  * exists when it is only withheld, so the section is not theirs (plan decision
- * 1); and `agenda` whenever the viewer's dates are not suppressed (PR B Task 10).
+ * 1); `agenda` whenever the viewer's dates are not suppressed (PR B Task 10); and
+ * `packlist` only when `isPackListVisibleToday` holds (PR C plan decision 1), a
+ * gate and not a content rule, so a member with no pull sheet shows the empty state.
  * `today` is the home, not a section.
  *
  * Membership never reads a domain whose fetch can fail: a domain whose fetch
@@ -26,13 +28,13 @@
  * Pure and server-safe.
  */
 import type { ShowForViewer } from "@/lib/data/getShowForViewer";
-import type { ViewerContext } from "@/lib/data/viewerContext";
 import { hasAgendaFile } from "@/components/crew/agendaScheduleRows";
 import { suppressesDates } from "@/lib/crew/dateSuppression";
 import { viewerFlightShown } from "@/lib/crew/flightDisplay";
 import { CREW_SECTION_IDS, type SectionId } from "@/lib/crew/resolveActiveSection";
 import { sectionPeek, type SectionPeekViewer } from "@/lib/crew/sectionPeek";
 import { showSection, type ShowSectionId } from "@/lib/showSections/registry";
+import { isPackListVisibleToday } from "@/lib/visibility/packList";
 import { financialsVisible, transportTileVisible } from "@/lib/visibility/scopeTiles";
 
 /** A section the list and the nav can open. `today` is the home, not a section. */
@@ -41,10 +43,11 @@ export type CrewSectionId = Exclude<SectionId, "today">;
 export type CrewSection = { id: CrewSectionId; label: string };
 
 /**
- * What entitlement and membership read about the viewer: the billing gate's two
- * inputs, and the date restriction the Transport gate's own-flight rule reads.
+ * What entitlement and membership read about the viewer: the peeks' shape, which is
+ * the billing gate's two inputs, the date restriction the Transport gate's own-flight
+ * rule reads, and the stage restriction and clock the Pack list gate reads.
  */
-export type CrewSectionsViewer = Pick<ViewerContext, "viewerFlags" | "isAdmin" | "dateRestriction">;
+export type CrewSectionsViewer = SectionPeekViewer;
 
 /**
  * The crew sections moved onto a shared body (components/show-panels/), named
@@ -63,6 +66,7 @@ export const CREW_MOVED_IDS = [
   "transport",
   "agenda",
   "event",
+  "packlist",
 ] as const satisfies readonly (CrewSectionId & ShowSectionId)[];
 
 type CrewMovedId = (typeof CREW_MOVED_IDS)[number];
@@ -126,6 +130,13 @@ const SECTION_GATES: Readonly<Partial<Record<CrewSectionId, SectionGate>>> = {
   // Hidden for a viewer whose dates are suppressed (spec §6.2 `agenda` row): an
   // agenda is a schedule of days, so its days are a claim about theirs.
   agenda: (_data, viewer) => !suppressesDates(viewer.dateRestriction),
+  // Today's rule, unchanged, and for a plain admin too (PR C plan decision 1).
+  packlist: (data, viewer) =>
+    isPackListVisibleToday({
+      show: data.show,
+      restriction: viewer.stageRestriction,
+      today: viewer.today,
+    }),
 };
 
 /**
@@ -179,7 +190,7 @@ export function crewSectionsFor(data: ShowForViewer, viewer: CrewSectionsViewer)
  */
 export function crewSectionEntries(
   data: ShowForViewer,
-  viewer: SectionPeekViewer,
+  viewer: CrewSectionsViewer,
 ): CrewSectionEntry[] {
   return crewSectionsFor(data, viewer).map((section) => ({
     ...section,

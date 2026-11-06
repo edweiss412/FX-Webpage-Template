@@ -84,19 +84,21 @@ describe("composition", () => {
 
   test("leaves Billing out, without calling its builder, when Billing is not listed", () => {
     premiseHolds(
-      "the crew case does not list Billing, nor (no flight, no ride) Transport, nor (no agenda file) Agenda",
+      "the crew case does not list Billing, nor (no flight, no ride) Transport, nor (no agenda file) Agenda, nor (no pack-list phase today) Pack list",
       !crewNoTransport.sections.includes("billing") &&
         !crewNoTransport.sections.includes("transport") &&
-        !crewNoTransport.sections.includes("agenda"),
+        !crewNoTransport.sections.includes("agenda") &&
+        !crewNoTransport.sections.includes("packlist"),
     );
     const calls = stubBuilders();
 
     const index = buildSearchIndex(crewNoTransport);
 
     expect([...new Set(index.entries.map((e) => e.section))]).toEqual(
-      INDEX_ORDER.filter((id) => id !== "billing" && id !== "transport" && id !== "agenda"),
+      INDEX_ORDER.filter((id) => !["billing", "transport", "agenda", "packlist"].includes(id)),
     );
     expect(calls.has("billing")).toBe(false);
+    expect(calls.has("packlist")).toBe(false);
   });
 
   test("reads the shell's member list, not billingVisible, to choose the sections", () => {

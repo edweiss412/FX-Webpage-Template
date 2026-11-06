@@ -34,6 +34,8 @@ import * as crewRowsModule from "@/components/crew/sections/crewRows";
 import * as diagramItemsModule from "@/components/crew/diagramItems";
 import { CrewSection } from "@/components/crew/sections/CrewSection";
 import { EventSection } from "@/components/crew/sections/EventSection";
+import * as packListRows from "@/components/crew/sections/packListRows";
+import { PackListSection } from "@/components/crew/sections/PackListSection";
 import * as eventRows from "@/components/crew/sections/eventRows";
 import { GearSection } from "@/components/crew/sections/GearSection";
 import * as gearRows from "@/components/crew/sections/gearRows";
@@ -63,6 +65,7 @@ import { parseWifiValue } from "@/lib/crew/wifiDisplay";
 import type { ShowForViewer } from "@/lib/data/getShowForViewer";
 import { resolveViewerContext } from "@/lib/data/viewerContext";
 import { SECTION_BUILDERS } from "@/lib/search/sections";
+import { buildSearchIndex } from "@/lib/search/buildSearchIndex";
 import { showSection } from "@/lib/showSections/registry";
 import type { SearchEntry } from "@/lib/search/types";
 import { premise, premiseHolds } from "@/tests/_shared/premise";
@@ -148,6 +151,7 @@ function renderSection(id: SectionId, c: ViewerCase): HTMLElement {
     crew: () => <CrewSection {...props} />,
     contacts: () => <ContactsSection {...props} />,
     gear: () => <GearSection {...props} />,
+    packlist: () => <PackListSection {...props} />,
     billing: () => <BillingSection {...props} />,
   };
   return render(byId[id]()).container;
@@ -618,29 +622,15 @@ describe("transport", () => {
 // ── gear ─────────────────────────────────────────────────────────────────────
 
 describe("gear", () => {
-  const pullSheet = fullContent.data.pullSheet ?? [];
   const salon = fullContent.data.rooms.find((r) => r.kind === "breakout");
   if (salon === undefined) throw new Error("fullContent carries no breakout room");
 
   /**
-   * The Gear shapes no shared case renders: a pack case with no label (the page
-   * invents "Case N", which is not sheet data) holding an item with a raw sheet
-   * snippet and a sentinel category, an itemless case, and a second room with the
-   * same label and scope text as another, so its scope row and room-details
-   * heading get `~2`.
+   * The Gear shape no shared case renders: a second room with the same label and
+   * scope text as another, so its scope row and room-details heading get `~2`.
    */
   const gearFallbacks = variant(fullContent, "gearFallbacks", {
     ...fullContent.data,
-    pullSheet: [
-      ...pullSheet,
-      {
-        caseLabel: "",
-        items: [
-          { qty: null, cat: "TBD", subCat: null, item: "Spare batteries", rawSnippet: "AA x 24" },
-        ],
-      },
-      { caseLabel: "Empty Case", items: [] },
-    ],
     rooms: [...fullContent.data.rooms, { ...salon, id: `${salon.id}-twin` }],
   });
 
@@ -653,29 +643,18 @@ describe("gear", () => {
   const PREMISES: Partial<Record<string, (root: HTMLElement, c: ViewerCase) => void>> = {
     overCaps: (root) => {
       premiseHolds(
-        "overCaps renders the pack overflow stub",
-        byTestIds(root, "gear-pack-list-overflow-stub").length === 1,
-      );
-      premiseHolds(
         "overCaps renders the room-details overflow line",
         /more rooms?$/.test(
           squash(root.querySelector('[data-testid="gear-room-details"]')?.textContent),
         ),
       );
     },
-    fullContent: (root) =>
-      premiseHolds(
-        "fullContent renders the pack list (visible today)",
-        byTestIds(root, "gear-pack-list").length === 1,
-      ),
     adminViewer: (root) =>
       premiseHolds(
         "adminViewer renders an emphasized scope card",
         root.querySelector('[data-emphasis="you"]') !== null,
       ),
     gearFallbacks: (root) => {
-      const pack = squash(root.querySelector('[data-testid="gear-pack-list"]')?.textContent);
-      premiseHolds("gearFallbacks renders an invented Case N label", /Case \d+/.test(pack));
       const headings = [...root.querySelectorAll('[data-testid="gear-room-details"] h4')].map((h) =>
         squash(h.textContent),
       );
@@ -693,11 +672,8 @@ describe("gear", () => {
   });
 
   const inRegion = (e: SearchEntry, region: string) => e.id.startsWith(`gear:${region}`);
-  const caseLabels = (c: ViewerCase) => (c.data.pullSheet ?? []).map((k) => k.caseLabel);
-  const snippets = (c: ViewerCase) =>
-    (c.data.pullSheet ?? []).flatMap((k) => k.items.map((i) => i.rawSnippet ?? "")).filter(Boolean);
 
-  /** Inventory §6, G1 to G5 (G5b is the room-details heading); G4, G6 and G7 left for `event`. */
+  /** Inventory §6, G1 and G5 (G5b is the room-details heading); G4, G6 and G7 left for `event`, G2 and G3 for `packlist`. */
   const LINE_KINDS: readonly LineKind[] = [
     {
       kind: "G1 scope row",
@@ -709,28 +685,6 @@ describe("gear", () => {
       caseName: adminViewer.name,
       present: (es) =>
         es.some((e) => inRegion(e, "gear-scope-") && e.context.includes("Your scope")),
-    },
-    {
-      kind: "G2 pack case",
-      caseName: fullContent.name,
-      present: (es, c) =>
-        es.some((e) => inRegion(e, "gear-pack-list:") && caseLabels(c).includes(e.value)),
-    },
-    {
-      kind: "G3 pack item",
-      caseName: fullContent.name,
-      present: (es, c) =>
-        es.some((e) => inRegion(e, "gear-pack-list:") && !caseLabels(c).includes(e.value)),
-    },
-    {
-      kind: "G3 pack item with its raw snippet",
-      caseName: gearFallbacks.name,
-      present: (es, c) =>
-        es.some(
-          (e) =>
-            inRegion(e, "gear-pack-list:") &&
-            [e.value, ...e.context].some((t) => snippets(c).includes(t)),
-        ),
     },
     {
       kind: "G5 room detail field",
@@ -748,6 +702,13 @@ describe("gear", () => {
     const c = [...ALL_CASES, ...LOCAL_CASES].find((x) => x.name === caseName);
     if (c === undefined) throw new Error(`no case named ${caseName}`);
     expect(present(SECTION_BUILDERS.gear(c), c)).toBe(true);
+  });
+
+  test("the pack list's lines are Pack list's, not Gear's", () => {
+    premiseHolds("fullContent carries pack cases", (fullContent.data.pullSheet ?? []).length > 0);
+    expect(SECTION_BUILDERS.gear(fullContent).some((e) => inRegion(e, "gear-pack-list:"))).toBe(
+      false,
+    );
   });
 
   test("error guard: a throwing derivation empties the page block and the index alike", () => {
@@ -782,11 +743,177 @@ describe("gear", () => {
       spy.mockRestore();
     }
   });
+});
+
+// ── packlist ─────────────────────────────────────────────────────────────────
+
+describe("packlist", () => {
+  const pullSheet = fullContent.data.pullSheet ?? [];
+
+  /**
+   * The Pack list shapes no shared case renders: a case with no label (the page
+   * invents "Case N", which is not sheet data) holding an item with a raw sheet
+   * snippet and a sentinel category, an itemless case, and an itemless case with no
+   * label, whose line is its invented label alone, so it has no line at all.
+   */
+  const packFallbacks = variant(fullContent, "packFallbacks", {
+    ...fullContent.data,
+    pullSheet: [
+      ...pullSheet,
+      {
+        caseLabel: "",
+        items: [
+          { qty: null, cat: "TBD", subCat: null, item: "Spare batteries", rawSnippet: "AA x 24" },
+        ],
+      },
+      { caseLabel: "Empty Case", items: [] },
+      { caseLabel: "", items: [] },
+    ],
+  });
+
+  /** A member day with no pull sheet: the section shows its empty state, so nothing indexes. */
+  const packEmpty = variant(fullContent, "packEmpty", { ...fullContent.data, pullSheet: null });
+
+  const LOCAL_CASES: readonly ViewerCase[] = [packFallbacks, packEmpty];
+  const cases = [...ALL_CASES, ...LOCAL_CASES].filter((c) => canOpen("packlist", c));
+
+  const renderPack = (c: ViewerCase) => renderRoot(<PackListSection {...shellProps(c)} />);
+
+  /** Each case whose gate is a Pack list gate proves it flipped in its own render. */
+  const PREMISES: Partial<Record<string, (root: HTMLElement, c: ViewerCase) => void>> = {
+    overCaps: (root) =>
+      premiseHolds(
+        "overCaps renders the pack overflow stub",
+        byTestIds(root, "gear-pack-list-overflow-stub").length === 1,
+      ),
+    fullContent: (root) =>
+      premiseHolds(
+        "fullContent renders the pack list",
+        root.querySelector('[data-card-id="gear-pack-list"]') !== null,
+      ),
+    packFallbacks: (root) => {
+      const pack = squash(root.querySelector('[data-card-id="gear-pack-list"]')?.textContent);
+      premiseHolds("packFallbacks renders an invented Case N label", /Case \d+/.test(pack));
+    },
+    packEmpty: (root) =>
+      premiseHolds(
+        "packEmpty renders the empty state",
+        byTestIds(root, "section-empty").length === 1,
+      ),
+  };
+
+  test("the matrix reaches the section: a case opens it, and a case its gate refuses does not", () => {
+    premiseHolds(
+      "some case opens Pack list",
+      ALL_CASES.some((c) => canOpen("packlist", c)),
+    );
+    premiseHolds(
+      "some case does not",
+      ALL_CASES.some((c) => !canOpen("packlist", c)),
+    );
+  });
+
+  test.each(parityOver("packlist", cases))("$name: index equals render", (c) => {
+    const root = renderPack(c);
+    PREMISES[c.name]?.(root, c);
+    expect(assertParity(root, SECTION_BUILDERS.packlist(c))).toEqual([]);
+  });
+
+  const inRegion = (e: SearchEntry) => e.id.startsWith("packlist:gear-pack-list:");
+  const caseLabels = (c: ViewerCase) => (c.data.pullSheet ?? []).map((k) => k.caseLabel);
+  const snippets = (c: ViewerCase) =>
+    (c.data.pullSheet ?? []).flatMap((k) => k.items.map((i) => i.rawSnippet ?? "")).filter(Boolean);
+
+  /** Inventory §6, G2 and G3, which left Gear with their section. */
+  const LINE_KINDS: readonly LineKind[] = [
+    {
+      kind: "G2 pack case",
+      caseName: fullContent.name,
+      present: (es, c) => es.some((e) => inRegion(e) && caseLabels(c).includes(e.value)),
+    },
+    {
+      kind: "G3 pack item",
+      caseName: fullContent.name,
+      present: (es, c) => es.some((e) => inRegion(e) && !caseLabels(c).includes(e.value)),
+    },
+    {
+      kind: "G3 pack item with its raw snippet",
+      caseName: packFallbacks.name,
+      present: (es, c) =>
+        es.some((e) => inRegion(e) && [e.value, ...e.context].some((t) => snippets(c).includes(t))),
+    },
+  ];
+
+  test.each(LINE_KINDS)("line kind $kind renders in $caseName", ({ caseName, present }) => {
+    const c = [...ALL_CASES, ...LOCAL_CASES].find((x) => x.name === caseName);
+    if (c === undefined) throw new Error(`no case named ${caseName}`);
+    expect(present(SECTION_BUILDERS.packlist(c), c)).toBe(true);
+  });
+
+  test("every line sits under the registry label", () => {
+    const entries = SECTION_BUILDERS.packlist(fullContent);
+    premiseHolds("fullContent indexes pack lines", entries.length > 0);
+    expect([...new Set(entries.map((e) => e.group))]).toEqual([showSection("packlist").label]);
+    expect([...new Set(entries.map((e) => e.section))]).toEqual(["packlist"]);
+  });
+
+  test("the case cap applies by construction: a case past it has no line", () => {
+    const cut = overCaps.data.pullSheet ?? [];
+    premiseHolds("overCaps runs past the cap", cut.length > packListRows.CASE_CAP);
+    const values = SECTION_BUILDERS.packlist(overCaps).map((e) => e.value);
+    expect(values).toContain(cut[packListRows.CASE_CAP - 1]!.caseLabel);
+    expect(values).not.toContain(cut[packListRows.CASE_CAP]!.caseLabel);
+  });
+
+  test("error guard: a throwing derivation empties the page block and the index alike", () => {
+    // The whole body is one WrappedSection (`crew:packlist:cases`), so the block that
+    // throws is the section: its fallback replaces every line.
+    const c = fullContent;
+    premiseHolds(
+      "fullContent renders Pack list search targets when nothing throws",
+      renderPack(c).querySelector("[data-search-target]") !== null,
+    );
+    cleanup();
+
+    const spy = vi.spyOn(packListRows, "packList").mockImplementation(() => {
+      throw new Error("planted packList fault");
+    });
+    try {
+      const root = renderPack(c);
+      expect(spy, "the section derives its lines through packListRows").toHaveBeenCalled();
+      expect(root.querySelector('[data-testid="tile-error-fallback"]')).not.toBeNull();
+      expect(root.querySelector("[data-search-target]")).toBeNull();
+
+      spy.mockClear();
+      const entries = SECTION_BUILDERS.packlist(c);
+      expect(spy, "the builder derives its lines through the same function").toHaveBeenCalled();
+      expect(entries).toEqual([]);
+      expect(assertParity(root, entries)).toEqual([]);
+    } finally {
+      spy.mockRestore();
+    }
+  });
 
   test("an invented Case N label is not indexed, and its items still are", () => {
-    const entries = SECTION_BUILDERS.gear(gearFallbacks);
+    const entries = SECTION_BUILDERS.packlist(packFallbacks);
     expect(entries.some((e) => /^Case \d+$/.test(e.value))).toBe(false);
     expect(entries.some((e) => e.value.includes("Spare batteries"))).toBe(true);
+  });
+
+  test("a viewer the gate refuses gets no line, from the builder or the index the shell builds", () => {
+    // The refused day, with the same pull sheet a member day indexes.
+    const refused = variant(crewNoTransport, "packRefused", {
+      ...crewNoTransport.data,
+      pullSheet,
+    });
+    premiseHolds(
+      "a member day indexes these cases",
+      SECTION_BUILDERS.packlist(fullContent).length > 0,
+    );
+    premiseHolds("the case is refused", !canOpen("packlist", refused));
+    premiseHolds("the case carries a pull sheet", pullSheet.length > 0);
+    expect(SECTION_BUILDERS.packlist(refused)).toEqual([]);
+    expect(buildSearchIndex(refused).entries.filter((e) => e.section === "packlist")).toEqual([]);
   });
 });
 

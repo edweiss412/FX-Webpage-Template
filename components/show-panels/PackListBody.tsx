@@ -24,8 +24,10 @@ import type { ReactNode } from "react";
 
 import { PackCaseItems } from "@/components/show-panels/PackCaseItems";
 import { arr, hasContent } from "@/components/show-panels/fieldRows";
+import { packItemLabel } from "@/components/show-panels/packItemLabel";
 import type { PullSheetCase, PullSheetItem } from "@/lib/parser/types";
-import { shouldHideGenericOptional } from "@/lib/visibility/emptyState";
+
+export { packItemLabel };
 
 /** One case's search targets (lib/search/entryId.ts): its line, and each item's by place. */
 export type PackCaseTargets = {
@@ -65,24 +67,6 @@ function lineMarker(lines: PackCaseTargets | undefined, id: string | undefined):
 }
 
 /**
- * One parsed PULL-sheet item as its row reads: `qty × item (cat / subCat)`, with the
- * decorative cat/subCat taxonomy sentinel-guarded (hidden when TBD/N/A/empty) and the
- * qty prefix dropped when null. The item NAME itself is shown as-parsed: on a review
- * surface a garbled name must be visible, not hidden.
- */
-export function packItemLabel(item: PullSheetItem): string {
-  const cat = shouldHideGenericOptional(item.cat) ? null : item.cat;
-  const subCat = shouldHideGenericOptional(item.subCat) ? null : item.subCat;
-  const taxonomy = [cat, subCat].filter(Boolean).join(" / ");
-  const qtyPart = item.qty !== null && item.qty !== undefined ? `${item.qty} × ` : "";
-  // Defensive (§4.6, untyped-on-wire JSONB): the type says `item: string`, but a
-  // malformed row must never render the literal "undefined". A nameless item is
-  // itself a parse signal worth seeing on a review surface, so label it.
-  const name = hasContent(item.item) ? item.item : "(unnamed item)";
-  return `${qtyPart}${name}${taxonomy ? ` (${taxonomy})` : ""}`;
-}
-
-/**
  * The §8 pack-case count pill ("N items", singular-aware — copy preserved). The one
  * piece rendered as an element: the outline census follows a tag inside a `<summary>`,
  * never a call, and a number given to it leaves nothing that could throw.
@@ -95,13 +79,17 @@ function PackCountPill({ count }: { count: number }) {
   );
 }
 
-/** The case's place in the list. The reset strips the `<ol>`'s own marker, so this is it. */
+/**
+ * The case's place in the list. The reset strips the `<ol>`'s own marker, so this is
+ * it. A fixed slot, right-aligned as an `<ol>`'s marker is, so "9." and "10." leave the
+ * labels in one column; it holds the two digits the crew's 12-case cap can reach.
+ */
 function CaseIndex({ index, lines }: { index: number; lines: PackCaseTargets | undefined }) {
   return (
     <span
       aria-hidden="true"
       {...(lines === undefined ? {} : SKIP)}
-      className="shrink-0 text-xs font-medium tabular-nums text-text-subtle"
+      className="w-5 shrink-0 text-right text-xs font-medium tabular-nums text-text-subtle"
     >
       {index + 1}.
     </span>

@@ -203,7 +203,7 @@ function peek(
 function allPeeks(base: ShowForViewer, viewer: Viewer, today = middayOn(SET_DAY)) {
   const data = project(base, viewer);
   const ctx = resolveViewerContext(viewer, data);
-  return crewSectionsFor(data, ctx).map((s) => ({
+  return crewSectionsFor(data, { ...ctx, today }).map((s) => ({
     id: s.id,
     peek: sectionPeek(s.id, data, { ...ctx, today }),
   }));
@@ -310,7 +310,7 @@ describe("sectionPeek (peek, spec §4.6)", () => {
     expect(peek("event", show, crew("c-plain"))).toBeNull();
   });
 
-  it("peek: gear counts a pack list only on the days its phase and stage gates show it", () => {
+  it("peek: packlist counts a pack list only on the days its phase and stage gates show it", () => {
     const show = fullShow();
     const cases = show.pullSheet!.length;
     for (const viewerId of ["c-plain", "c-strike", "c-set"]) {
@@ -322,7 +322,7 @@ describe("sectionPeek (peek, spec §4.6)", () => {
         expect(todayIsoInShowTimezone(show.show, today)).toBe(iso);
         const visible = isPackListVisibleToday({ show: show.show, restriction, today });
         outcomes.add(visible);
-        expect(peek("gear", show, crew(viewerId), today), `${viewerId} on ${iso}`).toBe(
+        expect(peek("packlist", show, crew(viewerId), today), `${viewerId} on ${iso}`).toBe(
           visible ? `${cases} cases` : null,
         );
       }
@@ -331,15 +331,28 @@ describe("sectionPeek (peek, spec §4.6)", () => {
     }
   });
 
-  it("peek: gear counts one case in the singular and an absent or empty pack list as nothing", () => {
+  it("peek: packlist counts one case in the singular and an absent or empty pack list as nothing", () => {
     const one = fullShow();
     one.pullSheet = [one.pullSheet![0]!];
-    expect(peek("gear", one, crew("c-plain"))).toBe("1 case");
+    expect(peek("packlist", one, crew("c-plain"))).toBe("1 case");
     for (const pullSheet of [null, []]) {
       const show = fullShow();
       show.pullSheet = pullSheet;
-      expect(peek("gear", show, crew("c-plain")), JSON.stringify(pullSheet)).toBeNull();
+      expect(peek("packlist", show, crew("c-plain")), JSON.stringify(pullSheet)).toBeNull();
     }
+  });
+
+  it("peek: packlist reads a pull sheet that is not a list as nothing", () => {
+    const show = fullShow();
+    (show as { pullSheet: unknown }).pullSheet = { caseLabel: "not a list" };
+    expect(peek("packlist", show, crew("c-plain"))).toBeNull();
+  });
+
+  it("peek: gear has none of its own: the cases it counted are Pack list's now", () => {
+    const show = fullShow();
+    // PREMISE: the same show and day count cases for the section that holds them.
+    expect(peek("packlist", show, crew("c-plain"))).toBe(`${show.pullSheet!.length} cases`);
+    expect(peek("gear", show, crew("c-plain"))).toBeNull();
   });
 
   it("peek: a transport leg never feeds the Transport peek for a viewer the transport gate excludes, and never the Hotels peek", () => {
@@ -576,8 +589,10 @@ describe("sectionPeek (peek, spec §4.6)", () => {
       for (const { id, peek: line } of peeks) expect(line, `${name} ${id}`).toBeNull();
     }
 
-    // Positive control: on a full show every listed section has a non-empty peek.
+    // Positive control: on a full show every listed section has a non-empty peek, but
+    // Gear, whose count left with the pack list (PR C Task 6) and which retires in Task 8.
     for (const { id, peek: line } of allPeeks(fullShow(), ADMIN)) {
+      if (id === "gear") continue;
       expect(line, id).toBeTypeOf("string");
       expect(line!.trim().length, id).toBeGreaterThan(0);
     }

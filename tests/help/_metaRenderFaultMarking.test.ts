@@ -666,7 +666,15 @@ describe("the scanner's population is pinned against resolver drift", () => {
     // no candidate (no fetch-failure block). Nothing joined or left: membership is still
     // 34, and mapping those FOUR rows back reproduces 64e90105... byte-for-byte
     // (recomputed from scanCandidates()).
-    expect(digest).toBe("964312b28ae27371e8f77d7ff0c2b5aeaa960436a7a8fca5a6e704fcba77b51d");
+    // Regenerated for feat/crew-page-redesign-pr-c Task 6, to the same bar. EXACTLY ONE
+    // input changed, a line number, in the one file of this set the task edits:
+    //   components/crew/sections/GearSection.tsx 142 -> 127 (-15: the pack list's
+    //   imports, derivation and comment left for its own section)
+    // Same rooms `tile-errors` row, still marked. PackListSection adds no candidate (no
+    // fetch-failure block). Nothing joined or left: membership is still 34, and mapping
+    // that ONE row back reproduces 964312b2... byte-for-byte (recomputed from
+    // scanCandidates()).
+    expect(digest).toBe("529074b8882e8be74e55bc2a405981a724ae43c8387b12abd0e459d0c4d99032");
   });
 });
 

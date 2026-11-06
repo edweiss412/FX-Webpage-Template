@@ -84,6 +84,7 @@ const SSR_SURFACES = [
   "components/crew/sections/ScheduleSection.tsx",
   "components/crew/sections/HomeSection.tsx",
   "components/crew/sections/EventSection.tsx",
+  "components/crew/sections/PackListSection.tsx",
 ];
 
 describe("§5.7 SSR surfaces stay instant (no client motion)", () => {
@@ -186,6 +187,8 @@ const ROOMS_BODY = "components/show-panels/RoomsBody.tsx";
 // first; the crew page renders the body from Task 6 and never mounts the leaf).
 const PACK_LIST_BODY = "components/show-panels/PackListBody.tsx";
 const PACK_CASE_ITEMS = "components/show-panels/PackCaseItems.tsx";
+// PR C plan Task 6: the crew Pack list section.
+const PACK_LIST_SECTION = "components/crew/sections/PackListSection.tsx";
 // PR B plan Task 9: the crew Hotels and Transport sections that replace Travel.
 const HOTELS = "components/crew/sections/HotelsSection.tsx";
 const TRANSPORT = "components/crew/sections/TransportSection.tsx";
@@ -572,6 +575,11 @@ const ROWS: Record<number, Row> = {
       [
         COMPACT_E2E,
         "compound: a refresh that takes Billing from a previewed lead closes the Billing sheet to home without animation and leaves no Billing value on the page",
+      ],
+      // The same row, reached by a gate that reads the day (PR C Task 6).
+      [
+        COMPACT_E2E,
+        "pack list: a refresh that moves the show's phase off a pack-list phase closes the open sheet to home without animation and leaves no case label on the page",
       ],
       // PR B Task 10: the content-driven half of the row, which an Agenda with no
       // agenda file made reachable (entitled, unlisted, still built), and the
@@ -1112,6 +1120,15 @@ const CONDITIONAL_RENDERS: Record<string, { presences: number; renders: Conditio
       { match: 'return (\n<div data-testid="section-empty">', treatment: T.serverPresence },
       // The proxied player, only over a playable video.
       { match: "reelPlayer: panel.showPlayer ? <OpeningReelVideo", treatment: T.serverPresence },
+    ],
+  },
+  [PACK_LIST_SECTION]: {
+    presences: 0,
+    renders: [
+      // The section's empty state, or the panel.
+      { match: 'return (\n<div data-testid="section-empty">', treatment: T.serverPresence },
+      // The overflow stub's plural.
+      { match: '{overflowCount === 1 ? "more case" : "more cases"}', treatment: T.serverPresence },
     ],
   },
   [CONTACTS]: {

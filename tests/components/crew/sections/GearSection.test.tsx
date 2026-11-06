@@ -92,25 +92,6 @@ test("no-flag viewer → default order, no emphasis; all-empty → section Empty
   ).toBeTruthy();
 });
 
-test("pack list omitted when isPackListVisibleToday is false", () => {
-  // Default fixture has schedule_phases: {} — TODAY maps to NO work phase, so
-  // todayWorkPhases([]) never overlaps PACK_LIST_VISIBLE_PHASES and
-  // isPackListVisibleToday returns false (genuine gate-false derived from the
-  // helper's first conjunct, NOT by removing pullSheet — pullSheet is present).
-  const withheld = makeShowForViewer({ pullSheet: [{ caseLabel: "C1", items: [] }] });
-  expect(
-    render(
-      <GearSection
-        {...ledgerProp()}
-        data={withheld}
-        viewer={{ kind: "crew", crewMemberId: "c1" }}
-        today={TODAY}
-        showId={SHOW_ID}
-      />,
-    ).container.querySelector('[data-testid="gear-pack-list"]'),
-  ).toBeNull();
-});
-
 test("Scenic + Other scope cards render when populated and auto-omit when empty (spec §3.6)", () => {
   const data = makeShowForViewer({
     rooms: [

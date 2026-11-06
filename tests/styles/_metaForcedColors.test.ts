@@ -704,7 +704,10 @@ describe("forced-colors state collapse (Arm 1)", () => {
       // body, components/show-panels/CrewBody.tsx, where the call, text and email
       // actions map through one anchor whose glyph is a table-read `<Icon>` (one row),
       // aria-hidden decoration inside a control the census disposes. Nothing else moved.
-    ).toBe(135);
+      // 135 -> 134 on feat/crew-page-redesign-pr-c Task 6, re-derived by running
+      // findUndecidable on the tree: the crew pack summary's `<ChevronRight>` left
+      // GearSection.tsx for the shared body, whose chevron is already a row.
+    ).toBe(134);
     expect(
       undecidable.every((row) => /:\d+ </.test(row) || row.includes("single-path-state-variant")),
       "every cannot-decide row names a site",

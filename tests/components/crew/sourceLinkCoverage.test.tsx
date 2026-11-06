@@ -39,6 +39,7 @@ import { cleanup, render } from "@testing-library/react";
 import { ContactsSection } from "@/components/crew/sections/ContactsSection";
 import { CrewSection } from "@/components/crew/sections/CrewSection";
 import { EventSection } from "@/components/crew/sections/EventSection";
+import { PackListSection } from "@/components/crew/sections/PackListSection";
 import { HotelsSection } from "@/components/crew/sections/HotelsSection";
 import { TransportSection } from "@/components/crew/sections/TransportSection";
 import { VenueSection } from "@/components/crew/sections/VenueSection";
@@ -250,6 +251,15 @@ function renderAllSections(data: ShowForViewer) {
         today={FROZEN_TODAY}
         showId="show-1"
       />
+      {/* The shell builds this only on a pack-list day; the section has no gate of its
+          own (PR C plan decision 1), so the walker sees its card on any fixture. */}
+      <PackListSection
+        {...ledgerProp()}
+        data={data}
+        viewer={adminViewer}
+        today={FROZEN_TODAY}
+        showId="show-1"
+      />
       <ScheduleSection
         {...ledgerProp()}
         data={data}
@@ -369,6 +379,7 @@ describe("source-link field-aware coverage walker (§8 / §12)", () => {
       "gear-tech-specs",
       "gear-keynote",
       "gear-opening-reel",
+      "gear-pack-list",
     ]) {
       expect(ids, kept).toContain(kept);
     }

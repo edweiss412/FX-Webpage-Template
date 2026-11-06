@@ -63,10 +63,11 @@ const TOL = 0.5;
  * Every section an admin is listed on the Waldorf seed, in nav order (spec §5.1,
  * `CREW_SECTION_IDS`): all of them but Agenda, which is listed only when the show
  * has an agenda link with a file (PR B plan, decision 1), and the Waldorf
- * fixture's parsed agenda_links is empty. Its Agenda is entitled and unlisted.
+ * fixture's parsed agenda_links is empty, so its Agenda is entitled and unlisted;
+ * and but Pack list, whose gate shuts on the pinned show day (PR C plan, decision 1).
  */
 const ADMIN_SECTIONS: CrewSectionId[] = CREW_SECTION_IDS.filter(
-  (id) => (id as string) !== "agenda",
+  (id) => (id as string) !== "agenda" && (id as string) !== "packlist",
 );
 
 type Rect = {
@@ -1829,11 +1830,12 @@ test.describe("agenda: the Agenda section, compact (PR B Task 10)", () => {
     return page.getByTestId("crew-all-sections").locator(`[data-section="${id}"]`);
   }
 
-  function seedAgendaShow(title: string) {
+  function seedAgendaShow(title: string, schedulePhases?: Record<string, ["Set"]>) {
     return seedShowWithCrew({
       title,
       dates: DATES,
       agendaLinks: AGENDA_LINKS as never,
+      ...(schedulePhases === undefined ? {} : { schedulePhases }),
       crew: [ADA, UNA],
     });
   }
@@ -2044,10 +2046,12 @@ test.describe("agenda: the Agenda section, compact (PR B Task 10)", () => {
   test("agenda: the list follows CREW_SECTION_IDS over the viewer's members, each moved id with its registry label", async ({
     page,
   }) => {
-    const seeded = await seedAgendaShow("Agenda Order Show");
+    // A pack-list phase on the pinned day (PR C Task 6: Pack list's gate).
+    const seeded = await seedAgendaShow("Agenda Order Show", { "2026-04-21": ["Set"] });
     try {
       await loadPath(page, `/show/${seeded.slug}/${seeded.shareToken}`);
-      // An admin on a show with an agenda file is a member of every crew section.
+      // An admin on a show with an agenda file, on a pack-list day, is a member of every
+      // crew section.
       const ids = await page
         .getByTestId("crew-all-sections-row")
         .evaluateAll((els) => els.map((e) => e.getAttribute("data-section")));
@@ -2071,8 +2075,442 @@ test.describe("agenda: the Agenda section, compact (PR B Task 10)", () => {
       // reads CREW_MOVED_IDS, so this is what catches a section left out of it (it
       // would keep its crew label and glyph).
       expect([...moved].sort()).toEqual(
-        ["agenda", "billing", "contacts", "crew", "event", "hotels", "transport", "venue"].sort(),
+        [
+          "agenda",
+          "billing",
+          "contacts",
+          "crew",
+          "event",
+          "hotels",
+          "packlist",
+          "transport",
+          "venue",
+        ].sort(),
       );
+    } finally {
+      await deleteSeededShow(seeded.driveFileId);
+    }
+  });
+});
+
+/**
+ * PR C plan Task 6: the pack list leaves Gear for a section of its own, and its
+ * visibility rule becomes an entitlement gate (plan decision 1): on a day whose
+ * phases hold none of `PACK_LIST_VISIBLE_PHASES`, or for a viewer whose stages
+ * exclude the day's phase, no body is built, `?s=packlist` resolves home, a
+ * `popstate` replaces it away, and a refresh that crosses into such a day closes an
+ * open sheet through the lost-entitlement path (spec lines 240, 257, 258, 372).
+ * There is no content rule: a member with no pull sheet opens the empty state.
+ *
+ * Each case seeds its own show, whose phase for the pinned day is the case's input
+ * (harness rule "Pack list seeds"). A plain admin on the share route, a crew
+ * identity through the admin preview route. The id is spelled as a string, as the
+ * Agenda block's is, so these cases typecheck before the crew id union carries it.
+ */
+test.describe("pack list: the Pack list section, compact (PR C Task 6)", () => {
+  test.setTimeout(180_000);
+
+  const BASE_HEADERS = {
+    "X-Screenshot-Frozen-Now": SHOW_DAY_N_INSTANT,
+    Authorization: `Bearer ${TEST_AUTH_SECRET}`,
+  };
+  /** The pinned clock's day in the show's timezone. */
+  const PINNED_DAY = "2026-04-21";
+  const DATES = {
+    travelIn: "2026-04-19",
+    set: "2026-04-20",
+    showDays: [PINNED_DAY, "2026-04-22"],
+    travelOut: "2026-04-23",
+  };
+  const PACK_LABEL = showSection("packlist").label;
+  const EMPTY_STATE = "No pack list on file yet.";
+  /** The one case label, distinctive enough that its absence means withheld. */
+  const CASE_LABEL = "Zephyr audio rack";
+  const ITEM_NAME = "Quartz stage box";
+  const RAW_SNIPPET = "2 | Audio | Stage | Quartz stage box | TRUE";
+  const PULL_SHEET = [
+    {
+      caseLabel: CASE_LABEL,
+      items: [{ qty: 2, cat: "Audio", subCat: null, item: ITEM_NAME, rawSnippet: RAW_SNIPPET }],
+    },
+  ];
+  /** No stage restriction: the day's phase alone decides. */
+  const PIA = { name: "Pia Packer", role: "A1" };
+  /** Works the Strike alone, so a Set day is not hers. */
+  const STELLA = {
+    name: "Stella Strike",
+    role: "A2",
+    stageRestriction: { kind: "explicit", stages: ["Strike"] } as const,
+  };
+
+  test.beforeEach(async ({ page }) => {
+    await page.clock.setFixedTime(new Date(SHOW_DAY_N_INSTANT));
+    await signOut(page);
+    await signInAs(page, ADMIN_FIXTURE);
+    await page.setExtraHTTPHeaders(BASE_HEADERS);
+  });
+
+  async function loadPath(page: Page, path: string): Promise<void> {
+    const res = await page.goto(path, { waitUntil: "domcontentloaded" });
+    expect(res?.status(), `${path} must render`).toBe(200);
+    await expect(page.getByTestId("crew-shell-sections")).toHaveAttribute(
+      "data-crew-controller-ready",
+      "true",
+      { timeout: 30_000 },
+    );
+  }
+
+  /** An "All sections" row, by an id spelled as a string (see the block comment). */
+  function listRow(page: Page, id: string): Locator {
+    return page.getByTestId("crew-all-sections").locator(`[data-section="${id}"]`);
+  }
+
+  function seedPackShow(
+    title: string,
+    phase: "Set" | "Strike" | "Load Out" | "Show" | "Load In",
+    pullSheet: typeof PULL_SHEET | null = PULL_SHEET,
+  ) {
+    return seedShowWithCrew({
+      title,
+      dates: DATES,
+      schedulePhases: { [PINNED_DAY]: [phase] },
+      pullSheet,
+      crew: [PIA, STELLA],
+    });
+  }
+
+  type Seeded = Awaited<ReturnType<typeof seedPackShow>>;
+  const share = (seeded: Seeded) => `/show/${seeded.slug}/${seeded.shareToken}`;
+
+  function previewOf(seeded: Seeded, name: string): string {
+    const member = seeded.crew.find((c) => c.name === name);
+    if (!member) throw new Error(`no seeded crew member ${name}`);
+    return `/admin/show/${seeded.slug}/preview/${member.id}`;
+  }
+
+  /**
+   * The page's server response: the HTML document (its inline RSC included) and the RSC
+   * payload. The frozen clock rides on each request: `page.setExtraHTTPHeaders` reaches
+   * the page's own requests, not `page.request`, and the gate reads the server's day.
+   */
+  async function payloadOf(page: Page, path: string): Promise<string> {
+    const html = await page.request.get(path, { headers: BASE_HEADERS });
+    expect(html.status(), `${path} HTML`).toBe(200);
+    const rsc = await page.request.get(path, { headers: { ...BASE_HEADERS, RSC: "1" } });
+    expect(rsc.status(), `${path} RSC`).toBe(200);
+    const rscBody = await rsc.text();
+    // PREMISE: the RSC request returned the flight payload, not the document again.
+    expect(rscBody.startsWith("<!DOCTYPE"), `${path} RSC answered with HTML`).toBe(false);
+    return `${await html.text()}\n${rscBody}`;
+  }
+
+  /** The page's text and attributes, without the inline scripts that carry the first render's payload. */
+  function renderedPage(page: Page): Promise<string> {
+    return page.evaluate(() => {
+      const clone = document.body.cloneNode(true) as HTMLElement;
+      for (const el of clone.querySelectorAll("script, template")) el.remove();
+      return clone.outerHTML;
+    });
+  }
+
+  test("pack list: on a Set day the section is listed with its peek, and ?s=packlist opens the sheet on initial load, in the server HTML and after hydration", async ({
+    page,
+  }) => {
+    const seeded = await seedPackShow("Pack Set Day Show", "Set");
+    try {
+      await loadPath(page, share(seeded));
+      await expect(listRow(page, "packlist")).toBeVisible();
+      await expect(listRow(page, "packlist")).toContainText(PACK_LABEL);
+      await expect(listRow(page, "packlist")).toContainText("1 case");
+
+      const res = await page.request.get(`${share(seeded)}?s=packlist`, { headers: BASE_HEADERS });
+      const html = await res.text();
+      const dialogAt = html.search(/<[^>]*data-testid="crew-section-sheet-dialog"[^>]*>/);
+      expect(dialogAt, "the open sheet is in the server HTML").toBeGreaterThan(-1);
+      expect(html.slice(dialogAt, html.indexOf(">", dialogAt) + 1)).toContain(
+        'data-section="packlist"',
+      );
+      expect(html.indexOf('data-testid="section-packlist"', dialogAt)).toBeGreaterThan(dialogAt);
+
+      await loadPath(page, `${share(seeded)}?s=packlist`);
+      await expect(sheetDialog(page)).toHaveAttribute("data-section", "packlist");
+      await expect(sheetDialog(page)).toHaveAccessibleName(PACK_LABEL);
+      const section = sheetDialog(page).getByTestId("section-packlist");
+      await expect(section).toContainText(CASE_LABEL);
+      const panel = section.locator('[data-card-id="gear-pack-list"]');
+      await expect(panel.getByRole("heading", { level: 3 })).toHaveText(PACK_LABEL);
+      // The numbered list, its item and raw row behind the case's own disclosure.
+      await expect(panel.locator("ol > li")).toHaveCount(PULL_SHEET.length);
+      await panel.locator("summary").first().click();
+      await expect(panel.getByTestId("crew-panel-pack-item-raw-snippet")).toHaveText(RAW_SNIPPET);
+      expect(new URL(page.url()).searchParams.get("s")).toBe("packlist");
+    } finally {
+      await deleteSeededShow(seeded.driveFileId);
+    }
+  });
+
+  test("pack list: on a Show day it is unlisted, ?s=packlist lands home, a popstate to it replaces s away, and neither the HTML nor the RSC payload holds a case label", async ({
+    page,
+  }) => {
+    const showDay = await seedPackShow("Pack Show Day Show", "Show");
+    const setDay = await seedPackShow("Pack Control Day Show", "Set");
+    try {
+      await loadPath(page, `${share(showDay)}?s=packlist`);
+      await expect(sheetDialog(page)).toHaveCount(0);
+      await expect(page.getByTestId("crew-all-sections")).toBeVisible();
+      // PREMISE: the list is built, so a missing row is the gate's doing.
+      await expect(listRow(page, "venue")).toBeVisible();
+      await expect(listRow(page, "packlist")).toHaveCount(0);
+      await expect(page.getByTestId("section-packlist")).toHaveCount(0);
+
+      await listRow(page, "venue").click();
+      await expect(sheetDialog(page)).toHaveAttribute("data-section", "venue");
+      await settleOpen(page);
+      await page.evaluate(() => {
+        const url = new URL(window.location.href);
+        url.searchParams.set("s", "packlist");
+        window.history.replaceState(window.history.state, "", url);
+      });
+      await page.goBack();
+      await expect(sheetDialog(page)).toHaveCount(0);
+      await page.goForward();
+      // Not entitled: the controller has no body to open and replaces s away.
+      await expect.poll(() => new URL(page.url()).searchParams.get("s")).toBeNull();
+      await expect(sheetDialog(page)).toHaveCount(0);
+      await expect(page.getByTestId("crew-all-sections")).toBeVisible();
+
+      const withheld = await payloadOf(page, `${share(showDay)}?s=packlist`);
+      // PREMISE: the payload is the page, with the rest of its bodies in it.
+      expect(withheld).toContain('data-testid="section-venue"');
+      expect(withheld).not.toContain('data-testid="section-packlist"');
+      for (const line of [CASE_LABEL, ITEM_NAME, RAW_SNIPPET]) {
+        expect(withheld, line).not.toContain(line);
+      }
+      // POSITIVE CONTROL: the same request on a Set day carries every line.
+      const shown = await payloadOf(page, `${share(setDay)}?s=packlist`);
+      expect(shown).toContain('data-testid="section-packlist"');
+      for (const line of [CASE_LABEL, ITEM_NAME, RAW_SNIPPET]) expect(shown, line).toContain(line);
+    } finally {
+      await deleteSeededShow(showDay.driveFileId);
+      await deleteSeededShow(setDay.driveFileId);
+    }
+  });
+
+  test("pack list: a refresh that moves the show's phase off a pack-list phase closes the open sheet to home without animation and leaves no case label on the page", async ({
+    page,
+  }) => {
+    const seeded = await seedPackShow("Pack Lost Show", "Strike");
+    try {
+      // One refresh in flight, this case's own (the billing lost-entitlement case's reason).
+      await page.route("**/api/realtime/subscriber-token", (route) =>
+        route.fulfill({ status: 503, contentType: "application/json", body: "{}" }),
+      );
+      await loadPath(page, share(seeded));
+      await listRow(page, "packlist").click();
+      await expect(sheetDialog(page)).toHaveAttribute("data-section", "packlist");
+      await settleOpen(page);
+      // Positive control: the label this case searches for is on the page now.
+      expect(await renderedPage(page)).toContain(CASE_LABEL);
+      await page.evaluate(() => {
+        const w = window as unknown as { __backs: number };
+        w.__backs = 0;
+        const back = history.back.bind(history);
+        history.back = () => {
+          w.__backs += 1;
+          back();
+        };
+      });
+      // Every DOM change from here on: is the row still listed, is the sheet still mounted.
+      await page.evaluate(() => {
+        const log: Array<{ row: boolean; sheet: boolean }> = [];
+        (window as unknown as { __compoundLog: typeof log }).__compoundLog = log;
+        new MutationObserver(() => {
+          log.push({
+            row:
+              document.querySelector(
+                '[data-testid="crew-all-sections"] [data-section="packlist"]',
+              ) !== null,
+            sheet: document.querySelector('[data-testid="crew-section-sheet"]') !== null,
+          });
+        }).observe(document.body, { childList: true, subtree: true, attributes: true });
+      });
+
+      await renderFresh(page, BASE_HEADERS);
+      updateShowLocked(seeded.driveFileId, {
+        event_details: { schedule_phases: { [PINNED_DAY]: ["Show"] } },
+      });
+      await refreshFromServer(page);
+
+      await expect(listRow(page, "packlist")).toHaveCount(0);
+      await expect(page.getByTestId("crew-section-sheet")).toHaveCount(0);
+      await expect.poll(() => new URL(page.url()).searchParams.get("s")).toBeNull();
+      await expect(page.getByTestId("crew-all-sections")).toBeVisible();
+      expect(
+        await page.evaluate(() => (window as unknown as { __backs: number }).__backs),
+        "closed through history.back(), the pushed entry's close row",
+      ).toBe(1);
+      const log = await page.evaluate(
+        () =>
+          (window as unknown as { __compoundLog: Array<{ row: boolean; sheet: boolean }> })
+            .__compoundLog,
+      );
+      expect(
+        log.some((e) => !e.row),
+        "PREMISE: the observer saw the row leave",
+      ).toBe(true);
+      expect(
+        log.filter((e) => !e.row && e.sheet),
+        "the sheet left in the same commit as the row: no exit slide holding the old body",
+      ).toEqual([]);
+      expect(await renderedPage(page)).not.toContain(CASE_LABEL);
+    } finally {
+      await deleteSeededShow(seeded.driveFileId);
+    }
+  });
+
+  test("pack list: a Set day with no pull sheet lists the section and opens its empty state", async ({
+    page,
+  }) => {
+    const seeded = await seedPackShow("Pack Empty Show", "Set", null);
+    try {
+      await loadPath(page, share(seeded));
+      await expect(listRow(page, "packlist")).toBeVisible();
+      // A section with nothing to count has no peek line.
+      await expect(listRow(page, "packlist")).toHaveText(PACK_LABEL);
+      await listRow(page, "packlist").click();
+      await expect(sheetDialog(page)).toHaveAttribute("data-section", "packlist");
+      const section = sheetDialog(page).getByTestId("section-packlist");
+      await expect(section.getByText(EMPTY_STATE, { exact: true })).toBeVisible();
+      await expect(section.locator('[data-card-id="gear-pack-list"]')).toHaveCount(0);
+    } finally {
+      await deleteSeededShow(seeded.driveFileId);
+    }
+  });
+
+  test("pack list: a stage-restricted viewer whose stages exclude the day's phase is not listed, and ?s=packlist lands home (preview route)", async ({
+    page,
+  }) => {
+    const seeded = await seedPackShow("Pack Stage Show", "Set");
+    try {
+      await loadPath(page, `${previewOf(seeded, STELLA.name)}?s=packlist`);
+      await expect(sheetDialog(page)).toHaveCount(0);
+      await expect(page.getByTestId("crew-all-sections")).toBeVisible();
+      await expect(listRow(page, "venue")).toBeVisible();
+      await expect(listRow(page, "packlist")).toHaveCount(0);
+      expect(await renderedPage(page)).not.toContain(CASE_LABEL);
+
+      // POSITIVE CONTROL: an unrestricted viewer opens it on the same show and day.
+      await loadPath(page, `${previewOf(seeded, PIA.name)}?s=packlist`);
+      await expect(sheetDialog(page)).toHaveAttribute("data-section", "packlist");
+      await expect(sheetDialog(page).getByTestId("section-packlist")).toContainText(CASE_LABEL);
+      await expect(listRow(page, "packlist")).toHaveCount(1);
+    } finally {
+      await deleteSeededShow(seeded.driveFileId);
+    }
+  });
+
+  test("pack list: the numbered list and its raw rows hold the sheet at every phone width", async ({
+    page,
+  }) => {
+    const TOL = 0.5;
+    const NUMBERED = Array.from({ length: 11 }, (_, i) => ({
+      caseLabel:
+        i === 9
+          ? "Road case 10 with the FOH console, stage racks, spare looms and the long pack note"
+          : `Road case ${i + 1}`,
+      items: [
+        {
+          qty: 2,
+          cat: "Audio",
+          subCat: "Mics",
+          item: `Quartz stage box ${i + 1}`,
+          rawSnippet: RAW_SNIPPET,
+        },
+        { qty: null, cat: null, subCat: null, item: "Spare loom" },
+        {
+          qty: 1,
+          cat: "Video",
+          subCat: null,
+          item: "Unbroken".repeat(9),
+          rawSnippet: "row|".repeat(30),
+        },
+      ],
+    }));
+    const seeded = await seedShowWithCrew({
+      title: "Pack Layout Show",
+      dates: DATES,
+      schedulePhases: { [PINNED_DAY]: ["Set"] },
+      pullSheet: NUMBERED,
+      crew: [PIA],
+    });
+    try {
+      for (const width of [320, 390, 430, 768]) {
+        await page.setViewportSize({ width, height: 844 });
+        await loadPath(page, `${share(seeded)}?s=packlist`);
+        await settleOpen(page);
+        const panel = sheetDialog(page).locator('[data-card-id="gear-pack-list"]');
+        await panel
+          .locator("details")
+          .nth(9)
+          .evaluate((d) => ((d as HTMLDetailsElement).open = true));
+        const at = `at ${width}px`;
+        const m = await panel.evaluate((root) => {
+          const rect = (el: Element | Range) => {
+            const { top, bottom, left, right, width: w, height } = el.getBoundingClientRect();
+            return { top, bottom, left, right, width: w, height };
+          };
+          const rows = [...root.querySelectorAll("summary")].map((s) => ({
+            summary: rect(s),
+            index: rect(s.querySelector('[aria-hidden="true"].tabular-nums')!),
+            label: rect(s.querySelector("span.flex-1")!),
+            pill: rect(s.querySelector("span.rounded-pill")!),
+          }));
+          const open = root.querySelector("details[open]")!;
+          const items = [...open.querySelectorAll("ul > li")].map((li) => {
+            const snippet = li.querySelector('[data-testid$="pack-item-raw-snippet"]');
+            const range = document.createRange();
+            range.selectNodeContents(li.firstChild!);
+            return {
+              li: rect(li),
+              text: rect(range),
+              snippet: snippet === null ? null : rect(snippet),
+            };
+          });
+          return {
+            panel: rect(root),
+            rows,
+            items,
+            overflow: [...root.querySelectorAll("*")].filter(
+              (el) => el.getBoundingClientRect().right > root.getBoundingClientRect().right + 0.5,
+            ).length,
+          };
+        });
+        const pageWidth = await page.evaluate(() => ({
+          scroll: document.documentElement.scrollWidth,
+          client: document.documentElement.clientWidth,
+        }));
+        expect(pageWidth.scroll, at).toBeLessThanOrEqual(pageWidth.client);
+        expect(m.overflow, `no element leaves the panel ${at}`).toBe(0);
+        expect(m.rows.length, at).toBe(NUMBERED.length);
+        // One column of labels, whatever the index's digits: "9." and "10." share a slot.
+        expect(new Set(m.rows.map((r) => r.label.left.toFixed(1))).size, at).toBe(1);
+        for (const r of m.rows) {
+          expect(r.summary.height, at).toBeGreaterThanOrEqual(44 - TOL);
+          expect(r.index.right, at).toBeLessThanOrEqual(r.label.left + TOL);
+          expect(r.label.right, at).toBeLessThanOrEqual(r.pill.left + TOL);
+          expect(r.pill.right, at).toBeLessThanOrEqual(m.panel.right + TOL);
+          // A count stays one line beside its label, however long the label runs.
+          expect(r.pill.height, at).toBeLessThanOrEqual(32);
+        }
+        // Every raw row sits under its own item's label, flush with it.
+        const raw = m.items.filter((i) => i.snippet !== null);
+        expect(raw.length, `PREMISE: the open case holds raw rows ${at}`).toBe(2);
+        for (const i of raw) {
+          expect(i.snippet!.top, at).toBeGreaterThanOrEqual(i.text.bottom - TOL);
+          expect(Math.abs(i.snippet!.left - i.text.left), at).toBeLessThanOrEqual(TOL);
+          expect(i.snippet!.right, at).toBeLessThanOrEqual(m.panel.right + TOL);
+        }
+      }
     } finally {
       await deleteSeededShow(seeded.driveFileId);
     }

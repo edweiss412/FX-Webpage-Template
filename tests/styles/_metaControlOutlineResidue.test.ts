@@ -1597,7 +1597,8 @@ describe("a defect planted in the theme, not in the module (AC-16)", () => {
       // 2133 -> 1951 on feat/crew-page-redesign-pr-c Task 2 (EVENT_DETAIL_GROUPS moved to lib/crew/eventDetailsSpecs.ts, its boolean helpers and EventDetailsBreakdown's group list to components/show-panels/EventDetailsBody.tsx, five imports left, one landed); located by its own element (5-line context match).
       // 1951 -> 1733 on feat/crew-page-redesign-pr-c Task 3 (the Rooms breakdown's room list moved to components/show-panels/RoomsBody.tsx and its scope rules to components/show-panels/roomScope.ts, five lucide imports left and three imports landed); located by its own element (5-line context match).
       // step3ReviewSections.tsx:1733 -> PackListBody.tsx:92 on feat/crew-page-redesign-pr-c Task 4 (the pack list's case list moved to components/show-panels/PackListBody.tsx, the pill with it); located by its own element, the same PackCountPill <span>.
-      "components/show-panels/PackListBody.tsx:92",
+      // 92 -> 76 on feat/crew-page-redesign-pr-c Task 6 (packItemLabel moved to components/show-panels/packItemLabel.ts, so the search builders can read it without the client leaf); located by its own element, the same PackCountPill <span>.
+      "components/show-panels/PackListBody.tsx:76",
     ]);
 
     const stale = validateCensus(RESIDUE_CENSUS, under, blind, ledger).filter((p) =>

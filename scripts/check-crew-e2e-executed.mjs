@@ -62,8 +62,11 @@ export const REQUIRED = {
   // wiring guard's live Playwright resolution (47).
   // 48 since PR C's Task 5 added the "event details" case (?s=event opens the sheet
   // on initial load). Re-derived from the wiring guard's live Playwright resolution
-  // (48).
-  "crew-section-toggle.spec.ts": 48,
+  // (48). 54 since PR C's Task 6 added six "pack list" cases (the Set day and ?s=packlist,
+  // the Show day's gate and payload, a refresh off a pack-list phase, a member with no
+  // pull sheet, a stage-restricted viewer, the layout at each phone width). Re-derived
+  // from `playwright test --list` (54).
+  "crew-section-toggle.spec.ts": 54,
   "picker-flow.spec.ts": 7,
   "alert-action-links.spec.ts": 4,
   // 3 SFS-1 cases + 3 seeded agenda-fold cases.
@@ -163,8 +166,11 @@ export const REQUIRED = {
   // wiring guard's live Playwright resolution (32). Thirty-four since PR C's Task 5
   // added two "event details" cases (?s=event lands on the stacked section, and the
   // Dress code card sits there and not in the Today block). Re-derived from the
-  // wiring guard's live Playwright resolution (34).
-  "crew-wide-nav.spec.ts": 34,
+  // wiring guard's live Playwright resolution (34). Thirty-eight since PR C's Task 6
+  // added four "pack list" cases (?s=packlist lands on the stacked section, a Show day
+  // has neither item nor section, an open sheet crossing into wide, the layout at
+  // 1280). Re-derived from `playwright test --list` (38).
+  "crew-wide-nav.spec.ts": 38,
   // 9, and the number is the MATRIX rather than a multiple (plan
   // 2026-08-09-quick-wins-2 "e2e harness readiness"). theme-toggle runs two arms:
   //   arm (a) — 4 standalone-toggle cases, BOTH projects            = 8

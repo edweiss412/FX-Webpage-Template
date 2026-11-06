@@ -41,7 +41,7 @@
  */
 import { execFileSync } from "node:child_process";
 import { randomBytes, randomUUID } from "node:crypto";
-import type { DateRestriction, ShowRow, StageRestriction } from "@/lib/parser/types";
+import type { DateRestriction, PullSheetCase, ShowRow, StageRestriction } from "@/lib/parser/types";
 import { psqlChildEnv, resolvePsqlTarget } from "./psqlTarget";
 import { admin } from "./supabaseAdmin";
 
@@ -138,6 +138,16 @@ export type SeedShowWithCrewOptions = {
    * insert this helper already performs adds neither.
    */
   eventDetails?: ShowRow["event_details"];
+  /**
+   * The show's per-day work phases. `shows` has no such column: the projection
+   * reads `event_details.schedule_phases` when present and otherwise derives the
+   * map from `dates` (lib/data/getShowForViewer.ts), so this rides in the same
+   * jsonb on the same insert, the shape `eventDetails` above explains. Omit → the
+   * derived map. The pack list's gate reads it (`isPackListVisibleToday`).
+   */
+  schedulePhases?: ShowRow["schedule_phases"];
+  /** shows.pull_sheet jsonb, the pack list's cases. Omit → column left NULL. */
+  pullSheet?: PullSheetCase[] | null;
   crew?: SeedCrewMemberInput[];
   /**
    * shows_internal seed, written INSIDE the same locked transaction as the show
@@ -295,6 +305,11 @@ export async function seedShowWithCrew(options: SeedShowWithCrewOptions = {}): P
     flightInfo: c.flightInfo ?? null,
   }));
 
+  const eventDetails =
+    options.schedulePhases === undefined
+      ? (options.eventDetails ?? null)
+      : { ...options.eventDetails, schedule_phases: options.schedulePhases };
+
   // ONE locked transaction (invariant 2): purge residue, insert the show, insert
   // the crew — all under the held show lock. FK ON DELETE CASCADE clears prior
   // crew_members + show_share_tokens on the purge; the AFTER INSERT trigger mints
@@ -303,7 +318,7 @@ export async function seedShowWithCrew(options: SeedShowWithCrewOptions = {}): P
     `delete from public.shows where drive_file_id = ${sqlString(driveFileId)};`,
     `insert into public.shows
        (id, drive_file_id, slug, title, client_label, template_version,
-        published, archived, picker_epoch, dates, agenda_links, event_details${
+        published, archived, picker_epoch, dates, agenda_links, event_details, pull_sheet${
           options.venue === undefined ? "" : ", venue"
         })
      values
@@ -314,7 +329,8 @@ export async function seedShowWithCrew(options: SeedShowWithCrewOptions = {}): P
         ${options.published ?? true}, ${options.archived ?? false}, ${pickerEpoch},
         ${sqlJsonbOrNull(options.dates ?? null)},
         ${sqlJsonbOrNull(options.agendaLinks ?? null)},
-        ${sqlJsonbOrNull(options.eventDetails ?? null)}${
+        ${sqlJsonbOrNull(eventDetails)},
+        ${sqlJsonbOrNull(options.pullSheet ?? null)}${
           options.venue === undefined ? "" : `, ${sqlJsonbOrNull(options.venue)}`
         });`,
   ];

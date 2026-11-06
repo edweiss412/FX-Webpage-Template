@@ -233,7 +233,7 @@ export const PRODUCER_SCOPE: ProducerScopeRow[] = [
     // (PR B Task 9): the Travel section's import became HotelsSection's and
     // TransportSection's. 195 -> 196 (PR B Task 10): the AgendaSection import.
     // 196 -> 197 (PR C Task 5): the EventSection import.
-    site: "app/show/[slug]/[shareToken]/_CrewShell.tsx:197",
+    site: "app/show/[slug]/[shareToken]/_CrewShell.tsx:198",
     contextKeys: ["failedKeys", "message", "sheet_name", "tileId"],
     code: "TILE_PROJECTION_FETCH_FAILED",
     scope: "per-show",

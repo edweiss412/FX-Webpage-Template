@@ -1028,8 +1028,13 @@ export function scanCandidates(): Candidate[] {
       // the shared Event details body, which already counted them. EventSection adds
       // one, the player in its slot. None is a fault branch; 79 kept. Re-derived by
       // running the guard.
+      // 796 -> 793 on feat/crew-page-redesign-pr-c Task 6: the pack list left Gear, three
+      // ternaries (the card's gate, the raw snippet and the overflow stub). Their rows
+      // are the shared Pack list body's, which already counted them, and PackListSection
+      // decides its empty state with an early return. None is a fault branch; 79 kept.
+      // Re-derived by running the guard.
       //
-      // Probed: 796 such ternaries under the derived roots, 79 on a
+      // Probed: 793 such ternaries under the derived roots, 79 on a
       // fault-vocabulary guard and unclassifiable. 69 of those 79 sit in
       // `"use client"` files, where the guard is interaction state -- `errorCode`,
       // `state.kind === "error"`, `switchStatus === "error"` -- and not a server-render

@@ -21,24 +21,15 @@ import { searchLine, type Seen } from "@/components/crew/sections/sectionLines";
 import { YOUR_SCOPE } from "@/components/show-panels/roomScope";
 import { compareRooms, type ProjectedRoomRow } from "@/lib/crew/resolveKeyTimes";
 import { ROOM_DETAIL_FIELDS } from "@/lib/crew/roomDetailFields";
-import type { ShowForViewer } from "@/lib/data/getShowForViewer";
-import type { PullSheetItem, RoleFlag, StageRestriction } from "@/lib/parser/types";
+import type { RoleFlag } from "@/lib/parser/types";
 import type { SearchEntry } from "@/lib/search/types";
 import { shouldHideGenericOptional } from "@/lib/visibility/emptyState";
-import { isPackListVisibleToday } from "@/lib/visibility/packList";
 import { roomLabel } from "@/lib/visibility/roomLabel";
 import {
   audioScopeVisible,
   lightingScopeVisible,
   videoScopeVisible,
 } from "@/lib/visibility/scopeTiles";
-
-/**
- * Pack-list cases rendered inline; cases past it are not in the DOM (a "+N more"
- * stub renders instead). Exported so the crew search builder applies the same
- * cap, and so the cap-boundary test reads the live value.
- */
-export const CASE_CAP = 12;
 
 /**
  * Room-detail blocks rendered; blocks past it are not in the DOM (an "…and N
@@ -140,96 +131,6 @@ export function gearScopeCards(rooms: ProjectedRoomRow[], flags: RoleFlag[]): Sc
   // the .map above), then the remaining disciplines in the same canonical
   // order. A stable partition preserves canonical order within each group.
   return [...built.filter((d) => d.emphasized), ...built.filter((d) => !d.emphasized)];
-}
-
-// ── Pack list ────────────────────────────────────────────────────────────────
-
-/** One pull-sheet item as its row reads: "4 × Shure ULXD4 receiver (Audio / Wireless)". */
-export function packListItemLabel(item: PullSheetItem): string {
-  const cat = shouldHideGenericOptional(item.cat) ? null : item.cat;
-  const subCat = shouldHideGenericOptional(item.subCat) ? null : item.subCat;
-  const taxonomy = [cat, subCat].filter(Boolean).join(" / ");
-  const qtyPart = item.qty !== null ? `${item.qty} × ` : "";
-  return `${qtyPart}${item.item}${taxonomy ? ` (${taxonomy})` : ""}`;
-}
-
-export type PackItem = {
-  key: string;
-  label: string;
-  rawSnippet: string | null;
-  entry: SearchEntry | null;
-};
-
-export type PackCase = {
-  key: string;
-  /** The summary label: the sheet's case label, else the invented "Case N". */
-  label: string;
-  /** "2 items". */
-  count: string;
-  /** The summary's line. Null for an invented "Case N" label, which is not sheet data. */
-  entry: SearchEntry | null;
-  items: PackItem[];
-};
-
-export type PackList = { visible: boolean; cases: PackCase[]; overflowCount: number };
-
-const PACK = { region: "gear-pack-list", group: "Pack list" } as const;
-
-/**
- * The pack list, gated by the canonical predicate (`today` threads straight
- * through); the pullSheet/empty-array fall-through mirrors PackListTile. Cases
- * past `CASE_CAP` are not rendered, so they carry no lines.
- */
-export function packList(
-  data: Pick<ShowForViewer, "pullSheet" | "show">,
-  restriction: StageRestriction,
-  today: Date,
-): PackList {
-  const visible =
-    data.pullSheet !== null &&
-    data.pullSheet.length > 0 &&
-    isPackListVisibleToday({ show: data.show, restriction, today });
-  if (!visible || data.pullSheet === null) return { visible: false, cases: [], overflowCount: 0 };
-
-  const seen: Seen = new Map();
-  const cases = data.pullSheet.slice(0, CASE_CAP).map((c, idx): PackCase => {
-    const count = `${c.items.length} ${c.items.length === 1 ? "item" : "items"}`;
-    const realLabel = c.caseLabel ? c.caseLabel : null;
-    const entry =
-      realLabel !== null
-        ? searchLine("gear", PACK.region, PACK.group, null, realLabel, [count], seen)
-        : null;
-    const items = c.items.map((item, itemIdx): PackItem => {
-      const label = packListItemLabel(item);
-      const rawSnippet = item.rawSnippet ? item.rawSnippet : null;
-      // An item is one line: its label, with the raw sheet snippet beside it.
-      const [value = "", ...rest] = [label, rawSnippet].filter(
-        (l): l is string => l !== null && l.trim().length > 0,
-      );
-      return {
-        key: `${item.item}-${itemIdx}`,
-        label,
-        rawSnippet,
-        entry: searchLine(
-          "gear",
-          PACK.region,
-          PACK.group,
-          null,
-          value,
-          [...rest, entry?.value],
-          seen,
-        ),
-      };
-    });
-    return {
-      key: `${c.caseLabel}-${idx}`,
-      label: c.caseLabel || `Case ${idx + 1}`,
-      count,
-      entry,
-      items,
-    };
-  });
-  return { visible, cases, overflowCount: Math.max(0, data.pullSheet.length - CASE_CAP) };
 }
 
 // ── Room details ─────────────────────────────────────────────────────────────

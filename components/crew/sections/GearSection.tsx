@@ -2,7 +2,7 @@
  * components/crew/sections/GearSection.tsx — crew-redesign §9 "Gear" section.
  *
  * The single synchronous Server Component that homes the gear-facing surfaces
- * the deleted AudioScopeTile / VideoScopeTile / LightingScopeTile / PackListTile
+ * the deleted AudioScopeTile / VideoScopeTile / LightingScopeTile
  * carried, into one curated page:
  *
  *   - A/V/L scope cards — one card per discipline (Audio, Video, Lighting),
@@ -15,13 +15,9 @@
  *     eyebrow + a thin accent left-edge + `data-emphasis="you"`. Non-viewer
  *     cards are neutral (no `data-emphasis`). A card whose discipline has ZERO
  *     non-sentinel room values is OMITTED — including the viewer's own.
- *   - Pack list — ported PackListTile, rendered ONLY when
- *     `isPackListVisibleToday({ show, restriction, today })` (the `today` prop
- *     is threaded straight through). Cap 12 cases + `[data-tile-show-more]`
- *     overflow stub.
  *
  * The Tech specs, keynote and opening reel cards left for the Event details
- * section (crew page redesign PR C Task 5).
+ * section (crew page redesign PR C Task 5), and the pack list for its own (Task 6).
  *
  * When ALL blocks are hidden, a section-level `<EmptyState data-testid=
  * "section-empty">` renders so the surface is never blank.
@@ -32,7 +28,7 @@
  * crewMembers projection — this section does not swallow it).
  */
 import type { JSX, ReactNode } from "react";
-import { Boxes, ChevronRight, Frame, LayoutGrid, Lightbulb, Video, Volume2 } from "lucide-react";
+import { Boxes, Frame, LayoutGrid, Lightbulb, Video, Volume2 } from "lucide-react";
 
 import { EmptyState } from "@/components/atoms/EmptyState";
 import { SectionTileError } from "@/components/crew/SectionTileError";
@@ -40,12 +36,10 @@ import { SectionCard } from "@/components/crew/primitives/SectionCard";
 import { CardHeaderActions } from "@/components/crew/primitives/CardHeaderActions";
 import { DEFAULT_CARD_REPORT, type CardReportContext } from "@/lib/crew/cardReportContext";
 import { CARD_REGION_MAP } from "@/lib/sheet-links/buildSheetDeepLink";
-import { BoxIcon } from "@/components/crew/icons/sectionIcons";
 import { KeyValueRows } from "@/components/crew/primitives/KeyValueRows";
 import { WrappedSection } from "@/components/crew/WrappedSection";
 import {
   gearScopeCards,
-  packList,
   roomDetailBlocks,
   YOUR_SCOPE,
   type Discipline,
@@ -56,12 +50,11 @@ import { type TileRenderLedger } from "@/lib/crew/tileRenderLedger";
 import { cn } from "@/lib/ui/cn";
 
 /**
- * The pack-list and room-details caps live with the row derivations
- * (gearRows.ts), which the crew search builder shares; re-exported here for the
- * callers that read them from the section (the cap-boundary test, the search
- * viewer matrix).
+ * The room-details cap lives with the row derivations (gearRows.ts), which the
+ * crew search builder shares; re-exported here for the callers that read it from
+ * the section (the search viewer matrix).
  */
-export { CASE_CAP, ROOM_DETAIL_CAP } from "@/components/crew/sections/gearRows";
+export { ROOM_DETAIL_CAP } from "@/components/crew/sections/gearRows";
 
 type GearSectionProps = {
   data: ShowForViewer;
@@ -88,7 +81,6 @@ const DISCIPLINE_ICONS: Record<Discipline, ReactNode> = {
 export function GearSection({
   data,
   viewer,
-  today,
   showId,
   ledger,
   cardReport = DEFAULT_CARD_REPORT,
@@ -114,13 +106,6 @@ export function GearSection({
           // value, the viewer's own disciplines first (an EMPHASIS flip, not a gate).
           const scopeCards = gearScopeCards(data.rooms, ctx.viewerFlags);
 
-          // Pack list — gated by `isPackListVisibleToday`; `today` threads straight
-          // through. Cases past CASE_CAP collapse into the overflow stub.
-          const pack = packList(data, ctx.stageRestriction, today);
-          const packVisible = pack.visible;
-          const visibleCases = pack.cases;
-          const overflowCount = pack.overflowCount;
-
           // Per-room detail (BL-ROOM-DETAIL-UNRENDERED, capped at ROOM_DETAIL_CAP).
           const roomDetails = roomDetailBlocks(data.rooms);
           const hasRoomDetails = roomDetails.visible;
@@ -135,7 +120,7 @@ export function GearSection({
           // producer). Composes with the WrappedSection render-throw arm.
           const roomsFetchFailed = Boolean(data.tileErrors["rooms"]) && ctx.isAdmin;
 
-          const allHidden = scopeCards.length === 0 && !packVisible && !hasRoomDetails;
+          const allHidden = scopeCards.length === 0 && !hasRoomDetails;
 
           return (
             <>
@@ -223,106 +208,6 @@ export function GearSection({
                       </SectionCard>
                     </div>
                   ))}
-                </div>
-              ) : null}
-
-              {packVisible ? (
-                <div data-testid="gear-pack-list" data-card-id="gear-pack-list">
-                  <SectionCard
-                    icon={<BoxIcon />}
-                    title="Pack list"
-                    action={
-                      <CardHeaderActions
-                        cardId="gear-pack-list"
-                        driveFileId={data.driveFileId}
-                        anchor={data.sourceAnchors[CARD_REGION_MAP["gear-pack-list"]]}
-                        showId={showId}
-                        cardReport={cardReport}
-                      />
-                    }
-                  >
-                    <ol className="flex flex-col gap-2">
-                      {visibleCases.map((c, idx) => (
-                        <li
-                          key={c.key}
-                          data-testid="gear-pack-list-case"
-                          className="rounded-sm border border-border bg-surface"
-                        >
-                          <details className="group">
-                            {/* The summary is the case's search line when the label is
-                                the sheet's; an invented "Case N" is chrome, not data. */}
-                            <summary
-                              data-search-target={c.entry?.id}
-                              data-search-skip={c.entry === null ? "" : undefined}
-                              className={cn(
-                                "flex min-h-tap-min cursor-pointer list-none",
-                                "items-center justify-between gap-3",
-                                "px-3 py-2 text-sm font-semibold text-text-strong",
-                                "rounded-sm",
-                                "[&::-webkit-details-marker]:hidden",
-                              )}
-                            >
-                              <span className="flex flex-1 items-baseline gap-2 truncate">
-                                <span
-                                  aria-hidden="true"
-                                  data-search-skip=""
-                                  className="shrink-0 text-xs font-medium tabular-nums text-text-subtle"
-                                >
-                                  {idx + 1}.
-                                </span>
-                                <span className="truncate">{c.label}</span>
-                              </span>
-                              {/* The item count is a fact, not an affordance:
-                                  this summary suppresses the native marker and
-                                  rendered no replacement (design doc
-                                  2026-08-25-ui-polish-class-sweep-design.md, D10
-                                  — the same shape as
-                                  BL-RUNOFSHOW-SUMMARY-NO-MARKER, swept with it).
-                                  The chevron sits after the count, at the row's
-                                  trailing edge where a disclosure cue is read. */}
-                              <span className="flex shrink-0 items-center gap-1 text-xs font-medium uppercase tracking-eyebrow text-text-subtle tabular-nums">
-                                {c.items.length} {c.items.length === 1 ? "item" : "items"}
-                                <ChevronRight
-                                  aria-hidden="true"
-                                  className="inline-block size-4 shrink-0 transition-transform duration-normal group-open:rotate-90"
-                                />
-                              </span>
-                            </summary>
-                            <ul className="flex flex-col gap-1.5 border-t border-border p-3  text-sm text-text">
-                              {c.items.map((item) => (
-                                <li
-                                  key={item.key}
-                                  data-search-target={item.entry?.id}
-                                  className="flex flex-wrap items-baseline gap-x-2"
-                                >
-                                  <span>{item.label}</span>
-                                  {item.rawSnippet !== null ? (
-                                    <span
-                                      data-testid="gear-pack-list-item-raw-snippet"
-                                      className="text-xs italic text-text-subtle"
-                                    >
-                                      {item.rawSnippet}
-                                    </span>
-                                  ) : null}
-                                </li>
-                              ))}
-                            </ul>
-                          </details>
-                        </li>
-                      ))}
-                    </ol>
-                    {overflowCount > 0 ? (
-                      <div
-                        data-testid="gear-pack-list-overflow-stub"
-                        data-tile-show-more="true"
-                        data-search-skip=""
-                        className="rounded-sm bg-surface-sunken px-3 py-2 text-sm text-text-subtle"
-                      >
-                        <span className="tabular-nums">+{overflowCount}</span>{" "}
-                        {overflowCount === 1 ? "more case" : "more cases"} on the source pull sheet
-                      </div>
-                    ) : null}
-                  </SectionCard>
                 </div>
               ) : null}
 

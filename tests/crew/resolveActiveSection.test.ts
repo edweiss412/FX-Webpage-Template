@@ -91,16 +91,14 @@ describe("legacy section aliases (spec line 242, line 489)", () => {
       ...CREW_SECTION_IDS.filter((id) => crewSectionEntitled(id, data, viewer)),
     ]);
   }
-  const LEAD: CrewSectionsViewer = {
-    viewerFlags: ["LEAD"],
+  const VIEWER_BASE = {
     isAdmin: false,
     dateRestriction: { kind: "none" },
-  };
-  const NON_LEAD: CrewSectionsViewer = {
-    viewerFlags: [],
-    isAdmin: false,
-    dateRestriction: { kind: "none" },
-  };
+    stageRestriction: { kind: "none" },
+    today: new Date("2026-05-14T15:00:00Z"),
+  } as const;
+  const LEAD: CrewSectionsViewer = { ...VIEWER_BASE, viewerFlags: ["LEAD"] };
+  const NON_LEAD: CrewSectionsViewer = { ...VIEWER_BASE, viewerFlags: [] };
 
   test("every old id resolves to its replacement when entitled, and home when not", () => {
     const aliases = Object.entries(LEGACY_SECTION_ALIASES);

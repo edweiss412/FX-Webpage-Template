@@ -202,6 +202,9 @@ describe("crew route loading skeleton", () => {
     const { container } = render(<Loading />);
     const text = (container.textContent ?? "").toLowerCase();
     expect(text).not.toContain(crewSectionLabel("billing").toLowerCase());
+    // Pack list's gate reads the day and the viewer's stages (PR C Task 6), so the
+    // skeleton, drawn before the page knows either, never shows its row.
+    expect(text).not.toContain(crewSectionLabel("packlist").toLowerCase());
     expect(text).not.toContain("budget");
   });
 

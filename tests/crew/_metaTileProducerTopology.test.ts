@@ -30,6 +30,7 @@ const SECTION_COMPONENTS = [
   "ContactsSection",
   "EventSection",
   "GearSection",
+  "PackListSection",
   "BillingSection",
 ] as const;
 
@@ -64,6 +65,8 @@ const EXPECTED_TILE_BY_FILE: Record<string, string> = {
   // and the Dress code card the home's, for this section's (decision 5).
   "EventSection.tsx": "crew:event:details",
   "GearSection.tsx": "crew:gear:scope",
+  // PR C plan Task 6: the pack list left Gear's wrapper for its own (decision 5).
+  "PackListSection.tsx": "crew:packlist:cases",
   "BillingSection.tsx": "crew:budget:rows",
 };
 

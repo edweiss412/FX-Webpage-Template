@@ -614,7 +614,10 @@ export const DISPOSITION_RULES: DispositionRule[] = [
     // 35 since PR C's Task 5: the event details block in crew-page.spec.ts loads crew
     // routes through open's `path`. Same disposition: a crew page. Re-derived from the
     // failure's own count (35 candidates).
-    expectedCount: 35,
+    // 37 since PR C's Task 6: the pack list blocks load crew routes through a `path`
+    // variable, the compact block's `loadPath` and the wide block's `loadIn`. Same
+    // disposition: a crew page. Re-derived from the failure's own count (37 candidates).
+    expectedCount: 37,
     match: (c) =>
       !c.file.startsWith("tests/e2e/published-review-modal.") &&
       !/\bcrewPage\.goto\(/.test(c.matchLineText) &&
@@ -731,7 +734,10 @@ export const DISPOSITION_RULES: DispositionRule[] = [
     // 30 since PR C's Task 5: the event details reel case in crew-page.spec.ts builds
     // a crew member's preview path. Re-derived from the failure's own count (30
     // candidates).
-    expectedCount: 30,
+    // 31 since PR C's Task 6: the pack list compact block builds the preview-as path for
+    // its seeded viewers (`previewOf(seeded, name)`). Re-derived from the failure's own
+    // count (31 candidates).
+    expectedCount: 31,
     match: (c) =>
       !isTestTitle(c.matchLineText) &&
       !/^\["\/admin\/show\//.test(c.matchLineText) &&
@@ -913,7 +919,10 @@ export const DISPOSITION_RULES: DispositionRule[] = [
     // s=agenda with no content, and a date-suppressed viewer's popstate to it) step
     // Back and Forward over a crew-route entry the same way. Re-derived from the
     // failure's own count (33 candidates).
-    expectedCount: 33,
+    // 35 since PR C's Task 6: the pack list popstate case steps Back and Forward over a
+    // crew-route entry the same way. Re-derived from the failure's own count (35
+    // candidates).
+    expectedCount: 35,
     match: (c) =>
       [
         "admin-nav-layout-dimensions.spec.ts",

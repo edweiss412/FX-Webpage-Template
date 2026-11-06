@@ -2,11 +2,11 @@
  * lib/crew/sectionPeek.ts: the one-line peek under each "All sections" row.
  *
  * A short summary of what a section holds for this viewer (crew page redesign
- * spec §4.6): Venue, the venue name; Crew, "6 people"; Gear, "14 cases". It
+ * spec §4.6): Venue, the venue name; Crew, "6 people"; Pack list, "14 cases". It
  * reads only what the section itself renders for the viewer, and each gate is
  * the section's own helper called here, never a copy of its rule:
  *
- *   - Gear's pack list through `isPackListVisibleToday` (GearSection).
+ *   - The pack list through `isPackListVisibleToday` (the section's entitlement).
  *   - Event details' fields through the section's own hide rules
  *     (`crewEventFieldCount`), so the count is the rows it draws.
  *   - Ground-transport legs through `transportTileVisible` (TransportSection),
@@ -163,7 +163,7 @@ function eventPeek(data: ShowForViewer): string | null {
 }
 
 /** The pack list's case count, only on a day its gate shows it to this viewer. */
-function gearPeek(data: ShowForViewer, viewer: SectionPeekViewer): string | null {
+function packListPeek(data: ShowForViewer, viewer: SectionPeekViewer): string | null {
   const cases = data.pullSheet;
   if (!Array.isArray(cases) || cases.length === 0) return null; // absent on a partial projection
   const visible = isPackListVisibleToday({
@@ -205,7 +205,9 @@ export function sectionPeek(
     case "contacts":
       return contactsPeek(data);
     case "gear":
-      return gearPeek(data, viewer);
+      return null;
+    case "packlist":
+      return packListPeek(data, viewer);
     case "billing":
       return billingPeek(data, viewer);
   }

@@ -11,7 +11,8 @@
  */
 import { CONTACTS_INLINE_CAP } from "@/components/crew/sections/ContactsSection";
 import { CREW_INLINE_CAP } from "@/components/crew/sections/CrewSection";
-import { CASE_CAP, ROOM_DETAIL_CAP } from "@/components/crew/sections/GearSection";
+import { ROOM_DETAIL_CAP } from "@/components/crew/sections/GearSection";
+import { CASE_CAP } from "@/components/crew/sections/packListRows";
 import { SOURCE_CAP, TRUNCATE_AT } from "@/components/crew/sections/todayRows";
 import { SHOWS_CAP } from "@/components/crew/primitives/KeyTimesStrip";
 import { INITIAL_VISIBLE } from "@/components/diagrams/galleryLimits";
@@ -170,7 +171,9 @@ function billingVisibleFor(viewer: Viewer, data: ShowForViewer): boolean {
 
 /** The shell's member list for this viewer (`crewSectionsFor`, as `CrewShell` lists it). */
 export function memberIdsFor(viewer: Viewer, data: ShowForViewer): SearchIndexInput["sections"] {
-  return crewSectionsFor(data, resolveViewerContext(viewer, data)).map((s) => s.id);
+  return crewSectionsFor(data, { ...resolveViewerContext(viewer, data), today: MATRIX_TODAY }).map(
+    (s) => s.id,
+  );
 }
 
 function makeCase(name: string, viewer: Viewer, data: ShowForViewer): ViewerCase {
@@ -362,15 +365,19 @@ export const diagramsNamedAndUnnamed = makeCase(
 );
 
 /**
- * An admin viewer: all flags, no restrictions, transport and billing visible, and
- * an agenda PDF with a file, so the Agenda is listed too (crew page redesign PR B,
- * Task 10): the one case listed every section.
+ * An admin viewer: all flags, no restrictions, transport and billing visible, an
+ * agenda PDF with a file, so the Agenda is listed too (crew page redesign PR B, Task
+ * 10), and a pack-list phase today, so Pack list is too (PR C Task 6): the one case
+ * listed every section.
  */
 export const adminViewer = makeCase(
   "adminViewer",
   { kind: "admin" },
   base({
-    show: { agenda_links: [{ label: "AGENDA", fileId: "agenda-admin" }] },
+    show: {
+      agenda_links: [{ label: "AGENDA", fileId: "agenda-admin" }],
+      schedule_phases: { [MATRIX_TODAY_ISO]: ["Set"] },
+    },
     viewerId: null,
     transportation: transport("Pat Driver"),
     financials: {

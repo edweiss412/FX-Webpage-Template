@@ -22,6 +22,7 @@ import { BillingSection } from "@/components/crew/sections/BillingSection";
 import { ContactsSection } from "@/components/crew/sections/ContactsSection";
 import { CrewSection } from "@/components/crew/sections/CrewSection";
 import { EventSection } from "@/components/crew/sections/EventSection";
+import { PackListSection } from "@/components/crew/sections/PackListSection";
 import { GearSection } from "@/components/crew/sections/GearSection";
 import { AgendaSection } from "@/components/crew/sections/AgendaSection";
 import { ScheduleSection } from "@/components/crew/sections/ScheduleSection";
@@ -99,6 +100,7 @@ function renderSection(id: SectionId, c: ViewerCase): HTMLElement {
     crew: () => <CrewSection {...props} />,
     contacts: () => <ContactsSection {...props} />,
     gear: () => <GearSection {...props} />,
+    packlist: () => <PackListSection {...props} />,
     billing: () => <BillingSection {...props} />,
   };
   return render(byId[id]()).container;
@@ -264,20 +266,26 @@ describe("fullContent", () => {
     expect(byTestId(root, "venue-facilities")).toHaveTextContent(ed["power"]!);
   });
 
-  test("Gear: one scope card per discipline, pack list, room details", () => {
+  test("Gear: one scope card per discipline, room details", () => {
     const root = renderSection("gear", fullContent);
 
     const scopeCards = Object.keys(CARD_REGION_MAP).filter((k) => k.startsWith("gear-scope-"));
     expect(scopeCards.length).toBeGreaterThan(0);
     for (const id of scopeCards) byTestId(root, id);
 
-    const pack = byTestId(root, "gear-pack-list");
-    expect(pack.querySelectorAll('[data-testid="gear-pack-list-case"]')).toHaveLength(
-      fullContent.data.pullSheet!.length,
-    );
-
     const details = byTestId(root, "gear-room-details");
     for (const room of fullContent.data.rooms) byTestId(details, `gear-room-detail-${room.id}`);
+  });
+
+  test("Pack list: every case, and the section its own (PR C Task 6)", () => {
+    const pack = byCardId(renderSection("packlist", fullContent), "gear-pack-list");
+    expect(pack.querySelectorAll(":scope > ol > li")).toHaveLength(
+      fullContent.data.pullSheet!.length,
+    );
+    cleanup();
+    expect(
+      renderSection("gear", fullContent).querySelector('[data-card-id="gear-pack-list"]'),
+    ).toBe(null);
   });
 
   test("Event details: every tech spec row, the keynote and the reel", () => {

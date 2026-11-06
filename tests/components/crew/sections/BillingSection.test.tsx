@@ -48,6 +48,8 @@ test("BillingSection renders financials iff financialsVisible; the SAME predicat
     viewerFlags: [],
     isAdmin: false,
     dateRestriction: { kind: "none" },
+    stageRestriction: { kind: "none" },
+    today: new Date("2026-05-14T15:00:00Z"),
   };
   expect(crewSectionEntitled("billing", lead, nonLead)).toBe(financialsVisible([], false));
   const entitled = new Set<SectionId>(

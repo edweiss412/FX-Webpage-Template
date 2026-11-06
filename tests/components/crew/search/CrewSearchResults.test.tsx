@@ -53,6 +53,7 @@ const LABEL: Record<SectionId, string> = {
   crew: "Crew",
   contacts: "Contacts",
   gear: "Gear",
+  packlist: "Pack list",
   billing: "Billing & docs",
 };
 
@@ -242,16 +243,24 @@ describe("chips (spec §6.3)", () => {
     renderResults(zebra);
     search("zebra");
     // The wide nav exactly as the controller feeds it (components/crew/CrewSections.tsx):
-    // "Today", then the membership `crewSectionsFor` returns, Billing included for an admin
-    // and Agenda for a show with an agenda file (PR B Task 10).
+    // "Today", then the membership `crewSectionsFor` returns, Billing included for an admin,
+    // Agenda for a show with an agenda file (PR B Task 10) and Pack list on a pack-list
+    // day (PR C Task 6).
     const items = [
       { id: "today" as const, label: CREW_TODAY_LABEL },
       ...crewSectionsFor(
-        makeShowForViewer({ show: { agenda_links: [{ label: "AGENDA", fileId: "agenda-file" }] } }),
+        makeShowForViewer({
+          show: {
+            agenda_links: [{ label: "AGENDA", fileId: "agenda-file" }],
+            schedule_phases: { "2026-05-14": ["Set"] },
+          },
+        }),
         {
           viewerFlags: [],
           isAdmin: true,
           dateRestriction: { kind: "none" },
+          stageRestriction: { kind: "none" },
+          today: new Date("2026-05-14T15:00:00Z"),
         },
       ),
     ];

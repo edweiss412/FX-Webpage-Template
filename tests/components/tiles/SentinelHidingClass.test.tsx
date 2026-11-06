@@ -22,7 +22,7 @@
  *   - crew member phone/email (dead-link guard) → CrewSection → CrewBody.
  *   - room audio/video/lighting scope → GearSection scope cards.
  *   - financials po/proposal/invoice/invoice_notes → BillingSection.
- *   - pack-list item cat/subCat taxonomy → GearSection pack list.
+ *   - pack-list item cat/subCat taxonomy → PackListSection.
  *
  * SENTINELS mirror lib/visibility/emptyState.ts:GENERIC_OPTIONAL_HIDE
  * (case-insensitive after trim). Each class gets a sentinel test (value
@@ -38,6 +38,7 @@ import { CrewSection } from "@/components/crew/sections/CrewSection";
 import { EventSection } from "@/components/crew/sections/EventSection";
 import { GearSection } from "@/components/crew/sections/GearSection";
 import { HotelsSection } from "@/components/crew/sections/HotelsSection";
+import { PackListSection } from "@/components/crew/sections/PackListSection";
 import { TransportSection } from "@/components/crew/sections/TransportSection";
 import { VenueSection } from "@/components/crew/sections/VenueSection";
 import { BillingSection } from "@/components/crew/sections/BillingSection";
@@ -704,19 +705,15 @@ describe("§8.3 sentinel-hiding — Financials (BillingSection)", () => {
 });
 
 // ─────────────────────────────────────────────────────────────────────
-// Pack-list item taxonomy → GearSection pack list
+// Pack-list item taxonomy → PackListSection
 // ─────────────────────────────────────────────────────────────────────
 
-describe("§8.3 sentinel-hiding — Pack-list taxonomy (GearSection)", () => {
-  const TODAY_ISO = "2026-04-21";
-  const PACK_TODAY = new Date("2026-04-21T16:00:00Z");
-
+describe("§8.3 sentinel-hiding — Pack-list taxonomy (PackListSection)", () => {
   function pack(item: { cat?: string | null; subCat?: string | null; item?: string }) {
     return render(
-      <GearSection
+      <PackListSection
         {...ledgerProp()}
         data={makeShowForViewer({
-          show: { schedule_phases: { [TODAY_ISO]: ["Set"] } },
           pullSheet: [
             {
               caseLabel: "FOH Rack",
@@ -725,7 +722,7 @@ describe("§8.3 sentinel-hiding — Pack-list taxonomy (GearSection)", () => {
           ],
         })}
         viewer={ADMIN}
-        today={PACK_TODAY}
+        today={new Date("2026-04-21T16:00:00Z")}
         showId={SHOW_ID}
       />,
     ).container;

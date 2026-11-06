@@ -323,8 +323,8 @@ describe("staged adapter output through the REAL CrewShell", () => {
   test("AC-1: every entitled section renders fixture-derived content", async () => {
     const parse = makeStagedParseFixture();
     // On the SET day: the pack list is phase-gated to {Set, Strike, Load Out}
-    // (lib/visibility/packList.ts:55-59, GearSection.tsx:195-202), so a pre-show
-    // or show-day clock would hide the gear body's case labels for a reason that
+    // (lib/visibility/packList.ts, the `packlist` entitlement in lib/crew/crewSections.ts),
+    // so a pre-show or show-day clock would leave the body unbuilt for a reason that
     // has nothing to do with the adapter.
     nowDate.mockResolvedValue(new Date(`${parse.show.dates.set!}T15:00:00Z`));
     const { data } = stagedProjection("staged-crew-0", parse);
@@ -346,6 +346,7 @@ describe("staged adapter output through the REAL CrewShell", () => {
         "event",
         "gear",
         "hotels",
+        "packlist",
         "schedule",
         "today",
         "transport",
@@ -359,7 +360,7 @@ describe("staged adapter output through the REAL CrewShell", () => {
     const contactsText =
       container.querySelector('[data-testid="node-contacts"]')?.textContent ?? "";
     expect(contactsText).toContain(parse.contacts[0]!.name!);
-    expect(text).toContain(parse.pullSheet![0]!.caseLabel); // gear body
+    expect(text).toContain(parse.pullSheet![0]!.caseLabel); // pack list body
     expect(text).toContain(parse.hotelReservations[0]!.hotel_name!); // travel body
     expect(text).toContain(parse.show.venue!.name); // venue body
 
