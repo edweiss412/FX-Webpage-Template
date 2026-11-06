@@ -13,7 +13,7 @@
  * `isPackListVisibleToday` lets through (tests/crew/crewSections.test.ts,
  * tests/components/crew/crewShellSections.test.tsx); the section itself has no gate.
  *
- * The raw snippet cases moved here from GearSection.rawSnippet.test.tsx, which closed
+ * The raw snippet cases moved here from the Gear section's raw snippet suite, which closed
  * the coverage residue the deleted tests/e2e/pack-list.spec.ts left. Expected values
  * are read back from the fixture.
  */

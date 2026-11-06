@@ -37,7 +37,6 @@ import { EventSection } from "@/components/crew/sections/EventSection";
 import * as packListRows from "@/components/crew/sections/packListRows";
 import { PackListSection } from "@/components/crew/sections/PackListSection";
 import * as eventRows from "@/components/crew/sections/eventRows";
-import { GearSection } from "@/components/crew/sections/GearSection";
 import * as roomsRows from "@/components/crew/sections/roomsRows";
 import { RoomsSection } from "@/components/crew/sections/RoomsSection";
 import { AgendaSection } from "@/components/crew/sections/AgendaSection";
@@ -152,7 +151,6 @@ function renderSection(id: SectionId, c: ViewerCase): HTMLElement {
     crew: () => <CrewSection {...props} />,
     contacts: () => <ContactsSection {...props} />,
     rooms: () => <RoomsSection {...props} />,
-    gear: () => <GearSection {...props} />,
     packlist: () => <PackListSection {...props} />,
     billing: () => <BillingSection {...props} />,
   };
@@ -980,24 +978,6 @@ describe("rooms", () => {
     const indexed = inRegion(build("rooms", overCaps), "venue-diagrams").map((e) => e.value);
     premise("overCaps names more diagrams than the gallery shows", names.length, INITIAL_VISIBLE);
     expect(indexed.filter((v) => names.includes(v))).toEqual(names.slice(0, INITIAL_VISIBLE));
-  });
-});
-
-// ── gear ─────────────────────────────────────────────────────────────────────
-
-describe("gear", () => {
-  // Its cards left for Event details, Pack list and Rooms (PR C Tasks 5 to 7). It
-  // holds nothing but its empty state until it retires in Task 8, so it has no line.
-  const cases = ALL_CASES.filter((c) => canOpen("gear", c));
-
-  test.each(parityOver("gear", cases))("$name: index equals render", (c) => {
-    const root = renderRoot(<GearSection {...shellProps(c)} />);
-    premiseHolds(
-      `${c.name} renders Gear's empty state`,
-      root.querySelector('[data-testid="section-empty"]') !== null,
-    );
-    expect(SECTION_BUILDERS.gear(c)).toEqual([]);
-    expect(assertParity(root, SECTION_BUILDERS.gear(c))).toEqual([]);
   });
 });
 

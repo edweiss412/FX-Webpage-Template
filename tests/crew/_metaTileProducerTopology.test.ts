@@ -30,7 +30,6 @@ const SECTION_COMPONENTS = [
   "ContactsSection",
   "EventSection",
   "RoomsSection",
-  "GearSection",
   "PackListSection",
   "BillingSection",
 ] as const;
@@ -66,7 +65,7 @@ const EXPECTED_TILE_BY_FILE: Record<string, string> = {
   // and the Dress code card the home's, for this section's (decision 5).
   "EventSection.tsx": "crew:event:details",
   // PR C plan Task 7: the scope rows and the Diagrams block keep their ids (decision
-  // 5). Gear holds nothing but its empty state until it retires in Task 8.
+  // 5).
   "RoomsSection.tsx": "crew:gear:scope,crew:venue:diagrams",
   // PR C plan Task 6: the pack list left Gear's wrapper for its own (decision 5).
   "PackListSection.tsx": "crew:packlist:cases",

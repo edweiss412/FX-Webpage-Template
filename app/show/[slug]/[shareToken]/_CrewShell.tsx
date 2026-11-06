@@ -51,7 +51,6 @@ import { ContactsSection } from "@/components/crew/sections/ContactsSection";
 import { HotelsSection } from "@/components/crew/sections/HotelsSection";
 import { CrewSection } from "@/components/crew/sections/CrewSection";
 import { EventSection } from "@/components/crew/sections/EventSection";
-import { GearSection } from "@/components/crew/sections/GearSection";
 import { RoomsSection } from "@/components/crew/sections/RoomsSection";
 import { PackListSection } from "@/components/crew/sections/PackListSection";
 import { HomeSection } from "@/components/crew/sections/HomeSection";
@@ -371,7 +370,7 @@ export async function CrewShell({
   // ── Section bodies (client-section-toggle) ──
   // Render the REAL section component for EVERY entitled section, each on the
   // uniform contract `({ data, viewer, today, showId })` (R10-HIGH-1: `showId`
-  // is the CrewShell prop, threaded uniformly so GearSection can mount
+  // is the CrewShell prop, threaded uniformly so EventSection can mount
   // `<OpeningReelVideo showId={showId}>`). `today` is the request-scoped
   // `await nowDate()` Date, threaded so the section's timezone today-pin matches
   // the frozen screenshot clock (R8-HIGH-1). The pass is not a section body: the
@@ -521,17 +520,6 @@ export async function CrewShell({
       case "rooms":
         return (
           <RoomsSection
-            data={data}
-            viewer={viewer}
-            today={today}
-            showId={showId}
-            ledger={tileLedger}
-            cardReport={cardReport}
-          />
-        );
-      case "gear":
-        return (
-          <GearSection
             data={data}
             viewer={viewer}
             today={today}

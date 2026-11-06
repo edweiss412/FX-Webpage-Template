@@ -21,7 +21,7 @@ const SCREENSHOT_NAME_RE = /(<Screenshot)\s+[^>]*name=["']([^"']*)["']/g;
 // lost its MDX consumer.
 const CREW_DRIFT_ONLY_KEYS: ReadonlySet<string> = new Set([
   "crew-preview-today-mobile",
-  "crew-preview-gear-mobile",
+  "crew-preview-rooms-mobile",
   "crew-preview-schedule-mobile",
 ]);
 
@@ -205,7 +205,7 @@ describe("help screenshot manifest integrity (Task F.7 / test #9)", () => {
     // added/removed this list is updated deliberately — never to mask drift.
     expect([...CREW_DRIFT_ONLY_KEYS].sort()).toEqual(
       [
-        "crew-preview-gear-mobile",
+        "crew-preview-rooms-mobile",
         "crew-preview-schedule-mobile",
         "crew-preview-today-mobile",
       ].sort(),

@@ -14,7 +14,7 @@
  * keeps its tile id (plan decision 5), so a throw from one leaves the other.
  *
  * Membership is "always" (spec line 240): with no rooms and no diagrams the section
- * shows its own empty state, and a failed rooms fetch keeps Gear's audience (spec line
+ * shows its own empty state, and a failed rooms fetch keeps its audience (spec line
  * 241): the admin sees the degraded block, crew the empty state.
  *
  * Synchronous Server Component (no `'use client'`, no `async`, no `new Date()`).

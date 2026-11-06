@@ -23,7 +23,6 @@ import { ContactsSection } from "@/components/crew/sections/ContactsSection";
 import { CrewSection } from "@/components/crew/sections/CrewSection";
 import { EventSection } from "@/components/crew/sections/EventSection";
 import { PackListSection } from "@/components/crew/sections/PackListSection";
-import { GearSection } from "@/components/crew/sections/GearSection";
 import { RoomsSection } from "@/components/crew/sections/RoomsSection";
 import { AgendaSection } from "@/components/crew/sections/AgendaSection";
 import { ScheduleSection } from "@/components/crew/sections/ScheduleSection";
@@ -100,7 +99,6 @@ function renderSection(id: SectionId, c: ViewerCase): HTMLElement {
     crew: () => <CrewSection {...props} />,
     contacts: () => <ContactsSection {...props} />,
     rooms: () => <RoomsSection {...props} />,
-    gear: () => <GearSection {...props} />,
     packlist: () => <PackListSection {...props} />,
     billing: () => <BillingSection {...props} />,
   };
@@ -283,10 +281,6 @@ describe("fullContent", () => {
     expect(pack.querySelectorAll(":scope > ol > li")).toHaveLength(
       fullContent.data.pullSheet!.length,
     );
-    cleanup();
-    expect(
-      renderSection("gear", fullContent).querySelector('[data-card-id="gear-pack-list"]'),
-    ).toBe(null);
   });
 
   test("Event details: every tech spec row, the keynote and the reel", () => {

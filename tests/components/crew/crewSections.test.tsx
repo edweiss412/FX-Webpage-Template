@@ -112,7 +112,7 @@ function popTo(search: string, state: unknown = null) {
 }
 
 function entries(billing: boolean): CrewSectionEntry[] {
-  const ids: CrewSectionId[] = ["schedule", "venue", "hotels", "crew", "gear"];
+  const ids: CrewSectionId[] = ["schedule", "venue", "hotels", "crew", "rooms"];
   if (billing) ids.push("billing");
   return ids.map((id) => ({
     id,
@@ -137,7 +137,7 @@ function nodes(billing: boolean, over: Partial<Record<SectionId, ReactNode>> = {
     venue: body("venue"),
     hotels: body("hotels"),
     crew: body("crew"),
-    gear: body("gear"),
+    rooms: body("rooms"),
   };
   if (billing) n.billing = body("billing");
   return { ...n, ...over };
@@ -387,10 +387,10 @@ describe("CrewSections, compact: home and sheet (spec §5.2)", () => {
   });
 
   it("sheet: popstate to an entry without s closes the sheet", async () => {
-    nav.searchParams = new URLSearchParams("s=gear");
-    setLocation("?s=gear");
-    renderController("gear");
-    expect(sheet()).toHaveAttribute("data-section", "gear");
+    nav.searchParams = new URLSearchParams("s=rooms");
+    setLocation("?s=rooms");
+    renderController("rooms");
+    expect(sheet()).toHaveAttribute("data-section", "rooms");
     popTo("");
     await waitFor(() => expect(sheet()).toBeNull());
   });
@@ -619,10 +619,10 @@ describe("CrewSections, wide: nav and stacked sections (spec §5.3)", () => {
 
   it("wide nav: popstate scrolls to the entry's section without moving focus", async () => {
     renderController("today");
-    const section = screen.getByTestId("body-gear").closest<HTMLElement>("[data-section]")!;
+    const section = screen.getByTestId("body-rooms").closest<HTMLElement>("[data-section]")!;
     section.getBoundingClientRect = () => ({ top: 1200, height: 400 }) as DOMRect;
     const before = document.activeElement;
-    popTo("?s=gear", { crewSheet: true });
+    popTo("?s=rooms", { crewSheet: true });
     await waitFor(() =>
       expect(scrollToSpy).toHaveBeenLastCalledWith({ top: 1200, behavior: "smooth" }),
     );
@@ -799,7 +799,7 @@ describe("CrewSections compound transitions (spec §7)", () => {
  */
 describe("CrewSections opens the ids that have a body (plan decision 1)", () => {
   const UNLISTED: CrewSectionId = "venue";
-  const BODILESS: CrewSectionId = "gear";
+  const BODILESS: CrewSectionId = "rooms";
 
   function listed(): CrewSectionEntry[] {
     return entries(false).filter((e) => e.id !== UNLISTED);
@@ -860,6 +860,10 @@ describe("CrewSections opens the ids that have a body (plan decision 1)", () => 
   it("decision 1: a legacy alias opens the id that replaced it, from initialSection, popstate and a link, and popstate keeps the alias", () => {
     const aliases = Object.entries(LEGACY_SECTION_ALIASES);
     premise("legacy aliases", aliases.length, 0);
+    premiseHolds(
+      "the aliases hold gear (PR C Task 8)",
+      Object.hasOwn(LEGACY_SECTION_ALIASES, "gear"),
+    );
     for (const [alias, id] of aliases) {
       const first = renderController(alias as SectionId, { billing: true });
       expect(sheet(), `initialSection ${alias}`).toHaveAttribute("data-section", id);

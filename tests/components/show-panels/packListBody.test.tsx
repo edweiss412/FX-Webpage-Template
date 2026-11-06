@@ -434,7 +434,7 @@ describe("targets", () => {
     const group = "Pack list";
     const line = (id: string, value: string, context: string[]): SearchEntry => ({
       id,
-      section: "gear",
+      section: "packlist",
       group,
       label: null,
       value,

@@ -190,9 +190,6 @@ vi.mock("@/components/crew/sections/TransportSection", () => ({
 vi.mock("@/components/crew/sections/CrewSection", () => ({
   CrewSection: previewSectionMarker("section-crew"),
 }));
-vi.mock("@/components/crew/sections/GearSection", () => ({
-  GearSection: previewSectionMarker("section-gear"),
-}));
 vi.mock("@/components/crew/sections/BillingSection", () => ({
   BillingSection: previewSectionMarker("section-billing"),
 }));

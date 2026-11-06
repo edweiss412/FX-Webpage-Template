@@ -288,7 +288,7 @@ describe("CREW_SECTION_IDS and the always table are read where they are used", (
 
   it("consumption: the loading skeleton's nav and list rows follow the always table", async () => {
     vi.resetModules();
-    const probe: CrewSectionId[] = ["gear", "crew"];
+    const probe: CrewSectionId[] = ["rooms", "crew"];
     vi.doMock("@/lib/crew/crewSections", async () => {
       const actual =
         await vi.importActual<typeof import("@/lib/crew/crewSections")>("@/lib/crew/crewSections");

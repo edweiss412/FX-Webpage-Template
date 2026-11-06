@@ -177,7 +177,7 @@ describe("staged preview route happy path (AC-4 / AC-5 wiring)", () => {
     const parse = makeStagedParseFixture();
     lookupStagedRow.mockResolvedValueOnce(foundRow(parse));
 
-    const container = await renderPage({ as: "staged-crew-1", s: "gear" });
+    const container = await renderPage({ as: "staged-crew-1", s: "rooms" });
 
     expect(
       container.querySelector('[data-testid="staged-preview-banner-identity"]')!.textContent,
@@ -190,7 +190,7 @@ describe("staged preview route happy path (AC-4 / AC-5 wiring)", () => {
     });
     expect(shellProps.value!.showId).toBe("staged-preview");
     expect(shellProps.value!.staticPreview).toBe(true);
-    expect(shellProps.value!.rawSection).toBe("gear");
+    expect(shellProps.value!.rawSection).toBe("rooms");
   });
 
   test("an unknown ?as= falls back to roster entry 0, never an error", async () => {

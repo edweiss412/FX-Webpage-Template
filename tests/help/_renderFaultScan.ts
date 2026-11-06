@@ -1039,8 +1039,11 @@ export function scanCandidates(): Candidate[] {
       // the split's branch), and RoomsSection's four came in (the fetch failure, the empty
       // state, the panel and the Diagrams block). None is a new fault branch; 79 kept.
       // Re-derived by running the guard.
+      // 789 -> 788 on feat/crew-page-redesign-pr-c Task 8: SectionCard's optional eyebrow
+      // left with its last caller, and Gear's empty state was an early render, no ternary.
+      // None was a fault branch; 79 kept. Re-derived by running the guard.
       //
-      // Probed: 789 such ternaries under the derived roots, 79 on a
+      // Probed: 788 such ternaries under the derived roots, 79 on a
       // fault-vocabulary guard and unclassifiable. 69 of those 79 sit in
       // `"use client"` files, where the guard is interaction state -- `errorCode`,
       // `state.kind === "error"`, `switchStatus === "error"` -- and not a server-render

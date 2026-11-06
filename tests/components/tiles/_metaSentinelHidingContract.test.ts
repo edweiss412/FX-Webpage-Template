@@ -273,7 +273,7 @@ const GENERIC_OPTIONAL_FIELDS: ReadonlyArray<{
     pattern: /\bdates\??\.setupTime\b|\bsetupTime\b/,
   },
   // BL-EVENT-DETAILS-UNRENDERED: the crew "Tech specs" card surfaces these
-  // event_details text keys (GearSection). The current card reads them via a
+  // event_details text keys (EventSection). The current card reads them via a
   // dynamic loop over CREW_TECH_SPEC_KEYS (no literal access), so this LITERAL
   // bracket pattern matches nothing today — it is FORWARD-DEFENSE that fails CI
   // if a FUTURE edit adds a direct `event_details["<key>"]` read in a walked

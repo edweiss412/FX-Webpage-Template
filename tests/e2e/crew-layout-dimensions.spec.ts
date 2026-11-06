@@ -52,7 +52,7 @@
  * [todayIso]).length > 0 || agendaSessionsForToday(...).length > 0)` — the unified
  * timeline also activates on an agenda-only show day. The live Waldorf seed
  * stores `shows_internal.run_of_show = NULL`, so Mode A cannot mount unmodified
- * (exactly the gap inv3 in crew-page.spec.ts works around for GearSection). To
+ * (the gap the retired inv3 in crew-page.spec.ts worked around for Gear). To
  * make Mode A a REAL assertion (not faked / not skipped) this suite, in
  * beforeAll, populates `shows_internal.run_of_show` with a real show-day-1
  * agenda keyed on 2026-04-21 (a member of show.dates.showDays, so the read-time
@@ -873,7 +873,7 @@ test.describe("crew layout dimensions — split-wide ratio + natural height (Tas
      * run-of-show absent, and so on. That content IS proven, for these same
      * sections at these same widths, by the sibling assertions in this file: the
      * split-wide ratio cases name each section's two columns, the Mode A case
-     * asserts the run-of-show timeline mounted, and the gear-scope describe seeds
+     * asserts the run-of-show timeline mounted, and the rooms describe seeds
      * and asserts the five discipline rows. Duplicating those here would couple the
      * probe to seed shape without measuring anything new; `gotoSection` already
      * fails outright if a section does not mount with real height.
@@ -891,7 +891,7 @@ test.describe("crew layout dimensions — split-wide ratio + natural height (Tas
       // inner ones a live run captured, as Crew's is.
       { section: "hotels", anchor: "crew-panel-hotel-card" },
       { section: "transport", anchor: "crew-panel-card" },
-      // Gear is an empty state from PR C Task 7; Rooms took its cards and Diagrams.
+      // Rooms took the scope and the Diagrams in PR C Task 7.
       { section: "rooms", anchor: "section-rooms" },
     ] as const;
 

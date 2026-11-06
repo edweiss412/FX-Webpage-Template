@@ -12,10 +12,11 @@
  * `WifiIcon` (crew Wi-Fi) — the three Venue fact-row mini-icons — and
  * `PlaneIcon` (flight legs / Travel section). Task 8.5 adds the seven crew
  * section glyphs: `HomeIcon` (Today), `CalendarIcon` (Schedule), `MapPinIcon`
- * (Venue), `PlaneIcon` (Travel — reused), `BoxIcon` (Gear).
+ * (Venue), `PlaneIcon` (Travel — reused).
  * A section moved onto a shared body draws its registry glyph instead
- * (components/crew/sectionIcon.ts), so the Billing receipt left with Budget and
- * the Crew pair of people with the roster's move (PR B Task 6).
+ * (components/crew/sectionIcon.ts), so the Billing receipt left with Budget, the
+ * Crew pair of people with the roster's move (PR B Task 6), and the Gear box with
+ * the section (PR C Task 8).
  * Additional glyphs can join as surfaces adopt them.
  */
 import type { SVGProps } from "react";
@@ -107,15 +108,6 @@ export function MapPinIcon({ className }: GlyphProps) {
     <svg {...baseProps} className={className} aria-hidden="true">
       <path d="M20 10c0 6-8 12-8 12s-8-6-8-12a8 8 0 0 1 16 0z" />
       <circle cx="12" cy="10" r="2.6" />
-    </svg>
-  );
-}
-
-/** Gear — a shipping box / case (the Gear section's icon). */
-export function BoxIcon({ className }: GlyphProps) {
-  return (
-    <svg {...baseProps} className={className} aria-hidden="true">
-      <path d="M21 8 12 3 3 8l9 5 9-5zM3 8v8l9 5 9-5V8M12 13v8" />
     </svg>
   );
 }

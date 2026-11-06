@@ -80,7 +80,6 @@ export function isCrewMovedSection(id: CrewSectionId): id is CrewMovedId {
 /** The crew's own names for the sections not yet moved (spec §5.1, PR A's labels). */
 const CREW_OWN_LABELS: Readonly<Record<Exclude<CrewSectionId, CrewMovedId>, string>> = {
   schedule: "Schedule",
-  gear: "Gear",
 };
 
 /**

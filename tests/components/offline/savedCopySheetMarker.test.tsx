@@ -5,7 +5,7 @@
  * origin/main merge, M1-1; crew page redesign spec §5.2, the close rows).
  *
  * A saved copy can render a different section from the one the URL asks for:
- * saved at `?s=venue`, closed to home, Gear opened (pushed with the `crewSheet`
+ * saved at `?s=venue`, closed to home, Rooms opened (pushed with the `crewSheet`
  * marker), then reloaded with no signal. The bar puts the rendered section in
  * the URL (spec 4.7.4). It did so with `replaceState(null, …)`, which erased the
  * marker before CrewSections read it, so closing the saved Venue replaced the
@@ -38,7 +38,7 @@ import { CREW_SECTION_LABELS, type CrewSectionId } from "@/lib/crew/crewSections
 
 const PATH = "/show/demo-show/abc123";
 const SAVED_AT = "2026-10-27T11:30:00.000Z";
-const SECTIONS: CrewSectionId[] = ["schedule", "venue", "hotels", "crew", "gear"];
+const SECTIONS: CrewSectionId[] = ["schedule", "venue", "hotels", "crew", "rooms"];
 /** Next's own history keys, as its patched history leaves them on an entry. */
 const NEXT_STATE = { __NA: true, _N: 1, __PRIVATE_NEXTJS_INTERNALS_TREE: {} };
 
@@ -78,13 +78,13 @@ afterEach(() => {
   History.prototype.replaceState.call(window.history, null, "", PATH);
 });
 
-/** The saved copy: rendered at Venue, served under `mode`, reloaded on the entry Gear was pushed on. */
-function renderSavedVenueOnGearEntry(mode: string) {
+/** The saved copy: rendered at Venue, served under `mode`, reloaded on the entry Rooms was pushed on. */
+function renderSavedVenueOnRoomsEntry(mode: string) {
   History.prototype.replaceState.call(
     window.history,
     { ...NEXT_STATE, crewSheet: true, keep: "x" },
     "",
-    `${PATH}?s=gear&gate=skip`,
+    `${PATH}?s=rooms&gate=skip`,
   );
   setServedMeta(mode);
   const replace = vi.spyOn(window.history, "replaceState");
@@ -130,8 +130,8 @@ describe("the saved-copy URL correction keeps the sheet's history marker (M1-1)"
   for (const mode of ["offline", "slow", "server-error", "ended"]) {
     for (const [path, close] of Object.entries(CLOSES)) {
       test(`served ${mode}: the URL names the saved Venue, the marker survives, and closing with ${path} goes Back`, () => {
-        const { replace, back } = renderSavedVenueOnGearEntry(mode);
-        // PREMISE: the saved copy opened Venue's sheet on Gear's entry.
+        const { replace, back } = renderSavedVenueOnRoomsEntry(mode);
+        // PREMISE: the saved copy opened Venue's sheet on Rooms' entry.
         expect(screen.getByTestId("crew-section-sheet-dialog")).toHaveAttribute(
           "data-section",
           "venue",

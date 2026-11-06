@@ -101,8 +101,8 @@ export const MANIFEST: readonly ManifestEntry[] = [
     captureSelector: "[data-testid=crew-shell]",
   },
   {
-    key: "crew-preview-gear-mobile",
-    route: `/admin/show/${RPAS_CENTRAL_2026_SLUG}/preview/${RPAS_CENTRAL_2026_PREVIEW_CREW_ID}?s=gear`,
+    key: "crew-preview-rooms-mobile",
+    route: `/admin/show/${RPAS_CENTRAL_2026_SLUG}/preview/${RPAS_CENTRAL_2026_PREVIEW_CREW_ID}?s=rooms`,
     fixture: RPAS_CENTRAL_2026,
     frozenClockInstant: MID_SHOW_INSTANT,
     viewport: MOBILE,

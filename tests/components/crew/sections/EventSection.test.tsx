@@ -12,7 +12,7 @@
  * (plan decision 5).
  *
  * The Tech specs, keynote and reel cases moved here from Gear's suites
- * (gearTechSpecs.test.tsx, GearSection.test.tsx) and the Dress code cases from the
+ * (gearTechSpecs.test.tsx and the Gear section suite) and the Dress code cases from the
  * home's (HomeSection.test.tsx), each with the defect it catches. The reel's full
  * URL-strip matrix stays in tests/components/tiles/OpeningReelTile.test.tsx,
  * retargeted here. Expected values are read back from the fixture.

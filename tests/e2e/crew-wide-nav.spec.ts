@@ -304,9 +304,7 @@ test.describe("crew wide nav (spec §5.3)", () => {
   test("wide nav: a click under reduced motion jumps instantly", async ({ page }) => {
     await page.emulateMedia({ reducedMotion: "reduce" });
     await load(page, "?s=today");
-    // One frame after the click the window is already at the target: no glide. Rooms,
-    // not Gear: Gear is an empty state from PR C Task 7, too short to reach the top
-    // from the page's end.
+    // One frame after the click the window is already at the target: no glide.
     const landed = await page.evaluate(async () => {
       const item = document.querySelector<HTMLElement>(
         '[data-testid="crew-wide-nav"] [data-section="rooms"]',
@@ -403,6 +401,23 @@ test.describe("crew wide nav (spec §5.3)", () => {
     expect(await sectionTop(page, "rooms")).toBeGreaterThanOrEqual(-1);
     expect(await page.evaluate(() => window.scrollY)).toBeGreaterThan(0);
     await expect(navItem(page, "rooms")).toHaveAttribute("aria-current", "true");
+  });
+
+  // Crew page redesign PR C Task 8: Gear retired, and its id is an alias of `rooms`.
+  test("gear alias: ?s=gear lands on Rooms after hydration, with no Gear item or section left", async ({
+    page,
+  }) => {
+    await load(page, "?s=gear");
+    // One copy of the body: the server render's sheet left without an exit slide.
+    await expect(page.getByTestId("section-rooms")).toHaveCount(1);
+    await expect
+      .poll(() => sectionTop(page, "rooms"), { timeout: 5000 })
+      .toBeLessThanOrEqual(SCROLL_SPY_OFFSET_PX);
+    expect(await sectionTop(page, "rooms")).toBeGreaterThanOrEqual(-1);
+    expect(await page.evaluate(() => window.scrollY)).toBeGreaterThan(0);
+    await expect(navItem(page, "rooms")).toHaveAttribute("aria-current", "true");
+    await expect(page.getByTestId("section-gear")).toHaveCount(0);
+    await expect(page.locator('[data-section="gear"]')).toHaveCount(0);
   });
 
   // Crew page redesign PR C Task 5: Event details is a section of its own.
@@ -1587,21 +1602,28 @@ test.describe("hotels and transport: the travel alias, wide (PR B Task 9)", () =
     await expect.poll(() => page.evaluate(() => window.scrollY)).toBeGreaterThan(0);
   });
 
-  test("hotels and transport: every PR A section id lands on its section, or at the top on Today, in wide", async ({
+  test("gear alias: every historical section id lands on its section, or at the top on Today, in wide", async ({
     page,
   }) => {
     // The historical union at lib/crew/resolveActiveSection.ts:1 as of 7e927e927,
-    // each with the nav item it lands on now.
-    const PR_A_IDS: ReadonlyArray<readonly [string, string]> = [
+    // then the ids PR B added, each with the nav item it lands on now. This show has
+    // no agenda file, so its Agenda is unlisted, has no stacked section, and lands at
+    // the top.
+    const HISTORICAL_IDS: ReadonlyArray<readonly [string, string]> = [
       ["today", "today"],
       ["schedule", "schedule"],
       ["venue", "venue"],
       ["travel", "hotels"],
       ["crew", "crew"],
-      ["gear", "gear"],
+      ["gear", "rooms"],
       ["budget", "billing"],
+      ["billing", "billing"],
+      ["contacts", "contacts"],
+      ["hotels", "hotels"],
+      ["transport", "transport"],
+      ["agenda", "today"],
     ];
-    for (const [s, lands] of PR_A_IDS) {
+    for (const [s, lands] of HISTORICAL_IDS) {
       await loadWide(page, `${share()}?s=${s}`);
       if (lands === "today") {
         await expect(navItem(page, lands), s).toHaveAttribute("aria-current", "true", {
@@ -1616,7 +1638,7 @@ test.describe("hotels and transport: the travel alias, wide (PR B Task 9)", () =
       ).toHaveCount(1);
       // Landed: the section's top sits at its scroll margin below the viewport top
       // (scrollWide's target), unless the page ran out of room first. A short
-      // section near the end (Gear on this show) cannot reach the top, and the
+      // section near the end (Rooms on this show) cannot reach the top, and the
       // scroll-spy then names the last section in view, so the nav's current item
       // is not the landing's evidence here; where the section is.
       await expect
@@ -1903,7 +1925,7 @@ test.describe("pack list: the Pack list section, wide (PR C Task 6)", () => {
       .toBe("landed");
   }
 
-  test("pack list: on a Set day ?s=packlist lands on the stacked section, in its slot after Gear", async ({
+  test("pack list: on a Set day ?s=packlist lands on the stacked section, in its slot after Rooms", async ({
     page,
   }) => {
     const seeded = await seedPackShow("Pack Wide Set Show", "Set");
@@ -1916,7 +1938,7 @@ test.describe("pack list: the Pack list section, wide (PR C Task 6)", () => {
       const stacked = await page
         .getByTestId("crew-wide-section")
         .evaluateAll((els) => els.map((e) => e.getAttribute("data-section")));
-      expect(stacked.indexOf("packlist")).toBe(stacked.indexOf("gear") + 1);
+      expect(stacked.indexOf("packlist")).toBe(stacked.indexOf("rooms") + 1);
     } finally {
       await deleteSeededShow(seeded.driveFileId);
     }

@@ -556,7 +556,7 @@ describe("EventDetailsBody: targets", () => {
       label: string | null,
       value: string,
       context: string[] = [],
-    ): SearchEntry => ({ id, section: "gear", group, label, value, context, copy: null });
+    ): SearchEntry => ({ id, section: "event", group, label, value, context, copy: null });
     const entries = [
       entry("t-stage", "Event details", EVENT_DETAILS_LABELS.stage_size, EVERY_FIELD.stage_size),
       entry("t-polling", "Event details", EVENT_DETAILS_LABELS.polling, EVERY_FIELD.polling),

@@ -928,7 +928,9 @@ export const DISPOSITION_RULES: DispositionRule[] = [
     // 35 since PR C's Task 6: the pack list popstate case steps Back and Forward over a
     // crew-route entry the same way. Re-derived from the failure's own count (35
     // candidates).
-    expectedCount: 35,
+    // 37 since PR C's Task 8: the s=gear case steps Back and Forward over a crew-route
+    // entry the same way. Re-derived from the failure's own count (37 candidates).
+    expectedCount: 37,
     match: (c) =>
       [
         "admin-nav-layout-dimensions.spec.ts",

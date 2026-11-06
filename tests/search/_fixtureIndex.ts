@@ -10,7 +10,7 @@ import type { SearchCopy, SearchEntry, SearchIndex } from "@/lib/search/types";
  * - a Today twin of a Venue line (the Where address) and of a Schedule line
  *   (Crew call), which repeat removal must drop;
  * - a Today-only room note (Salon A), which must stay;
- * - "Internet hardline at front of house" in Gear, reachable by the Wi-Fi alias
+ * - "Internet hardline at front of house" in Rooms, reachable by the Wi-Fi alias
  *   and the phrase alias "front of house";
  * - Wi-Fi network and password rows with `copy`;
  * - two rooms whose scope reads "TBD".
@@ -208,44 +208,44 @@ export const FIXTURE_INDEX: SearchIndex = {
       label: "Priya Patel",
       value: "Venue contact",
     },
-    // Gear
+    // Rooms
     {
-      section: "gear",
-      region: "gear-scope-audio",
+      section: "rooms",
+      region: "gear-room-details",
       group: "Audio",
       label: "Grand Ballroom",
       value: "8 handheld mics, 6 lavs, FOH console Yamaha CL5",
     },
     {
-      section: "gear",
-      region: "gear-scope-video",
+      section: "rooms",
+      region: "gear-room-details",
       group: "Video",
       label: "Grand Ballroom",
       value: "Two 16x9 screens with 20K projectors, confidence monitor DSL",
     },
     {
-      section: "gear",
-      region: "gear-scope-lighting",
+      section: "rooms",
+      region: "gear-room-details",
       group: "Lighting",
       label: "Salon A",
       value: "TBD",
     },
     {
-      section: "gear",
-      region: "gear-scope-lighting",
+      section: "rooms",
+      region: "gear-room-details",
       group: "Lighting",
       label: "Salon B",
       value: "TBD",
     },
     {
-      section: "gear",
-      region: "gear-scope-other",
+      section: "rooms",
+      region: "gear-room-details",
       group: "Other",
       label: "Grand Ballroom",
       value: "Internet hardline at front of house",
     },
     {
-      section: "gear",
+      section: "event",
       region: "gear-keynote",
       group: "Keynote requirements",
       label: null,

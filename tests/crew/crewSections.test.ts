@@ -337,10 +337,10 @@ describe("hotels and transport replace travel (PR B Task 9, spec line 240, plan 
     }
   });
 
-  it("sections: rooms comes before gear in nav order, a moved id every viewer is listed, with its registry label", () => {
+  it("sections: rooms comes before packlist in nav order, a moved id every viewer is listed, with its registry label", () => {
     const rooms: CrewSectionId = "rooms";
     const ids: readonly string[] = CREW_SECTION_IDS;
-    expect(ids.indexOf("gear")).toBe(ids.indexOf("rooms") + 1);
+    expect(ids.indexOf("packlist")).toBe(ids.indexOf("rooms") + 1);
     expect(CREW_MOVED_IDS as readonly string[]).toContain(rooms);
     expect(isCrewMovedSection(rooms)).toBe(true);
     expect(CREW_SECTION_LABELS[rooms]).toBe(showSection("rooms").label);
@@ -676,10 +676,10 @@ describe("packlist: the pack list's entitlement gate (PR C Task 6)", () => {
     assertGate(data, { kind: "crew", crewMemberId: "c-plain" }, true, "a failed rooms fetch");
   });
 
-  it("packlist: its slot is after gear, and the skeleton never shows it", () => {
+  it("packlist: its slot is after rooms, and the skeleton never shows it", () => {
     expect(CREW_SECTION_IDS as readonly string[]).toContain("packlist");
     const ids: readonly string[] = CREW_SECTION_IDS;
-    expect(ids.indexOf("packlist")).toBe(ids.indexOf("gear") + 1);
+    expect(ids.indexOf("packlist")).toBe(ids.indexOf("rooms") + 1);
     expect(CREW_ALWAYS_SECTION_IDS as readonly string[]).not.toContain("packlist");
   });
 

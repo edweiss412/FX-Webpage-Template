@@ -53,7 +53,6 @@ const LABEL: Record<SectionId, string> = {
   crew: "Crew",
   contacts: "Contacts",
   rooms: "Rooms & scope",
-  gear: "Gear",
   packlist: "Pack list",
   billing: "Billing & docs",
 };
@@ -129,12 +128,12 @@ function rowFor(entry: SearchEntry): HTMLElement {
   return row;
 }
 
-/** 60 Gear lines sharing "cable", plus one Venue line, so the caps are reachable. */
+/** 60 Rooms lines sharing "cable", plus one Venue line, so the caps are reachable. */
 const CAP_INDEX: SearchIndex = {
   entries: buildEntries([
     ...Array.from({ length: 60 }, (_, i) => ({
-      section: "gear" as const,
-      region: "gear-scope-audio",
+      section: "rooms" as const,
+      region: "gear-room-details",
       group: "Audio",
       label: `Room ${i + 1}`,
       value: `Cable run ${i + 1}`,
@@ -166,29 +165,29 @@ describe("chips (spec §6.3)", () => {
   it("All view caps each section at 5 rows with a Show all button that selects the chip", () => {
     renderResults(CAP_INDEX);
     search("cable");
-    const gear = match(CAP_INDEX, "cable").sections.find((s) => s.section === "gear")!;
-    premise("the query hits more than 50 Gear lines", gear.rows.length, 50);
-    const gearGroup = groups().find((g) => g.getAttribute("data-section") === "gear")!;
-    expect(rowsIn(gearGroup)).toHaveLength(5);
-    const showAll = within(gearGroup).getByRole("button", {
-      name: `Show all ${gear.rows.length} in Gear`,
+    const rooms = match(CAP_INDEX, "cable").sections.find((s) => s.section === "rooms")!;
+    premise("the query hits more than 50 Rooms lines", rooms.rows.length, 50);
+    const roomsGroup = groups().find((g) => g.getAttribute("data-section") === "rooms")!;
+    expect(rowsIn(roomsGroup)).toHaveLength(5);
+    const showAll = within(roomsGroup).getByRole("button", {
+      name: `Show all ${rooms.rows.length} in ${LABEL.rooms}`,
     });
     // A section with 5 or fewer rows has no Show all.
     const venueGroup = groups().find((g) => g.getAttribute("data-section") === "venue")!;
     expect(within(venueGroup).queryByRole("button", { name: /^Show all/ })).toBeNull();
 
     fireEvent.click(showAll);
-    expect(pressed().map((c) => c.textContent)).toEqual([`Gear ${gear.rows.length}`]);
-    expect(groups().map((g) => g.getAttribute("data-section"))).toEqual(["gear"]);
+    expect(pressed().map((c) => c.textContent)).toEqual([`${LABEL.rooms} ${rooms.rows.length}`]);
+    expect(groups().map((g) => g.getAttribute("data-section"))).toEqual(["rooms"]);
   });
 
   it("Show all moves focus to the chip it selects, so focus does not fall to the page", () => {
     renderResults(CAP_INDEX);
     search("cable");
-    const gear = match(CAP_INDEX, "cable").sections.find((s) => s.section === "gear")!;
-    const gearGroup = groups().find((g) => g.getAttribute("data-section") === "gear")!;
-    const showAll = within(gearGroup).getByRole("button", {
-      name: `Show all ${gear.rows.length} in Gear`,
+    const rooms = match(CAP_INDEX, "cable").sections.find((s) => s.section === "rooms")!;
+    const roomsGroup = groups().find((g) => g.getAttribute("data-section") === "rooms")!;
+    const showAll = within(roomsGroup).getByRole("button", {
+      name: `Show all ${rooms.rows.length} in ${LABEL.rooms}`,
     });
     act(() => showAll.focus());
     expect(document.activeElement).toBe(showAll);
@@ -197,15 +196,15 @@ describe("chips (spec §6.3)", () => {
 
     // Premise: the button that held focus is gone, so focus had to go somewhere.
     expect(showAll.isConnected).toBe(false);
-    const gearChip = chips().find((c) => c.getAttribute("data-section") === "gear")!;
-    expect(gearChip).toHaveAttribute("aria-pressed", "true");
-    expect(document.activeElement).toBe(gearChip);
+    const roomsChip = chips().find((c) => c.getAttribute("data-section") === "rooms")!;
+    expect(roomsChip).toHaveAttribute("aria-pressed", "true");
+    expect(document.activeElement).toBe(roomsChip);
   });
 
   it("section view caps at 50 rows with the narrowing note", () => {
     renderResults(CAP_INDEX);
     search("cable");
-    fireEvent.click(chips().find((c) => c.textContent?.startsWith("Gear "))!);
+    fireEvent.click(chips().find((c) => c.textContent?.startsWith(`${LABEL.rooms} `))!);
     expect(rowsIn(groups()[0]!)).toHaveLength(50);
     expect(screen.getByText("Showing the first 50. Add a word to narrow it.")).toBeInTheDocument();
   });
@@ -220,11 +219,11 @@ describe("chips (spec §6.3)", () => {
   it("a changed query resets the chip to All, even when its section still has hits", () => {
     renderResults(CAP_INDEX);
     search("cable");
-    fireEvent.click(chips().find((c) => c.textContent?.startsWith("Gear "))!);
+    fireEvent.click(chips().find((c) => c.textContent?.startsWith(`${LABEL.rooms} `))!);
     search("cable run");
     premiseHolds(
-      "Gear still has hits for the new query",
-      match(CAP_INDEX, "cable run").sections.some((s) => s.section === "gear"),
+      "Rooms still has hits for the new query",
+      match(CAP_INDEX, "cable run").sections.some((s) => s.section === "rooms"),
     );
     expect(pressed()[0]!.textContent).toMatch(/^All /);
   });
@@ -359,7 +358,7 @@ describe("rows (spec §6.4)", () => {
   it("an alias-only match shows the Matched note quoting the line's own word", () => {
     renderResults();
     search("wifi");
-    const row = rowFor(entryWhere({ section: "gear", group: "Other" }));
+    const row = rowFor(entryWhere({ section: "rooms", group: "Other" }));
     expect(within(row).getByText('Matched "Internet"')).toBeInTheDocument();
     const pw = rowFor(entryWhere({ section: "venue", label: "Wi-Fi password" }));
     expect(within(pw).queryByText(/^Matched /)).toBeNull();
@@ -392,7 +391,7 @@ describe("copy (spec §6.4, §6.5)", () => {
       }),
     ).toHaveClass("size-tap-min");
     expect(
-      within(rowFor(entryWhere({ section: "gear", group: "Other" }))).queryByRole("button", {
+      within(rowFor(entryWhere({ section: "rooms", group: "Other" }))).queryByRole("button", {
         name: /^Copy/,
       }),
     ).toBeNull();
@@ -440,7 +439,7 @@ describe("copy (spec §6.4, §6.5)", () => {
     search("wifi");
     expect(value(entryWhere({ label: "Wi-Fi password" }))).toHaveClass(codeClass);
     expect(value(entryWhere({ label: "Wi-Fi network" }))).not.toHaveClass(codeClass);
-    expect(value(entryWhere({ section: "gear", group: "Other" }))).not.toHaveClass(codeClass);
+    expect(value(entryWhere({ section: "rooms", group: "Other" }))).not.toHaveClass(codeClass);
 
     search("confirmation");
     const flight = entryWhere({
@@ -831,28 +830,28 @@ describe("a realtime refresh under a query (spec §6.10)", () => {
     search("wifi");
     const venueChip = () => chips().find((c) => c.getAttribute("data-section") === "venue");
     act(() => venueChip()!.focus());
-    // The viewer moves on to a Gear row, which the refresh keeps.
-    const gearRow = within(
-      groups().find((g) => g.getAttribute("data-section") === "gear")!,
+    // The viewer moves on to a Rooms row, which the refresh keeps.
+    const roomsRow = within(
+      groups().find((g) => g.getAttribute("data-section") === "rooms")!,
     ).getAllByTestId("crew-search-row-open")[0]!;
-    act(() => gearRow.focus());
+    act(() => roomsRow.focus());
     view.rerender(tree(noVenueWifi()));
     expect(venueChip()).toBeUndefined();
-    expect(gearRow.isConnected).toBe(true);
-    expect(document.activeElement).toBe(gearRow);
+    expect(roomsRow.isConnected).toBe(true);
+    expect(document.activeElement).toBe(roomsRow);
   });
 
   it("a refresh that keeps the focused chip's section leaves focus where it is", () => {
     const view = renderResults();
     search("wifi");
-    const gearChip = () => chips().find((c) => c.getAttribute("data-section") === "gear")!;
+    const roomsChip = () => chips().find((c) => c.getAttribute("data-section") === "rooms")!;
     premiseHolds(
-      "Gear still has wifi hits after the refresh",
-      match(noVenueWifi(), "wifi").sections.some((s) => s.section === "gear"),
+      "Rooms still has wifi hits after the refresh",
+      match(noVenueWifi(), "wifi").sections.some((s) => s.section === "rooms"),
     );
-    act(() => gearChip().focus());
+    act(() => roomsChip().focus());
     view.rerender(tree(noVenueWifi()));
-    expect(document.activeElement).toBe(gearChip());
+    expect(document.activeElement).toBe(roomsChip());
   });
 
   it("a refresh that empties the only section with hits moves focus from its chip, or All, to the field", () => {
@@ -866,8 +865,8 @@ describe("a realtime refresh under a query (spec §6.10)", () => {
           value: "Loading dock on Wacker",
         },
         {
-          section: "gear",
-          region: "gear-scope-audio",
+          section: "rooms",
+          region: "gear-room-details",
           group: "Audio",
           label: "Console",
           value: "Yamaha CL5",

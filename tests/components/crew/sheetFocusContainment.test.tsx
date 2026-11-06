@@ -151,7 +151,7 @@ afterEach(() => {
   sessionStorage.clear();
 });
 
-const SECTIONS: CrewSectionId[] = ["schedule", "venue", "hotels", "crew", "gear"];
+const SECTIONS: CrewSectionId[] = ["schedule", "venue", "hotels", "crew", "rooms"];
 
 function controller(bodies: Partial<Record<SectionId, ReactNode>>) {
   return (
@@ -281,18 +281,18 @@ describe("an open sheet keeps focus inside it when the focused content leaves (2
       onClose: () => {},
     };
     const gallery = (
-      <div data-testid="body-gear">
+      <div data-testid="body-rooms">
         <GalleryLightbox {...props} />
       </div>
     );
-    const { rerender } = render(controller({ gear: gallery }));
-    openFromRow("gear");
+    const { rerender } = render(controller({ rooms: gallery }));
+    openFromRow("rooms");
     const lightbox = screen.getAllByRole("dialog").find((d) => d.getAttribute("aria-label"))!;
     expect(lightbox, "PREMISE: the lightbox is open").toBeTruthy();
     expect(lightbox.contains(document.activeElement), "PREMISE: focus is in the lightbox").toBe(
       true,
     );
-    rerender(controller({ gear: <div data-testid="body-gear">gear</div> }));
+    rerender(controller({ rooms: <div data-testid="body-rooms">rooms</div> }));
     expect(lightbox.isConnected, "PREMISE: the lightbox left with the gallery").toBe(false);
     await settle();
     expectFocusInSheet("gallery removed");

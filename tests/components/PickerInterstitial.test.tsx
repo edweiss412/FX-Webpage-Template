@@ -116,6 +116,15 @@ describe("<PickerInterstitial>", () => {
     expect(next.value).toBe(`/show/${baseProps.slug}/${baseProps.shareToken}?s=hotels`);
   });
 
+  test("gear alias: a claimed row carries the old gear section as rooms, with no gate (PR C Task 8)", () => {
+    const { getAllByTestId } = render(
+      <PickerInterstitial {...baseProps} roster={[CLAIMED_ROW]} s="gear" />,
+    );
+    const form = (getAllByTestId("picker-roster-row")[0] as HTMLButtonElement).closest("form")!;
+    const next = form.querySelector('input[name="next"]') as HTMLInputElement;
+    expect(next.value).toBe(`/show/${baseProps.slug}/${baseProps.shareToken}?s=rooms`);
+  });
+
   test("a bogus section is dropped rather than propagated", () => {
     const { getAllByTestId } = render(
       <PickerInterstitial {...baseProps} roster={[CLAIMED_ROW]} s="not-a-section" />,

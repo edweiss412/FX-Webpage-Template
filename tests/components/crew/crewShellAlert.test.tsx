@@ -93,9 +93,6 @@ vi.mock("@/components/crew/sections/TransportSection", () => ({
 vi.mock("@/components/crew/sections/CrewSection", () => ({
   CrewSection: mockSection("section-crew"),
 }));
-vi.mock("@/components/crew/sections/GearSection", () => ({
-  GearSection: mockSection("section-gear"),
-}));
 vi.mock("@/components/crew/sections/BillingSection", () => ({
   BillingSection: mockSection("section-billing"),
 }));

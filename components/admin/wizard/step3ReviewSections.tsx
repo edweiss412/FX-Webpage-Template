@@ -197,7 +197,7 @@ import {
 export const CREW_CAP = 30;
 export const ROOMS_CAP = 20;
 export const HOTELS_CAP = 12;
-// Pack-list cases shown in the review breakdown; mirrors the crew GearSection
+// Pack-list cases shown in the review breakdown; mirrors the crew PackListSection
 // CASE_CAP (12) so the operator sees the same ceiling the crew page applies.
 export const PACK_LIST_CASES_CAP = 12;
 // Items shown per expanded case before a "+K more items" tail. Bounds the
@@ -1667,7 +1667,7 @@ export function RoomsBreakdown({ dfid, rooms }: { dfid: string | null; rooms: Ro
   );
 }
 
-// Show-level event-detail fields the crew GearSection surfaces — keynote + opening
+// Show-level event-detail fields the crew EventSection surfaces — keynote + opening
 // reel — so the operator can verify them at the publish gate. opening_reel is
 // URL-stripped (eventDetailGroups) for a clean line; values shown as-parsed.
 export function EventDetailsBreakdown({
@@ -1706,7 +1706,7 @@ export function EventDetailsBreakdown({
 }
 
 // The parsed PULL-tab pack list (`pr.pullSheet`) — the same data the crew
-// GearSection renders, surfaced here so the operator can verify it parsed at the
+// PackListSection renders, surfaced here so the operator can verify it parsed at the
 // publish gate. The case list is the shared body (components/show-panels/PackListBody.tsx,
 // PR C plan Task 4); items are capped at PACK_LIST_ITEMS_CAP and cases at
 // PACK_LIST_CASES_CAP (the crew CASE_CAP). UNGATED — unlike the crew page (which

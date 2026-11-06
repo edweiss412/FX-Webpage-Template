@@ -10,7 +10,7 @@
  * disciplines labeled and first, no rail and search targets. Below it, the Diagrams
  * block, moved from Venue with its wrapper. Tile ids are kept (plan decision 5).
  *
- * The scope cases moved here from GearSection.test.tsx and the room detail cases from
+ * The scope cases moved here from the Gear section suite and the room detail cases from
  * gearRoomDetails.test.tsx, each with the defect it catches. The cap case is inverted
  * with its failure mode kept, and the all-sentinel room case follows decision 6: a
  * room with no scope and no detail still renders its name.

@@ -274,22 +274,32 @@ test.describe("crew compact home and section sheet (spec §5.2)", () => {
     // A deep link has no opener, so focus goes to the row that opens the same
     // section (audit P2-5). It used to go there without scrolling: the page sat
     // at its top while the row was 800 to 1100px down, focused and out of sight.
-    // Gear is the list's last row, the farthest from the top.
-    await load(page, "?s=gear");
-    await expect(sheetDialog(page)).toHaveAttribute("data-section", "gear");
-    // PREMISE: the row starts below the fold, so landing on screen is the close's doing.
-    expect(
-      await row(page, "gear").evaluate((el) => el.getBoundingClientRect().top - innerHeight),
-    ).toBeGreaterThan(0);
-    await page.keyboard.press("Escape");
-    await expect(sheetDialog(page)).toHaveCount(0);
-    await expect(row(page, "gear")).toBeFocused();
-    await expectClearOfStickyChrome(row(page, "gear"), "the Gear row");
-    const box = await row(page, "gear").evaluate((el) => {
-      const r = el.getBoundingClientRect();
-      return { top: r.top, bottom: r.bottom, innerHeight };
-    });
-    expect(box.bottom, JSON.stringify(box)).toBeLessThanOrEqual(box.innerHeight + 0.5);
+    // The list's last row for this viewer is the farthest from the top, and Rooms
+    // holds the most on the way back (the paths table's row-focus case).
+    await load(page, "?s=today");
+    const listed = await page
+      .getByTestId("crew-all-sections")
+      .locator("[data-section]")
+      .evaluateAll((els) => els.map((el) => el.getAttribute("data-section")));
+    const last = CREW_SECTION_IDS.filter((id) => listed.includes(id)).at(-1)!;
+    for (const id of new Set<CrewSectionId>(["rooms", last])) {
+      await load(page, `?s=${id}`);
+      await expect(sheetDialog(page), id).toHaveAttribute("data-section", id);
+      // PREMISE: the row starts below the fold, so landing on screen is the close's doing.
+      expect(
+        await row(page, id).evaluate((el) => el.getBoundingClientRect().top - innerHeight),
+        id,
+      ).toBeGreaterThan(0);
+      await page.keyboard.press("Escape");
+      await expect(sheetDialog(page), id).toHaveCount(0);
+      await expect(row(page, id), id).toBeFocused();
+      await expectClearOfStickyChrome(row(page, id), `the ${id} row`);
+      const box = await row(page, id).evaluate((el) => {
+        const r = el.getBoundingClientRect();
+        return { top: r.top, bottom: r.bottom, innerHeight };
+      });
+      expect(box.bottom, `${id} ${JSON.stringify(box)}`).toBeLessThanOrEqual(box.innerHeight + 0.5);
+    }
   });
 
   test("sheet: a popstate to an unknown s drops it from the URL and shows the home", async ({
@@ -347,7 +357,7 @@ test.describe("crew compact home and section sheet (spec §5.2)", () => {
 
   test("sheet: the close button is named Close plus the section name", async ({ page }) => {
     await load(page, "?s=today");
-    for (const id of ["gear", "billing"] as const) {
+    for (const id of ["rooms", "billing"] as const) {
       await row(page, id).click();
       const close = sheetDialog(page).getByRole("button", { name: closeName(id) });
       await expect(close).toBeVisible();
@@ -555,6 +565,55 @@ test.describe("crew compact home and section sheet (spec §5.2)", () => {
     await expect(inVenue.getByTestId("venue-diagrams")).toHaveCount(0);
     await expect(inVenue.getByTestId("diagrams-tile")).toHaveCount(0);
     await expect(inVenue.getByTestId("venue-column")).toHaveCount(0);
+  });
+
+  // Crew page redesign PR C Task 8: Gear retired, and its id is an alias of `rooms`.
+  test("gear alias: ?s=gear opens the Rooms sheet on initial load, in the server HTML and after hydration", async ({
+    page,
+  }) => {
+    const res = await page.request.get(`${route}?s=gear`);
+    expect(res.status()).toBe(200);
+    const html = await res.text();
+    const dialogAt = html.search(/<[^>]*data-testid="crew-section-sheet-dialog"[^>]*>/);
+    expect(dialogAt, "the open sheet is in the server HTML").toBeGreaterThan(-1);
+    const dialogTag = html.slice(dialogAt, html.indexOf(">", dialogAt) + 1);
+    expect(dialogTag).toContain('data-section="rooms"');
+    expect(html.indexOf('data-testid="section-rooms"', dialogAt)).toBeGreaterThan(dialogAt);
+
+    await load(page, "?s=gear");
+    await expect(sheetDialog(page)).toHaveAttribute("data-section", "rooms");
+    await expect(sheetDialog(page).getByTestId("section-rooms")).toBeVisible();
+    await expect(sheetDialog(page)).toHaveAccessibleName(showSection("rooms").label);
+    // One section left where two were: no Gear body or row stays on the page, and the
+    // list still reads the section that replaced it.
+    await expect(page.getByTestId("section-gear")).toHaveCount(0);
+    await expect(page.locator('[data-section="gear"]')).toHaveCount(0);
+    await expect(row(page, "rooms")).toHaveCount(1);
+  });
+
+  test("gear alias: Back then Forward over an in-app entry carrying s=gear closes and reopens Rooms", async ({
+    page,
+  }) => {
+    await load(page, "");
+    await row(page, "rooms").click();
+    await expect(sheetDialog(page)).toHaveAttribute("data-section", "rooms");
+    await settleOpen(page);
+    // The pushed entry now carries the old value, as an old in-app link left it.
+    await page.evaluate(() => {
+      const url = new URL(window.location.href);
+      url.searchParams.set("s", "gear");
+      window.history.replaceState(window.history.state, "", url);
+    });
+
+    await page.goBack();
+    await expect(sheetDialog(page)).toHaveCount(0);
+    await expect.poll(() => new URL(page.url()).searchParams.get("s")).toBeNull();
+
+    await page.goForward();
+    await expect(sheetDialog(page)).toHaveAttribute("data-section", "rooms");
+    await expect(sheetDialog(page).getByTestId("section-rooms")).toBeVisible();
+    // An alias the viewer may open is not stripped (a canonicalized alias is kept).
+    await expect.poll(() => new URL(page.url()).searchParams.get("s")).toBe("gear");
   });
 
   test("sheet: ?s=today renders the home with no sheet, in the HTML and after hydration", async ({
@@ -1751,21 +1810,27 @@ test.describe("hotels and transport: the travel alias and the transport gate, co
     await expect(suppressed).not.toContainText("Tue");
   });
 
-  test("hotels and transport: every PR A section id opens its section, or the home, for an admin", async ({
+  test("gear alias: every historical section id opens its section, or the home, for an admin", async ({
     page,
   }) => {
     // The historical union at lib/crew/resolveActiveSection.ts:1 as of 7e927e927,
-    // each with the sheet it opens now (null: the home, no sheet).
-    const PR_A_IDS: ReadonlyArray<readonly [string, string | null]> = [
+    // then the ids PR B added, each with the sheet it opens now (null: the home, no
+    // sheet). An entitled, unlisted Agenda opens from a link all the same.
+    const HISTORICAL_IDS: ReadonlyArray<readonly [string, string | null]> = [
       ["today", null],
       ["schedule", "schedule"],
       ["venue", "venue"],
       ["travel", "hotels"],
       ["crew", "crew"],
-      ["gear", "gear"],
+      ["gear", "rooms"],
       ["budget", "billing"],
+      ["billing", "billing"],
+      ["contacts", "contacts"],
+      ["hotels", "hotels"],
+      ["transport", "transport"],
+      ["agenda", "agenda"],
     ];
-    for (const [s, opens] of PR_A_IDS) {
+    for (const [s, opens] of HISTORICAL_IDS) {
       await loadPath(page, `${share()}?s=${s}`);
       if (opens === null) {
         await expect(sheetDialog(page), s).toHaveCount(0);

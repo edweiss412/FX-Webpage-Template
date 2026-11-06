@@ -212,8 +212,6 @@ export function sectionPeek(
       return contactsPeek(data);
     case "rooms":
       return roomsPeek(data);
-    case "gear":
-      return null;
     case "packlist":
       return packListPeek(data, viewer);
     case "billing":

@@ -23,7 +23,7 @@ export type RoomScopeKey = "audio" | "video" | "lighting" | "scenic" | "other";
 // sentinel-hides), so the operator sees exactly what landed. All five rows
 // ALWAYS render (rooms-scope-cards redesign, 2026-07-04): an unparsed
 // discipline reads a muted "Not specified", stating fact rather than asserting
-// an intentional call. Order + glyphs mirror the crew GearSection
+// an intentional call. Order + glyphs are the crew Rooms section's too
 // (A→V→L→Scenic→Other). `color` is a single mid-lightness OKLCH per discipline
 // (mock parity) — readable on the sunken icon chip in both light and dark.
 export const ROOM_SCOPE: ReadonlyArray<{

@@ -68,7 +68,9 @@ export const REQUIRED = {
   // from `playwright test --list` (54).
   // 56 since PR C's Task 7 added two "rooms" cases (?s=rooms, and Diagrams in the
   // Rooms sheet and not in Venue). Re-derived from --list.
-  "crew-section-toggle.spec.ts": 56,
+  // 58 since PR C's Task 8 added two "gear alias" cases (?s=gear opens Rooms, and Back
+  // then Forward over an entry carrying it). Re-derived from --list.
+  "crew-section-toggle.spec.ts": 58,
   "picker-flow.spec.ts": 7,
   "alert-action-links.spec.ts": 4,
   // 3 SFS-1 cases + 3 seeded agenda-fold cases.
@@ -178,7 +180,8 @@ export const REQUIRED = {
   // has neither item nor section, an open sheet crossing into wide, the layout at
   // 1280). Re-derived from `playwright test --list` (38).
   // 39 since PR C's Task 7 added the "rooms" deep link. Re-derived from --list.
-  "crew-wide-nav.spec.ts": 39,
+  // 40 since PR C's Task 8 added the "gear alias" landing. Re-derived from --list.
+  "crew-wide-nav.spec.ts": 40,
   // 9, and the number is the MATRIX rather than a multiple (plan
   // 2026-08-09-quick-wins-2 "e2e harness readiness"). theme-toggle runs two arms:
   //   arm (a) — 4 standalone-toggle cases, BOTH projects            = 8

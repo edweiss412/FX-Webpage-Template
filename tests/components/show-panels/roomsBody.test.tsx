@@ -670,7 +670,7 @@ describe("targets", () => {
       label: string | null,
       value: string,
       context: string[],
-    ): SearchEntry => ({ id, section: "gear", group, label, value, context, copy: null });
+    ): SearchEntry => ({ id, section: "rooms", group, label, value, context, copy: null });
     const name = FULL_ROOM.name;
     const entries: SearchEntry[] = [
       line(LINES.name, null, name, []),

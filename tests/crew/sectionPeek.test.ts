@@ -367,13 +367,6 @@ describe("sectionPeek (peek, spec §4.6)", () => {
     expect(peek("packlist", show, crew("c-plain"))).toBeNull();
   });
 
-  it("peek: gear has none of its own: the cases it counted are Pack list's now", () => {
-    const show = fullShow();
-    // PREMISE: the same show and day count cases for the section that holds them.
-    expect(peek("packlist", show, crew("c-plain"))).toBe(`${show.pullSheet!.length} cases`);
-    expect(peek("gear", show, crew("c-plain"))).toBeNull();
-  });
-
   it("peek: a transport leg never feeds the Transport peek for a viewer the transport gate excludes, and never the Hotels peek", () => {
     // PR B Task 9: Travel's peek ("<hotel> · N rides") split into the Hotels peek
     // (the hotel part) and the Transport peek (the rides part).
@@ -608,10 +601,8 @@ describe("sectionPeek (peek, spec §4.6)", () => {
       for (const { id, peek: line } of peeks) expect(line, `${name} ${id}`).toBeNull();
     }
 
-    // Positive control: on a full show every listed section has a non-empty peek, but
-    // Gear, whose count left with the pack list (PR C Task 6) and which retires in Task 8.
+    // Positive control: on a full show every listed section has a non-empty peek.
     for (const { id, peek: line } of allPeeks(fullShow(), ADMIN)) {
-      if (id === "gear") continue;
       expect(line, id).toBeTypeOf("string");
       expect(line!.trim().length, id).toBeGreaterThan(0);
     }
