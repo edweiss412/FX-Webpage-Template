@@ -558,7 +558,7 @@ export const TAP_TARGET_CENSUS: readonly TapCensusRow[] = [
   },
   {
     file: "components/crew/primitives/SourceLink.tsx",
-    line: 95,
+    line: 98,
     tag: "a",
     category: "padding-arithmetic",
     reason:
@@ -566,7 +566,7 @@ export const TAP_TARGET_CENSUS: readonly TapCensusRow[] = [
   },
   {
     file: "components/shared/CardReportTrigger.tsx",
-    line: 73,
+    line: 76,
     tag: "button",
     category: "padding-arithmetic",
     reason:

@@ -1027,8 +1027,9 @@ const CONDITIONAL_RENDERS: Record<string, { presences: number; renders: Conditio
   [ROOMS_BODY]: {
     presences: 0,
     renders: [
-      // The "Your scope" label on an emphasized row, and an unparsed row's placeholder.
-      { match: "{emphasized ? (", treatment: T.serverPresence },
+      // The "Your scope" label on a room's first emphasized row, and an unparsed row's
+      // placeholder.
+      { match: "{heads ? (", treatment: T.serverPresence },
       { match: "{value ?? ROOM_SCOPE_UNSPECIFIED}", treatment: T.serverPresence },
       // Each header field present or omitted.
       { match: "{floor !== null ? (", treatment: T.serverPresence },

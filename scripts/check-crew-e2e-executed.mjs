@@ -142,7 +142,12 @@ export const REQUIRED = {
   // for an Audio and a Video viewer, no flags, the page width at 320 and 390, and the
   // accent edge at five widths), and inv3 and the venue row of inv7 retired with the
   // scope grid and the split. Re-derived from --list.
-  "crew-page.spec.ts": 68,
+  // 86 since PR C's invariant-8 gate repairs added eighteen: nine "event details" (a
+  // long-form row at 320, 390, 430 and 768, the track at 1024 and 1280, a short fact
+  // under page zoom, the dress code's lead, the overlay hit test) and nine "rooms" (the
+  // stacked row at six widths, the three tracks at 1280, the gallery's slots, the
+  // neutral chips). Re-derived from --list.
+  "crew-page.spec.ts": 86,
   // The crew page's wide layout (crew page redesign plan PR A, Task 6): eight cases,
   // desktop-chromium ALONE (its testMatch; the wide layout begins at 1024px). Nine
   // since Task 7 added the wide header case (search between title and chip).
@@ -183,7 +188,9 @@ export const REQUIRED = {
   // 40 since PR C's Task 8 added the "gear alias" landing. Re-derived from --list.
   // 45 since PR C's Task 9 added five "registry groups" cases (the full nav, a non-lead's
   // Show day, the copy, the dimensional case, the short window). Re-derived from --list.
-  "crew-wide-nav.spec.ts": 45,
+  // 46 since PR C's invariant-8 gate repair 7 added the full nav's fit at 1280x800.
+  // Re-derived from --list.
+  "crew-wide-nav.spec.ts": 46,
   // 9, and the number is the MATRIX rather than a multiple (plan
   // 2026-08-09-quick-wins-2 "e2e harness readiness"). theme-toggle runs two arms:
   //   arm (a) — 4 standalone-toggle cases, BOTH projects            = 8

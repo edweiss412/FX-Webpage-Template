@@ -1045,8 +1045,11 @@ export function scanCandidates(): Candidate[] {
       // 788 -> 789 on feat/crew-page-redesign-pr-c Task 9: CrewLoadingSkeleton draws a nav
       // run bare or in its group's wrapper. Not a fault branch; 79 kept. CrewWideNav's twin
       // holds no JSX in its true arm, so it is not counted. Re-derived by running the guard.
+      // 789 -> 787 on feat/crew-page-redesign-pr-c's gate repair 4: the Section atom left
+      // with its last caller, taking its heading-icon and subheading ternaries. Neither
+      // was a fault branch; 79 kept. Re-derived by running the guard.
       //
-      // Probed: 789 such ternaries under the derived roots, 79 on a
+      // Probed: 787 such ternaries under the derived roots, 79 on a
       // fault-vocabulary guard and unclassifiable. 69 of those 79 sit in
       // `"use client"` files, where the guard is interaction state -- `errorCode`,
       // `state.kind === "error"`, `switchStatus === "error"` -- and not a server-render

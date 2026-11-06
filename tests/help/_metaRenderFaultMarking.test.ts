@@ -683,7 +683,14 @@ describe("the scanner's population is pinned against resolver drift", () => {
     // Same guard, still marked. Nothing joined or left: membership is still 34, and
     // mapping those TWO rows back reproduces 529074b8... byte-for-byte (recomputed from
     // scanCandidates()).
-    expect(digest).toBe("f6a41bec23bc458a9688e6ae7107058de39cd3bd8fa68f0707e3559cfd89ab3c");
+    // Regenerated for feat/crew-page-redesign-pr-c's gate repair 5, to the same bar. EXACTLY
+    // ONE input changed, a line number, in the one file of this set the repair edits:
+    //   components/crew/sections/RoomsSection.tsx 84 -> 94 (+10: the gallery's declared
+    //   sizes above it)
+    // Same rooms `tile-errors` row, still marked. Nothing joined or left: membership is
+    // still 34, and mapping that ONE row back reproduces f6a41bec... byte-for-byte
+    // (recomputed from scanCandidates()).
+    expect(digest).toBe("b4a293463ac88a2ce76e087a909bab4faa75281c30f50888257717cf8351604d");
   });
 });
 
