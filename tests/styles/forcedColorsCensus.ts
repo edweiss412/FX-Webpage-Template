@@ -672,4 +672,11 @@ export const COLLAPSE_CENSUS: readonly CollapseCensusRow[] = [
     disposition: "not-a-state",
     reason: "same: the admin's square and the crew's, fixed per mount by `actionTone`",
   },
+  {
+    // PR C gate repair 8: the crew's prompt left the faint tone.
+    site: "components/shared/ReportModal.tsx:753",
+    disposition: "not-a-state",
+    reason:
+      "the textarea's prompt carries the admin's arm and the crew's (`promptTone`), fixed per surface for the modal's whole life; nothing toggles between them",
+  },
 ];
