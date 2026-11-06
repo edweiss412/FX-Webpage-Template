@@ -149,11 +149,26 @@ export const CREW_EVENT_KEYS = [
   "dress_code",
 ] as const;
 
-/** The groups the crew section shows: its keys, each hidden on its own rule. */
+/**
+ * The crew's group order: the group holding the dress code leads, the rest as the
+ * admin has them. The home clamps the dress code and names this section its full-text
+ * destination, so a crew member arrives here for that fact; it came last, 1372px down
+ * a 2153px sheet at 390 (gate repair 3).
+ */
+const CREW_LEAD_GROUP = "Wardrobe & key moments";
+export const CREW_EVENT_GROUP_ORDER: readonly string[] = [
+  CREW_LEAD_GROUP,
+  ...EVENT_DETAIL_GROUPS.map((g) => g.title).filter((title) => title !== CREW_LEAD_GROUP),
+];
+
+/** The groups the crew section shows: its keys, each hidden on its own rule, in its order. */
 export function crewEventGroups(
   details: Readonly<Record<string, unknown>> | null | undefined,
 ): readonly EventDetailGroup[] {
-  return withoutHiddenEventFields(eventDetailGroups(details, CREW_EVENT_KEYS));
+  const rank = (g: EventDetailGroup) => CREW_EVENT_GROUP_ORDER.indexOf(g.title);
+  return [...withoutHiddenEventFields(eventDetailGroups(details, CREW_EVENT_KEYS))].sort(
+    (a, b) => rank(a) - rank(b),
+  );
 }
 
 /**
@@ -168,6 +183,19 @@ export function crewEventFieldCount(
   const fields = crewEventGroups(details).flatMap((g) => g.fields);
   const playerAlone = hasVideo && !fields.some((f) => f.key === "opening_reel");
   return fields.length + (playerAlone ? 1 : 0);
+}
+
+/** The fields the section's peek names, in the order it names them. */
+export const CREW_EVENT_PEEK_KEYS = ["dress_code", "keynote_requirements"] as const;
+
+/** The labels of `CREW_EVENT_PEEK_KEYS` the section shows for these details. */
+export function crewEventPeekLabels(
+  details: Readonly<Record<string, unknown>> | null | undefined,
+): readonly string[] {
+  const shown = new Set(crewEventGroups(details).flatMap((g) => g.fields.map((f) => f.key)));
+  return CREW_EVENT_PEEK_KEYS.filter((key) => shown.has(key)).map(
+    (key) => EVENT_DETAILS_LABELS[key],
+  );
 }
 
 // Compile-time guard: every crew key MUST be a declared label key.

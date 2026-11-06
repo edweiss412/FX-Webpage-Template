@@ -113,7 +113,9 @@ export function EventSection({
                   // Wrapped under the player on a phone, so the actions' tap overlays
                   // grow away from its controls.
                   opening_reel: fieldCard(EVENT_FIELD_CARD_IDS.opening_reel, "down"),
-                  dress_code: fieldCard(EVENT_FIELD_CARD_IDS.dress_code),
+                  // Down, or a keynote of one line above it loses its own actions to
+                  // these overlays, and a report on the keynote files against this card.
+                  dress_code: fieldCard(EVENT_FIELD_CARD_IDS.dress_code, "down"),
                 },
                 reelPlayer: panel.showPlayer ? <OpeningReelVideo showId={showId} /> : null,
                 rowLayout: "fluid",

@@ -26,6 +26,7 @@ import { Check, Minus } from "lucide-react";
 import { DressCodeLines } from "@/components/crew/DressCodeLines";
 import { EYEBROW_CLASS, EYEBROW_STYLE } from "@/components/show-panels/FieldRowList";
 import {
+  CREW_EVENT_GROUP_ORDER,
   EVENT_DETAIL_GROUPS,
   EVENT_DETAILS_LABELS,
   type EventDetailField,
@@ -94,7 +95,9 @@ function interpretBooleanValue(value: string): "yes" | "no" | null {
 /**
  * `groups` with a textless `opening_reel` field when none is present, so a playable
  * video with a hidden cell still shows under its label: at the key's place in its
- * group, the group created at its own place if the keys left it empty.
+ * group. The given groups keep their order. A group the keys left empty is created
+ * where the crew's order puts it, since only the crew passes a player: the admin's
+ * order would drop it ahead of the crew's first group and push the dress code down.
  */
 function withReelSlot(groups: readonly EventDetailGroup[]): readonly EventDetailGroup[] {
   if (groups.some((g) => g.fields.some((f) => f.key === "opening_reel"))) return groups;
@@ -103,15 +106,18 @@ function withReelSlot(groups: readonly EventDetailGroup[]): readonly EventDetail
     label: EVENT_DETAILS_LABELS.opening_reel,
     value: "",
   };
-  return EVENT_DETAIL_GROUPS.flatMap((canon) => {
-    const given = groups.find((g) => g.title === canon.title);
-    const at = canon.keys.indexOf(reel.key);
-    if (at === -1) return given === undefined ? [] : [given];
-    const fields = given?.fields ?? [];
-    const before = fields.filter((f) => canon.keys.indexOf(f.key) < at);
-    const after = fields.filter((f) => canon.keys.indexOf(f.key) > at);
-    return [{ title: canon.title, fields: [...before, reel, ...after] }];
-  });
+  const home = EVENT_DETAIL_GROUPS.find((g) => g.keys.includes(reel.key))!;
+  const given = groups.find((g) => g.title === home.title);
+  if (given !== undefined) {
+    const at = home.keys.indexOf(reel.key);
+    const before = given.fields.filter((f) => home.keys.indexOf(f.key) < at);
+    const after = given.fields.filter((f) => home.keys.indexOf(f.key) > at);
+    return groups.map((g) => (g === given ? { ...g, fields: [...before, reel, ...after] } : g));
+  }
+  const rank = (title: string) => CREW_EVENT_GROUP_ORDER.indexOf(title);
+  const next = groups.findIndex((g) => rank(g.title) > rank(home.title));
+  const place = next === -1 ? groups.length : next;
+  return [...groups.slice(0, place), { title: home.title, fields: [reel] }, ...groups.slice(place)];
 }
 
 /** The admin's row: a desk pane holds the label's track at every width. */

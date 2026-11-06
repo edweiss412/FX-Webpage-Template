@@ -201,6 +201,34 @@ describe("event details: the row layout", () => {
   });
 });
 
+describe("event details: the order", () => {
+  const FIELDS = { stage_size: "8 x 24", fonts: "Brand Sans", dress_code: "Show blacks" };
+  const titles = (root: HTMLElement) =>
+    within(root)
+      .getAllByRole("heading", { level: 4 })
+      .map((h) => h.textContent);
+
+  test("event details: Dress code & key moments leads, the rest in the admin's order", () => {
+    expect(titles(renderEvent(withDetails(FIELDS)))).toEqual([
+      "Dress code & key moments",
+      "Stage & scenic",
+      "Display & content",
+    ]);
+  });
+
+  test("event details: a player with no reel text leaves the dress code first", () => {
+    const data = withDetails(
+      { stage_size: "8 x 24", dress_code: "Show blacks" },
+      { openingReelHasVideo: true },
+    );
+    expect(titles(renderEvent(data))).toEqual([
+      "Dress code & key moments",
+      "Stage & scenic",
+      "Display & content",
+    ]);
+  });
+});
+
 describe("event details: the keynote card", () => {
   test("event details: the keynote is a field card with its own id and actions, inside the panel", () => {
     const root = renderEvent(withDetails({ keynote_requirements: "Confidence monitor + clicker" }));
@@ -244,7 +272,7 @@ describe("event details: the opening reel card", () => {
     expect(root.querySelector('[data-testid="section-empty"]')).not.toBeNull();
   });
 
-  test("event details: the reel's tap overlays grow down, clear of the player, and the other cards' up", () => {
+  test("event details: the reel's and the dress code's tap overlays grow down, and the others' up", () => {
     const root = renderEvent(
       withDetails(
         { opening_reel: "YES", keynote_requirements: "Clicker", dress_code: "Show blacks" },
@@ -255,8 +283,10 @@ describe("event details: the opening reel card", () => {
       ownActionSlots(card(root, id)!)[0]!
         .querySelector('[data-slot="card-header-actions"]')!
         .getAttribute("data-hit-direction");
-    expect(direction("gear-opening-reel")).toBe("down");
-    for (const id of ["gear-tech-specs", "gear-keynote", "today-dress"]) {
+    for (const id of ["gear-opening-reel", "today-dress"]) {
+      expect(direction(id), id).toBe("down");
+    }
+    for (const id of ["gear-tech-specs", "gear-keynote"]) {
       expect(direction(id), id).toBe("up");
     }
   });

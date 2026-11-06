@@ -39,6 +39,7 @@ import {
 import {
   EVENT_DETAIL_GROUPS,
   EVENT_DETAILS_LABELS,
+  crewEventGroups,
   type EventDetailKey,
 } from "@/lib/crew/eventDetailsSpecs";
 import type { SearchEntry } from "@/lib/search/types";
@@ -474,6 +475,50 @@ describe("EventDetailsBody: reelPlayer", () => {
     const container = body({ groups, reelPlayer: player });
     expect(titles(container)).toEqual(["Stage & scenic", "Display & content", "Production"]);
     expect(within(groupsIn(container)[1] as HTMLElement).getByTestId("reel-player")).toBeTruthy();
+  });
+
+  describe("over the crew's order", () => {
+    const CREW_ORDER = crewEventGroups(EVERY_FIELD).map((g) => g.title);
+    const crewBody = (keys: readonly EventDetailKey[]) =>
+      body({
+        groups: crewEventGroups(Object.fromEntries(keys.map((key) => [key, EVERY_FIELD[key]]))),
+        reelPlayer: player,
+      });
+
+    test("the given groups keep their order, with the reel in its group", () => {
+      const container = crewBody(["dress_code", "stage_size", "digital_signage", "polling"]);
+      premise(
+        "the crew's order leads with another group",
+        CREW_ORDER.indexOf("Display & content"),
+        0,
+      );
+      expect(titles(container)).toEqual([
+        "Wardrobe & key moments",
+        "Stage & scenic",
+        "Display & content",
+        "Production",
+      ]);
+    });
+
+    test("a group the reel creates takes its place among them, the dress code still first", () => {
+      expect(titles(crewBody(["dress_code", "stage_size", "polling"]))).toEqual([
+        "Wardrobe & key moments",
+        "Stage & scenic",
+        "Display & content",
+        "Production",
+      ]);
+      cleanup();
+      expect(titles(crewBody(["dress_code", "polling"]))).toEqual([
+        "Wardrobe & key moments",
+        "Display & content",
+        "Production",
+      ]);
+      cleanup();
+      expect(titles(crewBody(["dress_code"]))).toEqual([
+        "Wardrobe & key moments",
+        "Display & content",
+      ]);
+    });
   });
 
   test("no groups at all still shows the player under its label", () => {

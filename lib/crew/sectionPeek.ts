@@ -8,7 +8,8 @@
  *
  *   - The pack list through `isPackListVisibleToday` (the section's entitlement).
  *   - Event details' fields through the section's own hide rules
- *     (`crewEventFieldCount`), so the count is the rows it draws.
+ *     (`crewEventFieldCount`), so the count is the rows it draws, and it names the
+ *     dress code and the keynote when the section shows them.
  *   - Ground-transport legs through `transportTileVisible` (TransportSection),
  *     counted with the Transport body's own leg rule under the crew's options
  *     (`transportRouteLegs`, `crewTransportLegOptions`), so the ride count is
@@ -36,7 +37,7 @@ import type { ViewerContext } from "@/lib/data/viewerContext";
 import type { CrewSectionId } from "@/lib/crew/crewSections";
 import { visibleShowDays } from "@/lib/crew/agendaDisplay";
 import { suppressesDates } from "@/lib/crew/dateSuppression";
-import { crewEventFieldCount } from "@/lib/crew/eventDetailsSpecs";
+import { crewEventFieldCount, crewEventPeekLabels } from "@/lib/crew/eventDetailsSpecs";
 import { formatIsoDate } from "@/lib/format/date";
 import { venueDisplay } from "@/lib/venue/venueLocation";
 import { shouldHideGenericOptional } from "@/lib/visibility/emptyState";
@@ -157,9 +158,19 @@ function contactsPeek(data: ShowForViewer): string | null {
   return count === 0 ? null : plural(count, "contact", "contacts");
 }
 
+/**
+ * The section's lead facts by name, then how many more it holds. The dress code lives
+ * here and nowhere else on the page, so "18 details" gave a crew member no reason to
+ * open it (gate repair 3). With neither fact on file, the count alone.
+ */
 function eventPeek(data: ShowForViewer): string | null {
   const count = crewEventFieldCount(data.show.event_details, data.openingReelHasVideo);
-  return count === 0 ? null : plural(count, "detail", "details");
+  if (count === 0) return null;
+  const [first, ...rest] = crewEventPeekLabels(data.show.event_details);
+  if (first === undefined) return plural(count, "detail", "details");
+  const named = [first, ...rest.map((label) => label.toLowerCase())].join(", ");
+  const more = count - 1 - rest.length;
+  return more === 0 ? named : `${named}, ${more} more`;
 }
 
 /** The rooms the section renders: every one, a bare room included (PR C plan decision 6). */

@@ -4311,6 +4311,91 @@ test.describe("event details: the section on a seeded show (PR C Task 5)", () =>
     }
   });
 
+  // Gate repair 3 (A P1-1): the dress code left the home for this section, and it came
+  // last, 1372px down a 2153px sheet at 390, past a video and every stage spec.
+  test("event details: the dress code group leads the section, above the stage specs", async ({
+    page,
+  }) => {
+    await open(page, sharePath("?s=event"));
+    const section = page.getByTestId("section-event");
+    const top = (el: Element) => el.getBoundingClientRect().top;
+    const dress = await section.locator('[data-card-id="today-dress"]').evaluate(top);
+    const stage = await section.getByText("Stage size", { exact: true }).evaluate(top);
+    expect(dress).toBeLessThan(stage);
+    await expect(section.getByRole("heading", { level: 4 }).first()).toHaveText(
+      "Dress code & key moments",
+    );
+  });
+
+  // Gate repair 3 (audit P2-4, B's first P3): with a one-line keynote above it, the dress
+  // card's upward overlay took 100% of the keynote's flag, so a report on the keynote
+  // filed against the dress code. 540 and 600 are the sheet widths where the actions sit
+  // beside the row, 1024 and 1280 the wide column.
+  test("event details: every point of a field card's controls belongs to that card, with a one-line keynote", async ({
+    page,
+  }) => {
+    const oneLine = await seedShowWithCrew({
+      title: "Event Overlay Show",
+      dates: {
+        travelIn: "2026-04-19",
+        set: "2026-04-20",
+        showDays: [SHOW_DAY, "2026-04-22"],
+        travelOut: "2026-04-23",
+      },
+      venue: { name: "Event Overlay Hall", address: "12 Stage Door Way" } as never,
+      eventDetails: {
+        stage_size: "8 x 24",
+        keynote_requirements: "Lav and clicker",
+        dress_code: "Show blacks",
+        opening_reel: "YES",
+        fonts: "Brand Sans",
+        notes: "Doors at eight",
+      } as never,
+      crew: [{ name: CREW_NAME, role: "A1" }],
+    });
+    try {
+      for (const width of [540, 600, 1024, 1280]) {
+        await page.setViewportSize({ width, height: 900 });
+        await open(page, `/show/${oneLine.slug}/${oneLine.shareToken}?s=event`);
+        const readings = await page.getByTestId("section-event").evaluate((root) => {
+          const STEP = 2;
+          const ids = ["gear-tech-specs", "gear-keynote", "gear-opening-reel", "today-dress"];
+          return ids.map((id) => {
+            const card = root.querySelector(`[data-card-id="${id}"]`)!;
+            const controls = [
+              ...card.querySelectorAll(
+                '[data-slot="source-link"], [data-slot="card-report-trigger"]',
+              ),
+            ].filter((el) => el.closest("[data-card-id]") === card);
+            const strays: string[] = [];
+            let points = 0;
+            for (const control of controls) {
+              control.scrollIntoView({ block: "center" });
+              const box = control.getBoundingClientRect();
+              for (let x = box.left + 1; x < box.right; x += STEP) {
+                for (let y = box.top + 1; y < box.bottom; y += STEP) {
+                  points += 1;
+                  const hit = document.elementFromPoint(x, y);
+                  const owner = hit?.closest("[data-card-id]")?.getAttribute("data-card-id");
+                  if (owner !== id) strays.push(`${x},${y} answered ${owner ?? "nothing"}`);
+                }
+              }
+            }
+            return { id, controls: controls.length, points, strays: strays.slice(0, 3) };
+          });
+        });
+        for (const r of readings) {
+          const at = `${r.id} at ${width}px`;
+          expect(r.controls, `PREMISE: the link and the flag render, ${at}`).toBe(2);
+          premise(`the controls are sampled, ${at}`, r.points, 10);
+          expect(r.strays, at).toEqual([]);
+        }
+      }
+    } finally {
+      await deleteSeededShow(oneLine.driveFileId);
+    }
+  });
+
   test("event details: a seeded internet and power render in Venue and not here", async ({
     page,
   }) => {
