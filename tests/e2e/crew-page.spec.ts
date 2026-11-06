@@ -4548,6 +4548,27 @@ test.describe("rooms: the section on a seeded show (PR C Task 7)", () => {
     await expect(page.getByTestId("section-rooms")).not.toContainText("Your scope");
   });
 
+  // Gate repair 6 (A P2-2, audit P2-5): the admin's five hues came to the crew page by
+  // inheritance, against DESIGN §1's "no competing accent hue". The glyphs stay distinct.
+  test("rooms: every discipline chip paints the one neutral tone, and the glyphs stay distinct", async ({
+    page,
+  }) => {
+    await page.setViewportSize({ width: 390, height: 844 });
+    await open(page, previewPath(PLAIN));
+    const chips = await page.getByTestId("crew-panel-room-0-scope").evaluate((list) =>
+      [...list.querySelectorAll('[data-testid="room-scope-key"]')].map((key) => {
+        const chip = key.previousElementSibling!;
+        return {
+          color: getComputedStyle(chip).color,
+          glyph: chip.querySelector("svg")!.getAttribute("class") ?? "",
+        };
+      }),
+    );
+    premise("the room renders every discipline", chips.length, 4);
+    expect(new Set(chips.map((c) => c.color)).size).toBe(1);
+    expect(new Set(chips.map((c) => c.glyph)).size).toBe(chips.length);
+  });
+
   /** Each discipline row of room 0: its box, chip, key and value. */
   async function scopeGeometry(page: import("@playwright/test").Page, width: number) {
     await page.setViewportSize({ width, height: 844 });

@@ -472,6 +472,28 @@ describe("scope order", () => {
   });
 });
 
+describe("chipTone", () => {
+  /** A row's icon chip: the cell before its key. */
+  const chip = (row: HTMLElement) =>
+    within(row).getByTestId("room-scope-key").previousElementSibling as HTMLElement;
+
+  test("the default gives each discipline its own hue, as the admin's review reads them", () => {
+    const hues = scopeRows(body()).map((row) => chip(row).style.color);
+    premise("the room renders disciplines", hues.length, 1);
+    expect(new Set(hues).size).toBe(hues.length);
+    for (const hue of hues) expect(hue).not.toBe("");
+  });
+
+  test("neutral drops every hue and rests at the subtle tone", () => {
+    const rows = scopeRows(body({ chipTone: "neutral" }));
+    premise("the room renders disciplines", rows.length, 1);
+    for (const row of rows) {
+      expect(chip(row).style.color, row.textContent ?? "").toBe("");
+      expect(chip(row), row.textContent ?? "").toHaveClass("text-text-subtle");
+    }
+  });
+});
+
 describe("headerTone", () => {
   const setupValue = (root: HTMLElement) => within(header(root)).getByText(FULL_ROOM.setup!);
   const floor = (root: HTMLElement) => within(header(root)).getByText(FULL_ROOM.floor!);

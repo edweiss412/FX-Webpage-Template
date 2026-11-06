@@ -79,6 +79,12 @@ export type RoomsBodyProps = {
    */
   headerTone?: "muted" | "body";
   /**
+   * "discipline" (the default, admin): each chip takes its discipline's hue. "neutral":
+   * the chip rests at the subtle tone, since DESIGN.md §1 keeps competing hues off the
+   * crew page and emphasis there belongs to "Your scope". The glyphs stay distinct.
+   */
+  chipTone?: "discipline" | "neutral";
+  /**
    * Per room, by its place in `rooms`, a search target per line. Given, the body
    * also marks what is not a line: a line with no target, the kind pill, the
    * "Your scope" label and the note are skipped, so no text is left uncovered.
@@ -113,10 +119,12 @@ function ScopeRow({
   row: { key, label, Icon, color, value, emphasized },
   lines,
   scopeLayout,
+  chipTone,
 }: {
   row: RoomScopeRow;
   lines: RoomTargets | undefined;
   scopeLayout: "fixed" | "fluid";
+  chipTone: "discipline" | "neutral";
 }) {
   const fluid = scopeLayout === "fluid";
   const tracks = fluid
@@ -146,8 +154,11 @@ function ScopeRow({
         </span>
       ) : null}
       <span
-        className="grid size-6 place-items-center rounded-md bg-surface-sunken"
-        style={value ? { color } : undefined}
+        className={
+          "grid size-6 place-items-center rounded-md bg-surface-sunken" +
+          (chipTone === "neutral" ? " text-text-subtle" : "")
+        }
+        style={value && chipTone === "discipline" ? { color } : undefined}
       >
         <Icon
           aria-hidden="true"
@@ -187,6 +198,7 @@ function RoomCard({
   navAnchors,
   scopeLayout,
   headerTone,
+  chipTone,
 }: {
   r: RoomRow;
   i: number;
@@ -200,6 +212,7 @@ function RoomCard({
   navAnchors: boolean;
   scopeLayout: "fixed" | "fluid";
   headerTone: "muted" | "body";
+  chipTone: "discipline" | "neutral";
 }) {
   const headerText = headerTone === "body" ? "text-text" : "text-text-subtle";
   // Header schedule meta — Set/Show/Strike; keep only parsed values so the row (and
@@ -327,7 +340,7 @@ function RoomCard({
       {/* Scope — unparsed reads "Not specified", unless dropped (roomScopeRows). */}
       {hasScope ? (
         <ul data-testid={`${testIdPrefix}-room-${i}-scope`} className="flex flex-col px-3.5 py-1">
-          {scope.map((row) => ScopeRow({ row, lines, scopeLayout }))}
+          {scope.map((row) => ScopeRow({ row, lines, scopeLayout, chipTone }))}
         </ul>
       ) : null}
     </li>
@@ -347,6 +360,7 @@ export function RoomsBody({
   navAnchors = true,
   scopeLayout = "fixed",
   headerTone = "muted",
+  chipTone = "discipline",
   targets,
 }: RoomsBodyProps) {
   const shown = cap === null ? rooms : rooms.slice(0, cap);
@@ -369,6 +383,7 @@ export function RoomsBody({
               navAnchors,
               scopeLayout,
               headerTone,
+              chipTone,
             }),
           )}
         </ul>

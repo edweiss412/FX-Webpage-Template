@@ -422,6 +422,18 @@ describe("rooms: each room's header", () => {
   });
 });
 
+describe("rooms: the chips", () => {
+  test("rooms: a discipline's chip carries no hue, so the emphasis belongs to Your scope", () => {
+    const root = renderRooms(withRooms([room({ id: "r1", audio: "QU32", video: "Projector" })]));
+    const rows = scopeRows(root);
+    premise("the room renders two disciplines", rows.length, 1);
+    for (const row of rows) {
+      const chip = row.querySelector('[data-testid="room-scope-key"]')!.previousElementSibling;
+      expect((chip as HTMLElement).style.color, row.textContent ?? "").toBe("");
+    }
+  });
+});
+
 describe("rooms: the header's tone", () => {
   test("rooms: a floor and a setup read as body text on the header's tint", () => {
     const root = renderRooms(

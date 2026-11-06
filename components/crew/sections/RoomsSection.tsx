@@ -134,6 +134,7 @@ export function RoomsSection({
                     navAnchors: false,
                     scopeLayout: "fluid",
                     headerTone: "body",
+                    chipTone: "neutral",
                     targets: panel.targets,
                   })}
                 </PanelCard>
