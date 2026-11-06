@@ -47,6 +47,7 @@ export function OpeningReelVideo({ showId }: OpeningReelVideoProps) {
     <div data-search-skip="" className="overflow-hidden rounded-sm bg-surface-sunken">
       <video
         data-testid="opening-reel-video"
+        aria-label="Opening reel"
         className="block aspect-video w-full"
         controls
         preload="metadata"
