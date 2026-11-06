@@ -5,7 +5,8 @@
  * The crew panel card titled "Pack list" (the registry label) around the shared case
  * list (components/show-panels/PackListBody.tsx), CALLED with the crew props: the
  * 12-case cap and its stub, no items cap, so every item shows and the toggle's client
- * leaf never mounts, the raw snippets, numbered cases and search targets. The panel
+ * leaf never mounts, the raw snippets, numbered cases, items as body text and search
+ * targets. The panel
  * keeps the old card's id, `gear-pack-list`, and its actions (spec line 328).
  *
  * Membership is an entitlement, not a content rule (spec line 240, plan decision 1):
@@ -91,6 +92,7 @@ export function PackListSection({
                 itemsCap: null,
                 showRawSnippet: true,
                 numbered: true,
+                itemTone: "body",
                 testIdPrefix: "crew-panel",
                 targets,
                 overflow: (

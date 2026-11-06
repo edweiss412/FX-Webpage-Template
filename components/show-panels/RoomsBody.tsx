@@ -73,6 +73,12 @@ export type RoomsBodyProps = {
    */
   scopeLayout?: "fixed" | "fluid";
   /**
+   * "muted" (the default, admin): a floor and a setup as captions. "body": as text, so
+   * they hold the crew's 7:1 sunlight floor on the header's tint, where `text-subtle`
+   * measures 6.42:1. Dimensions already do.
+   */
+  headerTone?: "muted" | "body";
+  /**
    * Per room, by its place in `rooms`, a search target per line. Given, the body
    * also marks what is not a line: a line with no target, the kind pill, the
    * "Your scope" label and the note are skipped, so no text is left uncovered.
@@ -180,6 +186,7 @@ function RoomCard({
   emphasize,
   navAnchors,
   scopeLayout,
+  headerTone,
 }: {
   r: RoomRow;
   i: number;
@@ -192,7 +199,9 @@ function RoomCard({
   emphasize: ReadonlySet<RoomScopeKey>;
   navAnchors: boolean;
   scopeLayout: "fixed" | "fluid";
+  headerTone: "muted" | "body";
 }) {
+  const headerText = headerTone === "body" ? "text-text" : "text-text-subtle";
   // Header schedule meta — Set/Show/Strike; keep only parsed values so the row (and
   // its dividers) omit entirely when nothing parsed.
   const times = (
@@ -257,7 +266,7 @@ function RoomCard({
             {ROOM_KIND_LABEL[r.kind]}
           </span>
           {floor !== null ? (
-            <span {...lineMarker(lines, "floor")} className="ml-auto text-xs text-text-subtle">
+            <span {...lineMarker(lines, "floor")} className={`ml-auto text-xs ${headerText}`}>
               {floor}
             </span>
           ) : null}
@@ -300,7 +309,7 @@ function RoomCard({
             >
               {LABEL.setup}
             </span>
-            <span className="wrap-break-word text-xs text-text-subtle">{setup}</span>
+            <span className={`wrap-break-word text-xs ${headerText}`}>{setup}</span>
           </div>
         ) : null}
         {dimensions !== null ? (
@@ -337,6 +346,7 @@ export function RoomsBody({
   emphasize = NO_DISCIPLINES,
   navAnchors = true,
   scopeLayout = "fixed",
+  headerTone = "muted",
   targets,
 }: RoomsBodyProps) {
   const shown = cap === null ? rooms : rooms.slice(0, cap);
@@ -358,6 +368,7 @@ export function RoomsBody({
               emphasize,
               navAnchors,
               scopeLayout,
+              headerTone,
             }),
           )}
         </ul>

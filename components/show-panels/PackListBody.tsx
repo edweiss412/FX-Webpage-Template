@@ -10,9 +10,9 @@
  * - Admin: its two caps, its overflow note, and the toggle under `itemsCap`. The
  *   archived-tab affordances stay in `PackListBreakdown`, as siblings after this
  *   body (PR C plan decision 10).
- * - Crew (PR C plan Task 6): no items cap, the raw snippets, numbered cases, its
- *   overflow stub, and search targets. The caller builds this only for a viewer
- *   `isPackListVisibleToday` lets through.
+ * - Crew (PR C plan Task 6): no items cap, the raw snippets, numbered cases, items
+ *   as body text, its overflow stub, and search targets. The caller builds this only
+ *   for a viewer `isPackListVisibleToday` lets through.
  *
  * Plain props, hook-free, no context: the crew page calls it as a function inside
  * `WrappedSection`'s render callback (spec §6.1, error containment), and it calls
@@ -47,6 +47,8 @@ export type PackListBodyProps = {
   showRawSnippet?: boolean;
   /** false (the default, admin): a `<ul>`. true: an `<ol>`, each case with its index. */
   numbered?: boolean;
+  /** "muted" (the default, admin): items as captions. "body": as text, the snippet a caption. */
+  itemTone?: "muted" | "body";
   /** Each case's `${testIdPrefix}-pack-case-${index}`, and the raw snippet's id. */
   testIdPrefix: string;
   /**
@@ -55,6 +57,20 @@ export type PackListBodyProps = {
    */
   targets?: readonly PackCaseTargets[];
 };
+
+/**
+ * An item line's tone. "body" is the crew's: on a Set day these lines are the answer,
+ * read on a dock in sunlight, so they hold PRODUCT.md's 7:1 floor, where `text-subtle`
+ * measures 6.76:1, and the raw snippet is the step below them.
+ */
+const ITEM_TONE = {
+  muted: { gap: "gap-0.5", text: "text-xs text-text-subtle", snippet: "block italic" },
+  body: {
+    gap: "gap-1.5",
+    text: "text-sm text-text",
+    snippet: "block text-xs italic text-text-subtle",
+  },
+} as const;
 
 type SearchMarker = { "data-search-target"?: string; "data-search-skip"?: "" };
 
@@ -101,12 +117,14 @@ function ItemRow({
   j,
   lines,
   showRawSnippet,
+  itemTone,
   testIdPrefix,
 }: {
   item: PullSheetItem;
   j: number;
   lines: PackCaseTargets | undefined;
   showRawSnippet: boolean;
+  itemTone: "muted" | "body";
   testIdPrefix: string;
 }) {
   return (
@@ -117,7 +135,10 @@ function ItemRow({
     >
       {packItemLabel(item)}
       {showRawSnippet && hasContent(item.rawSnippet) ? (
-        <span data-testid={`${testIdPrefix}-pack-item-raw-snippet`} className="block italic">
+        <span
+          data-testid={`${testIdPrefix}-pack-item-raw-snippet`}
+          className={ITEM_TONE[itemTone].snippet}
+        >
           {item.rawSnippet}
         </span>
       ) : null}
@@ -132,6 +153,7 @@ function CaseRow({
   itemsCap,
   showRawSnippet,
   numbered,
+  itemTone,
   testIdPrefix,
 }: {
   c: PullSheetCase;
@@ -140,6 +162,7 @@ function CaseRow({
   itemsCap: number | null;
   showRawSnippet: boolean;
   numbered: boolean;
+  itemTone: "muted" | "body";
   testIdPrefix: string;
 }) {
   const items = arr(c.items);
@@ -161,7 +184,10 @@ function CaseRow({
       </li>
     );
   }
-  const rows = items.map((item, j) => ItemRow({ item, j, lines, showRawSnippet, testIdPrefix }));
+  const rows = items.map((item, j) =>
+    ItemRow({ item, j, lines, showRawSnippet, itemTone, testIdPrefix }),
+  );
+  const tone = ITEM_TONE[itemTone];
   const marker = lineMarker(lines, lines?.line);
   return (
     <li key={`${label}-${i}`} className="border-b border-border text-sm text-text last:border-0">
@@ -181,7 +207,11 @@ function CaseRow({
           <span className="wrap-break-word flex-1 font-medium text-text-strong">{label}</span>
           <PackCountPill count={items.length} />
         </summary>
-        <ul className="mb-2 flex flex-col gap-0.5 pl-6 text-xs text-text-subtle">
+        {/* The items start under the label: past the chevron, and past the index when
+            there is one (16px + 8 gap, then its 20px slot + 8 gap). */}
+        <ul
+          className={`mb-2 flex flex-col ${tone.gap} ${numbered ? "pl-13" : "pl-6"} ${tone.text}`}
+        >
           {itemsCap === null ? rows : <PackCaseItems rows={rows} cap={itemsCap} />}
         </ul>
       </details>
@@ -196,6 +226,7 @@ export function PackListBody({
   itemsCap,
   showRawSnippet = false,
   numbered = false,
+  itemTone = "muted",
   testIdPrefix,
   targets,
 }: PackListBodyProps) {
@@ -211,6 +242,7 @@ export function PackListBody({
             itemsCap,
             showRawSnippet,
             numbered,
+            itemTone,
             testIdPrefix,
           }),
         )}

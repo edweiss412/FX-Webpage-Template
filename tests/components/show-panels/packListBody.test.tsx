@@ -345,6 +345,37 @@ describe("showRawSnippet", () => {
   });
 });
 
+describe("itemTone", () => {
+  const SNIPPET = "12 | Audio | Mics | Shure SM58 | TRUE";
+  const CASE: PullSheetCase = {
+    caseLabel: "Rack A",
+    items: [item({ item: "Shure SM58", rawSnippet: SNIPPET })],
+  };
+  const snippet = (root: HTMLElement) =>
+    within(root).getByTestId(`${PREFIX}-pack-item-raw-snippet`);
+
+  test("muted, the default: the admin's caption tone, the snippet inheriting it", () => {
+    const root = body({ cases: [CASE], itemsCap: null, showRawSnippet: true });
+    expect(itemList(root).className).toBe(
+      "mb-2 flex flex-col gap-0.5 pl-6 text-xs text-text-subtle",
+    );
+    expect(snippet(root).className).toBe("block italic");
+  });
+
+  test("body: the item is body text, and the snippet stays a caption under it", () => {
+    const root = body({ cases: [CASE], itemsCap: null, showRawSnippet: true, itemTone: "body" });
+    expect(itemList(root)).toHaveClass("gap-1.5", "text-sm", "text-text");
+    expect(itemList(root)).not.toHaveClass("gap-0.5", "text-xs", "text-text-subtle");
+    expect(snippet(root)).toHaveClass("text-xs", "italic", "text-text-subtle");
+  });
+
+  test("the items start under the label: past the index when numbered, past the chevron when not", () => {
+    expect(itemList(body({ numbered: true }))).toHaveClass("pl-13");
+    cleanup();
+    expect(itemList(body({ numbered: false }))).toHaveClass("pl-6");
+  });
+});
+
 describe("numbered", () => {
   const CASES = [packCase("Rack A"), packCase("Spares", 0), packCase("Rack C")];
   test("off, the default: an unordered list with no index", () => {

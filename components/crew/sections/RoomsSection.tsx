@@ -124,6 +124,7 @@ export function RoomsSection({
                     emphasize: panel.emphasize,
                     navAnchors: false,
                     scopeLayout: "fluid",
+                    headerTone: "body",
                     targets: panel.targets,
                   })}
                 </PanelCard>

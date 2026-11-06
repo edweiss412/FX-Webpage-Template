@@ -2554,10 +2554,12 @@ test.describe("pack list: the Pack list section, compact (PR C Task 6)", () => {
               li: rect(li),
               text: rect(range),
               snippet: snippet === null ? null : rect(snippet),
+              color: getComputedStyle(li).color,
             };
           });
           return {
             panel: rect(root),
+            ground: getComputedStyle(root).backgroundColor,
             rows,
             items,
             overflow: [...root.querySelectorAll("*")].filter(
@@ -2581,6 +2583,27 @@ test.describe("pack list: the Pack list section, compact (PR C Task 6)", () => {
           expect(r.pill.right, at).toBeLessThanOrEqual(m.panel.right + TOL);
           // A count stays one line beside its label, however long the label runs.
           expect(r.pill.height, at).toBeLessThanOrEqual(32);
+        }
+        // Gate repair 2 (A P1-3, audit P1-3, B P1-2): the item line is the answer to the
+        // Set day's first question, read in sunlight, so it holds PRODUCT.md's 7:1 floor...
+        const channels = (css: string) =>
+          css
+            .match(/[\d.]+/g)!
+            .slice(0, 3)
+            .map(Number);
+        const luminance = (css: string) => {
+          const [r, g, b] = channels(css).map((c) => {
+            const v = c / 255;
+            return v <= 0.03928 ? v / 12.92 : ((v + 0.055) / 1.055) ** 2.4;
+          });
+          return 0.2126 * r! + 0.7152 * g! + 0.0722 * b!;
+        };
+        expect(channels(m.ground).length, `PREMISE: the panel paints a ground ${at}`).toBe(3);
+        for (const i of m.items) {
+          const [hi, lo] = [luminance(i.color), luminance(m.ground)].sort((p, q) => q - p);
+          expect((hi! + 0.05) / (lo! + 0.05), `${i.color} on ${m.ground} ${at}`).toBeGreaterThan(7);
+          // ...and starts under the case's label, not under its number (A P3-7).
+          expect(Math.abs(i.li.left - m.rows[9]!.label.left), at).toBeLessThanOrEqual(TOL);
         }
         // Every raw row sits under its own item's label, flush with it.
         const raw = m.items.filter((i) => i.snippet !== null);

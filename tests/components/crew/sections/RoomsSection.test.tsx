@@ -422,6 +422,17 @@ describe("rooms: each room's header", () => {
   });
 });
 
+describe("rooms: the header's tone", () => {
+  test("rooms: a floor and a setup read as body text on the header's tint", () => {
+    const root = renderRooms(
+      withRooms([room({ id: "r1", floor: "Level 2", setup: "Classroom for 200" })]),
+    );
+    const head = headerOf(root)!;
+    expect(within(head).getByText("Level 2")).toHaveClass("text-text");
+    expect(within(head).getByText("Classroom for 200")).toHaveClass("text-text");
+  });
+});
+
 describe("rooms: the empty state and the fetch failure", () => {
   test.each([
     ["an empty list", []],

@@ -295,6 +295,26 @@ describe("pack list: the raw snippet", () => {
   });
 });
 
+describe("pack list: the item tone", () => {
+  test("pack list: an item line is body text, for the 7:1 sunlight floor, and its snippet a caption", () => {
+    const root = renderPack(
+      withCases([
+        {
+          caseLabel: "Case A",
+          items: [{ qty: 1, cat: null, subCat: null, item: "Shure SM58", rawSnippet: SNIPPET }],
+        },
+      ]),
+    );
+    const row = rowFor(root, "Shure SM58");
+    expect(row.parentElement).toHaveClass("gap-1.5", "text-sm", "text-text", "pl-13");
+    expect(row.querySelector('[data-testid$="pack-item-raw-snippet"]')).toHaveClass(
+      "text-xs",
+      "italic",
+      "text-text-subtle",
+    );
+  });
+});
+
 describe("pack list: the numbered summary", () => {
   test("pack list: the cases are an ordered list, each summary carrying its place", () => {
     const root = renderPack(withCases(roadCases(3)));

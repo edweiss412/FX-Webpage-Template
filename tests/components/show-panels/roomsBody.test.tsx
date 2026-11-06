@@ -472,6 +472,25 @@ describe("scope order", () => {
   });
 });
 
+describe("headerTone", () => {
+  const setupValue = (root: HTMLElement) => within(header(root)).getByText(FULL_ROOM.setup!);
+  const floor = (root: HTMLElement) => within(header(root)).getByText(FULL_ROOM.floor!);
+
+  test("muted, the default: the admin's caption tone on the floor and the setup", () => {
+    const root = body();
+    expect(floor(root).className).toBe("ml-auto text-xs text-text-subtle");
+    expect(setupValue(root).className).toBe("wrap-break-word text-xs text-text-subtle");
+  });
+
+  test("body: both clear the sunlight floor on the room's tint", () => {
+    const root = body({ headerTone: "body" });
+    expect(floor(root)).toHaveClass("text-text");
+    expect(floor(root)).not.toHaveClass("text-text-subtle");
+    expect(setupValue(root)).toHaveClass("text-text");
+    expect(setupValue(root)).not.toHaveClass("text-text-subtle");
+  });
+});
+
 describe("scopeLayout", () => {
   const FIXED_TRACKS = "grid-cols-[1.5rem_5rem_minmax(0,1fr)]";
   const valueOf = (row: HTMLElement) =>
