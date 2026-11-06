@@ -313,7 +313,7 @@ describe("EventDetailsBody: titleAs and groupTitle", () => {
     expect(titles(mapped)).toContain(to);
     expect(titles(mapped)).not.toContain(from);
     expect(
-      mapped.innerHTML.replace("Dress code &amp; key moments", from.replace("&", "&amp;")),
+      mapped.innerHTML.replace("Dress code &amp; key moments", () => from.replace("&", "&amp;")),
     ).toBe(base);
   });
 });

@@ -3,10 +3,17 @@
  * the field list and the contacts derivation share, without the field list's
  * markup. Moved out of FieldRowList.tsx (which re-exports it) so the
  * client-reachable contacts peek can read it (PR B invariant-8 gate, row 9 and
- * row 13's peer).
+ * row 13's peer). `hasContent`, the same as-parsed test for a single string field,
+ * moved here from step3ReviewSections.tsx with the Rooms body (PR C plan Task 3);
+ * the admin file re-exports it under the same name.
  *
  * Pure and server-safe.
  */
+
+/** A string field that actually parsed to content (non-null, non-whitespace). */
+export function hasContent(v: unknown): v is string {
+  return typeof v === "string" && v.trim().length > 0;
+}
 
 /**
  * Build {label,value} rows from [label, rawValue] pairs, keeping only as-parsed

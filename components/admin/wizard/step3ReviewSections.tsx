@@ -43,13 +43,8 @@ import {
   ImageOff,
   Images,
   Info,
-  Lightbulb,
   MessageSquareWarning,
-  Package,
-  Theater,
   TriangleAlert,
-  Video,
-  Volume2,
   type LucideIcon,
 } from "lucide-react";
 import type {
@@ -181,7 +176,10 @@ import { EventDetailsBody, eventDetailGroups } from "@/components/show-panels/Ev
 import { CrewBody } from "@/components/show-panels/CrewBody";
 import { ContactsBody, contactBlocks } from "@/components/show-panels/ContactsBody";
 import { EYEBROW_CLASS, EYEBROW_STYLE, contentRows } from "@/components/show-panels/FieldRowList";
+import { RoomsBody } from "@/components/show-panels/RoomsBody";
 import { VenueBody } from "@/components/show-panels/VenueBody";
+import { hasContent } from "@/components/show-panels/fieldRows";
+import { roomHasScope } from "@/components/show-panels/roomScope";
 import { HotelCardBody, hotelCardLabel } from "@/components/show-panels/HotelCardBody";
 import {
   TransportBody,
@@ -210,74 +208,10 @@ export const PACK_LIST_ITEMS_CAP = 8;
 export const SCHEDULE_DAYS_CAP = 14;
 export const SCHEDULE_ENTRIES_CAP = 6;
 
-// Per-room equipment-scope disciplines shown under each room in the review
-// breakdown so the operator can VERIFY parsed gear (GEAR-tab + INFO A/V/L)
-// before publishing. Parsed values render AS-PARSED (sentinels like "TBD"/"-"
-// included) — this is a parse-review surface, not the crew page (which
-// sentinel-hides), so the operator sees exactly what landed. All five rows
-// ALWAYS render (rooms-scope-cards redesign, 2026-07-04): an unparsed
-// discipline reads a muted "Not specified", stating fact rather than asserting
-// an intentional call. Order + glyphs mirror the crew GearSection
-// (A→V→L→Scenic→Other). `color` is a single mid-lightness OKLCH per discipline
-// (mock parity) — readable on the sunken icon chip in both light and dark.
-const ROOM_SCOPE: ReadonlyArray<{
-  label: string;
-  key: keyof RoomRow;
-  Icon: LucideIcon;
-  color: string;
-}> = [
-  { label: "Audio", key: "audio", Icon: Volume2, color: "oklch(0.60 0.12 25)" },
-  { label: "Video", key: "video", Icon: Video, color: "oklch(0.57 0.11 255)" },
-  { label: "Lighting", key: "lighting", Icon: Lightbulb, color: "oklch(0.63 0.11 75)" },
-  { label: "Scenic", key: "scenic", Icon: Theater, color: "oklch(0.55 0.10 155)" },
-  { label: "Other", key: "other", Icon: Package, color: "oklch(0.55 0.10 300)" },
-];
-
-// Copy shown for a discipline that did not parse. Deliberately NOT the mock's
-// literal "Not needed" (which asserts an intentional decision) — on a
-// parse-review surface a blank cell may simply be a gap. (owner decision,
-// 2026-07-04; PRODUCT.md "missing data is a human sentence".)
-const ROOM_SCOPE_UNSPECIFIED = "Not specified";
-
-// A discipline whose gear is effectively empty — either unparsed (null → renders
-// "Not specified") or an explicit "N/A" / "Not specified" sentinel from the
-// sheet. These sort BELOW disciplines that carry real gear (owner decision,
-// 2026-07-05) so the operator sees what's actually scoped first. Matched
-// case-insensitively; leading/trailing whitespace tolerated.
-function isEmptyScopeValue(value: string | null): boolean {
-  if (value === null) return true;
-  return /^\s*(n\/?a|not\s*specified)\s*$/i.test(value);
-}
-
-// Humanized room-kind labels for the header pill (replaces the raw enum the
-// legacy flat list rendered). RoomKind is a closed 3-value union, so the map is
-// exhaustive — a new kind is a compile error here.
-const ROOM_KIND_LABEL: Record<RoomRow["kind"], string> = {
-  gs: "General session",
-  breakout: "Breakout",
-  additional: "Additional",
-};
-
-/** A string field that actually parsed to content (non-null, non-whitespace). */
-export function hasContent(v: unknown): v is string {
-  return typeof v === "string" && v.trim().length > 0;
-}
-
-/**
- * A room "counts" for the Rooms & scope tally only when at least one of its five
- * A/V disciplines (audio/video/lighting/scenic/other) carries real gear. A room
- * whose every discipline is unparsed OR an explicit "N/A" / "Not specified"
- * sentinel — e.g. an "additional rooms" placeholder that only holds a setup note
- * — is not an A/V scope, so it is excluded from the count (owner decision,
- * 2026-07-06). The room still RENDERS in the breakdown; only the header/rail
- * count changes. Mirrors the per-discipline emptiness test used for scope sort.
- */
-export function roomHasScope(r: RoomRow): boolean {
-  return ROOM_SCOPE.some((scope) => {
-    const value = hasContent(r[scope.key]) ? (r[scope.key] as string) : null;
-    return !isEmptyScopeValue(value);
-  });
-}
+// `hasContent` and the room scope rules moved with the Rooms body (PR C plan Task 3);
+// `components/admin/review/sectionFreshness.ts` reads both from here.
+export { hasContent } from "@/components/show-panels/fieldRows";
+export { roomHasScope } from "@/components/show-panels/roomScope";
 
 /**
  * Build {label,value} rows from [label, rawValue] pairs, keeping only as-parsed
@@ -1714,8 +1648,6 @@ export function ScheduleBreakdown({
 }
 
 export function RoomsBreakdown({ dfid, rooms }: { dfid: string | null; rooms: RoomRow[] }) {
-  const shown = rooms.slice(0, ROOMS_CAP);
-  const note = overflowNote(rooms.length, ROOMS_CAP, "rooms");
   // Count only rooms that actually carry A/V scope — a no-A/V placeholder room
   // still renders below but does not inflate the header/rail count (§ owner
   // decision 2026-07-06; see roomHasScope). All rooms still render (shown).
@@ -1729,163 +1661,13 @@ export function RoomsBreakdown({ dfid, rooms }: { dfid: string | null; rooms: Ro
       {rooms.length === 0 ? (
         <p className="text-sm text-text-subtle">No rooms parsed.</p>
       ) : (
-        <ul className="flex flex-col gap-3.5">
-          {shown.map((r, i) => {
-            // Header schedule meta — Set/Show/Strike; keep only parsed values so
-            // the row (and its dividers) omit entirely when nothing parsed.
-            const times = (
-              [
-                { label: "Set", value: r.set_time, emphasized: false },
-                { label: "Show", value: r.show_time, emphasized: true },
-                { label: "Strike", value: r.strike_time, emphasized: false },
-              ] as const
-            ).filter((t) => hasContent(t.value));
-            const setup = hasContent(r.setup) ? r.setup : null;
-            const dimensions = hasContent(r.dimensions) ? r.dimensions : null;
-            const floor = hasContent(r.floor) ? r.floor : null;
-            const hasHeaderBody = times.length > 0 || setup !== null || dimensions !== null;
-            return (
-              <li
-                key={`${r.name}-${i}`}
-                data-room-nav={i}
-                className="overflow-hidden rounded-md border border-border bg-surface shadow-tile"
-              >
-                {/* Header — accent-tinted panel (mock --accent-tint). */}
-                <div
-                  data-testid={`wizard-step3-card-${dfid}-room-${i}-header`}
-                  className="flex flex-col gap-2 bg-accent/6 px-3.5 py-3"
-                >
-                  {/* name + humanized kind pill + floor */}
-                  <div
-                    className={
-                      "flex flex-wrap items-center gap-x-2 gap-y-1" +
-                      (hasHeaderBody ? " border-b border-border pb-2.5" : "")
-                    }
-                  >
-                    <span className="wrap-break-word text-sm font-semibold text-text-strong">
-                      {r.name || "Room"}
-                    </span>
-                    <span
-                      className="rounded-pill bg-accent/10 px-2 py-0.5 text-[0.625rem] font-semibold uppercase text-accent-on-bg"
-                      style={{ letterSpacing: "0.07em" }}
-                    >
-                      {ROOM_KIND_LABEL[r.kind]}
-                    </span>
-                    {floor !== null ? (
-                      <span className="ml-auto text-xs text-text-subtle">{floor}</span>
-                    ) : null}
-                  </div>
-                  {/* Set · Show · Strike (Show emphasized) — spread full-width,
-                      hairline divider below (no border-l side-stripe). */}
-                  {times.length > 0 ? (
-                    <div
-                      data-testid={`wizard-step3-card-${dfid}-room-${i}-times`}
-                      className="flex flex-wrap items-baseline justify-between gap-x-3 gap-y-1 border-b border-border pb-2.5"
-                    >
-                      {times.map((t) => (
-                        <span key={t.label} className="flex items-baseline">
-                          <span
-                            className="text-xs font-semibold uppercase text-text-subtle"
-                            style={EYEBROW_STYLE}
-                          >
-                            {t.label}
-                          </span>
-                          <span
-                            className={
-                              "ml-1.5 text-xs tabular-nums " +
-                              (t.emphasized ? "font-semibold text-accent-on-bg" : "text-text")
-                            }
-                          >
-                            {t.value}
-                          </span>
-                        </span>
-                      ))}
-                    </div>
-                  ) : null}
-                  {setup !== null ? (
-                    <div className="flex items-baseline gap-2">
-                      <span
-                        className="shrink-0 text-xs font-semibold uppercase text-text-subtle"
-                        style={EYEBROW_STYLE}
-                      >
-                        Setup
-                      </span>
-                      <span className="wrap-break-word text-xs text-text-subtle">{setup}</span>
-                    </div>
-                  ) : null}
-                  {dimensions !== null ? (
-                    <div className="flex items-baseline gap-2">
-                      <span
-                        className="shrink-0 text-xs font-semibold uppercase text-text-subtle"
-                        style={EYEBROW_STYLE}
-                      >
-                        Room Dimensions
-                      </span>
-                      <span className="wrap-break-word text-xs tabular-nums text-text">
-                        {dimensions}
-                      </span>
-                    </div>
-                  ) : null}
-                </div>
-                {/* Scope — ALL five disciplines; unparsed reads "Not specified".
-                    Disciplines with real gear sort to the top; "N/A" / "Not
-                    specified" gear sinks to the bottom (owner decision,
-                    2026-07-05). Stable sort → original A→V→L→Scenic→Other order
-                    is preserved within each group. */}
-                <ul
-                  data-testid={`wizard-step3-card-${dfid}-room-${i}-scope`}
-                  className="flex flex-col px-3.5 py-1"
-                >
-                  {ROOM_SCOPE.map((scope) => ({
-                    ...scope,
-                    value: hasContent(r[scope.key]) ? (r[scope.key] as string) : null,
-                  }))
-                    .sort(
-                      (a, b) =>
-                        Number(isEmptyScopeValue(a.value)) - Number(isEmptyScopeValue(b.value)),
-                    )
-                    .map(({ label, Icon, color, value }) => {
-                      return (
-                        // Icon chip / eyebrow key / value tracks.
-                        <li
-                          key={label}
-                          className="grid grid-cols-[1.5rem_5rem_minmax(0,1fr)] items-start gap-x-2.5 border-b border-border py-2 last:border-0"
-                        >
-                          <span
-                            className="grid size-6 place-items-center rounded-md bg-surface-sunken"
-                            style={value ? { color } : undefined}
-                          >
-                            <Icon
-                              aria-hidden="true"
-                              className={"size-3.5" + (value ? "" : " text-text-faint opacity-60")}
-                            />
-                          </span>
-                          <span
-                            data-testid="room-scope-key"
-                            className="pt-1 text-xs font-semibold uppercase text-text-subtle"
-                            style={EYEBROW_STYLE}
-                          >
-                            {label}
-                          </span>
-                          <span
-                            className={
-                              value
-                                ? "wrap-break-word pt-0.5 text-xs text-text"
-                                : "pt-0.5 text-xs italic text-text-subtle"
-                            }
-                          >
-                            {value ?? ROOM_SCOPE_UNSPECIFIED}
-                          </span>
-                        </li>
-                      );
-                    })}
-                </ul>
-              </li>
-            );
-          })}
-        </ul>
+        <RoomsBody
+          rooms={rooms}
+          cap={ROOMS_CAP}
+          overflowNote={(total, cap) => overflowNote(total, cap, "rooms")}
+          testIdPrefix={`wizard-step3-card-${dfid}`}
+        />
       )}
-      {note ? <p className="text-xs text-text-subtle">{note}</p> : null}
     </BreakdownSection>
   );
 }

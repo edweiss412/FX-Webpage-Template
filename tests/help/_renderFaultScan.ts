@@ -1016,7 +1016,14 @@ export function scanCandidates(): Candidate[] {
       // cards one ternary inside it. None is a fault branch; 79 kept. Re-derived by
       // running the guard.
       //
-      // Probed: 798 such ternaries under the derived roots, 79 on a
+      // 798 -> 801 on feat/crew-page-redesign-pr-c Task 3: RoomsBreakdown's room list moved
+      // into the shared Rooms body (components/show-panels/RoomsBody.tsx). Its empty state
+      // stays in the admin. The floor, times, setup, dimensions and note ternaries moved,
+      // each still counted once. Three are new: the room list present or not, a room's
+      // scope list present or not, and the "Your scope" label on an emphasized row. None
+      // is a fault branch; 79 kept. Re-derived by running the guard.
+      //
+      // Probed: 801 such ternaries under the derived roots, 79 on a
       // fault-vocabulary guard and unclassifiable. 69 of those 79 sit in
       // `"use client"` files, where the guard is interaction state -- `errorCode`,
       // `state.kind === "error"`, `switchStatus === "error"` -- and not a server-render

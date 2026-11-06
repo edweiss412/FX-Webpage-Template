@@ -17,6 +17,7 @@
  * `"use client"`: the builder runs on the server.
  */
 import type { KeyValueRow } from "@/components/crew/primitives/KeyValueRows";
+import { YOUR_SCOPE } from "@/components/show-panels/roomScope";
 import { CREW_TECH_SPEC_KEYS, EVENT_DETAILS_LABELS } from "@/lib/crew/eventDetailsSpecs";
 import { compareRooms, type ProjectedRoomRow } from "@/lib/crew/resolveKeyTimes";
 import { ROOM_DETAIL_FIELDS } from "@/lib/crew/roomDetailFields";
@@ -120,7 +121,7 @@ const DISCIPLINES: ReadonlyArray<{
 ];
 
 /** The eyebrow an emphasized (the viewer's own) scope card carries. */
-export const YOUR_SCOPE = "Your scope";
+export { YOUR_SCOPE };
 
 /**
  * Which disciplines does this viewer "own"? Routes the freshly-derived

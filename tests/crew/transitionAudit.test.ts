@@ -176,6 +176,9 @@ const MINI_AVATAR = "components/show-panels/MiniAvatar.tsx";
 // PR C plan Task 2: the shared Event details body (admin side first; the crew page
 // renders it from Task 5).
 const EVENT_DETAILS_BODY = "components/show-panels/EventDetailsBody.tsx";
+// PR C plan Task 3: the shared Rooms body (admin side first; the crew page renders it
+// from Task 7).
+const ROOMS_BODY = "components/show-panels/RoomsBody.tsx";
 // PR B plan Task 9: the crew Hotels and Transport sections that replace Travel.
 const HOTELS = "components/crew/sections/HotelsSection.tsx";
 const TRANSPORT = "components/crew/sections/TransportSection.tsx";
@@ -985,6 +988,23 @@ const CONDITIONAL_RENDERS: Record<string, { presences: number; renders: Conditio
       { match: "{chipFields.length > 0 ? (", treatment: T.serverPresence },
       // Nothing to show: no block.
       { match: "if (shown.length === 0) return null;", treatment: T.serverPresence },
+    ],
+  },
+  [ROOMS_BODY]: {
+    presences: 0,
+    renders: [
+      // The "Your scope" label on an emphasized row, and an unparsed row's placeholder.
+      { match: "{emphasized ? (", treatment: T.serverPresence },
+      { match: "{value ?? ROOM_SCOPE_UNSPECIFIED}", treatment: T.serverPresence },
+      // Each header field present or omitted.
+      { match: "{floor !== null ? (", treatment: T.serverPresence },
+      { match: "{times.length > 0 ? (", treatment: T.serverPresence },
+      { match: "{setup !== null ? (", treatment: T.serverPresence },
+      { match: "{dimensions !== null ? (", treatment: T.serverPresence },
+      // A room's scope list, the room list and the overflow note.
+      { match: "{hasScope ? (", treatment: T.serverPresence },
+      { match: "{shown.length > 0 ? (", treatment: T.serverPresence },
+      { match: "{note ? (", treatment: T.serverPresence },
     ],
   },
   [TRANSPORT_BODY]: {
