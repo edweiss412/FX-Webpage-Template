@@ -134,7 +134,7 @@ focus-orchestration spec that closes the sibling entry.
 
 ### HELPREPORT-MODAL-NO-ESCAPE-1 — [P2] the report dialog cannot be dismissed with Esc
 
-**Effort:** S
+**Status:** IN PROGRESS · **Branch:** fix/text-faint-contrast · **Effort:** S
 
 From the impeccable audit. `grep -c 'Escape' components/shared/ReportModal.tsx` returns `0`; the only
 key handling in the modal is Cmd/Ctrl+Enter to submit. `lib/a11y/dialogFocus.ts:13-14` states
