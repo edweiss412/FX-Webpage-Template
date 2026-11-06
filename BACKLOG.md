@@ -383,3 +383,13 @@ review round in six ever faulted it.**
 **Status:** OPEN · **Filed:** 2026-10-30 (`feat/crew-page-redesign`, impeccable critique O1) · **Facing:** product · **Severity:** low · **Class:** text contrast · **Effort:** XS · **Reachability:** PROBED 2026-10-30 — the critique measured `text-text-faint` at 12px on the Diagrams tile heading (`components/atoms/Section.tsx:201`, rendered by `components/crew/DiagramsBlock.tsx`) at 3.4:1 light and 3.8:1 dark; the schedule day-card weekday labels use the same token.
 
 12px text needs 4.5:1. Both sites are pre-existing and outside the crew page redesign diff.
+
+## BL-TURBOPACK-WARM-CSS-DROPS-NEW-TOKEN — a build on a warm Turbopack cache drops a new `@theme` token, and every rule that uses it
+
+**Status:** OPEN · **Filed:** 2026-11-06 (`feat/crew-page-redesign-pr-c`, UI gate repairs) · **Facing:** product · **Severity:** medium · **Class:** build cache · **Effort:** S · **Reachability:** INFERRED, NOT PROBED. The drop is measured locally. Whether a Vercel build restores a cache that does the same is not, because deployments sit behind Vercel login. The probe that settles it: after a deploy that adds a `@theme` token, sign in, fetch the deployed CSS and look for the token.
+
+**Probe.** A throwaway worktree built `cf5142712` cold (398 MB `.next/cache`), then checked out `69da28c38` in place and built again with that cache. That diff added `--container-fact-pair` to `app/globals.css` and `@min-fact-pair:grid-cols-[8rem_minmax(0,1fr)]` to a component. Against a clean build of the same commit, the warm CSS had exactly one selector fewer, that class, and no `--container-fact-pair`. Every other selector matched, so new classes survive and a new token does not. The build exits 0 and nothing reports it.
+
+**Consequence.** `experimental.turbopackFileSystemCacheForBuild` is global in `next.config.ts`, so it applies to Vercel too, and `screenshots-drift` and `help-affordances` restore the cache in CI. A silent missing rule is the failure: PR C's short facts would have stacked at every width. PR C avoided it with a literal `@min-[280px]:` instead of a token.
+
+**Repair.** Run the probe. If Vercel is exposed, turn the flag off there (`!process.env.VERCEL`), which costs about 20s a build. Tokens added since the flag shipped on 2026-07-18 are worth checking in the deployed CSS at the same time.
