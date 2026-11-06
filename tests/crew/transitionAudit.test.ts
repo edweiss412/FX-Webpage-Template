@@ -83,6 +83,7 @@ const SSR_SURFACES = [
   "components/crew/primitives/DayCard.tsx",
   "components/crew/sections/ScheduleSection.tsx",
   "components/crew/sections/HomeSection.tsx",
+  "components/crew/sections/EventSection.tsx",
 ];
 
 describe("§5.7 SSR surfaces stay instant (no client motion)", () => {
@@ -176,6 +177,8 @@ const MINI_AVATAR = "components/show-panels/MiniAvatar.tsx";
 // PR C plan Task 2: the shared Event details body (admin side first; the crew page
 // renders it from Task 5).
 const EVENT_DETAILS_BODY = "components/show-panels/EventDetailsBody.tsx";
+// PR C plan Task 5: the crew Event details section.
+const EVENT_SECTION = "components/crew/sections/EventSection.tsx";
 // PR C plan Task 3: the shared Rooms body (admin side first; the crew page renders it
 // from Task 7).
 const ROOMS_BODY = "components/show-panels/RoomsBody.tsx";
@@ -841,7 +844,6 @@ const CONDITIONAL_RENDERS: Record<string, { presences: number; renders: Conditio
       { match: "model.noteRows.length > 0 ? (", treatment: T.serverPresence },
       { match: "{truncated ? (", treatment: T.serverPresence },
       { match: "{model.notesOverflow > 0 ? (", treatment: T.serverPresence },
-      { match: "const dressCard = model.dress ? (", treatment: T.serverPresence },
       {
         match: '{roomsFetchFailed ? <SectionTileError domain="rooms" />',
         treatment: T.serverPresence,
@@ -1101,6 +1103,15 @@ const CONDITIONAL_RENDERS: Record<string, { presences: number; renders: Conditio
       { match: "{flight.confirmation !== null ? (", treatment: T.serverPresence },
       { match: "{allHidden && !transportFetchFailed ? (", treatment: T.serverPresence },
       { match: "{panel !== null && hasTransport ? (", treatment: T.serverPresence },
+    ],
+  },
+  [EVENT_SECTION]: {
+    presences: 0,
+    renders: [
+      // The section's empty state, or the panel.
+      { match: 'return (\n<div data-testid="section-empty">', treatment: T.serverPresence },
+      // The proxied player, only over a playable video.
+      { match: "reelPlayer: panel.showPlayer ? <OpeningReelVideo", treatment: T.serverPresence },
     ],
   },
   [CONTACTS]: {

@@ -36,6 +36,7 @@ import { CONTACTS_INLINE_CAP } from "@/components/crew/sections/contactsRows";
 import { ContactsSection } from "@/components/crew/sections/ContactsSection";
 import { CrewSection } from "@/components/crew/sections/CrewSection";
 import { CREW_INLINE_CAP } from "@/components/crew/sections/crewRows";
+import { EventSection } from "@/components/crew/sections/EventSection";
 import { GearSection } from "@/components/crew/sections/GearSection";
 import { AgendaSection } from "@/components/crew/sections/AgendaSection";
 import { ScheduleSection } from "@/components/crew/sections/ScheduleSection";
@@ -114,6 +115,8 @@ function sectionElement(id: SectionId, c: ViewerCase): JSX.Element {
       return createElement(AgendaSection, props);
     case "venue":
       return createElement(VenueSection, props);
+    case "event":
+      return createElement(EventSection, props);
     case "hotels":
       return createElement(HotelsSection, props);
     case "transport":

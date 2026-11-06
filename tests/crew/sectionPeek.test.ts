@@ -161,6 +161,7 @@ function fullShow(): ShowForViewer {
       dates: { travelIn: TRAVEL_IN, set: SET_DAY, showDays: SHOW_DAYS, travelOut: TRAVEL_OUT },
       schedule_phases: PHASES,
       agenda_links: [agendaLink("agenda-full", [agendaDay("Day 1", 2), agendaDay("Day 2", 1)])],
+      event_details: { stage_size: "8 x 24" },
     },
     hotelReservations: [reservation({})],
     transportation: transport([...CONTENT_LEGS, BLANK_LEG]),
@@ -265,6 +266,48 @@ describe("sectionPeek (peek, spec §4.6)", () => {
       contacts: [...unrenderable, CONTACTS[0]!],
     });
     expect(peek("contacts", one, crew("c-plain"))).toBe("1 contact");
+  });
+
+  it("peek: event counts the fields the section shows, its own rule per key, and nothing at zero", () => {
+    const withDetails = (event_details: Record<string, string>, hasVideo = false) => {
+      const show = fullShow();
+      show.show.event_details = event_details;
+      show.openingReelHasVideo = hasVideo;
+      return show;
+    };
+    const shown = withDetails({
+      stage_size: "8 x 24",
+      keynote_requirements: "Clicker",
+      dress_code: "Show blacks",
+      opening_reel: "N/A", // the reel's rule keeps it
+      notes: "N/A", // every other field's drops it
+      internet: "SSID: Hall", // Venue's
+      power: "100-amp", // Venue's
+    });
+    expect(peek("event", shown, crew("c-plain"))).toBe("4 details");
+    expect(peek("event", withDetails({ stage_size: "8 x 24" }), crew("c-plain"))).toBe("1 detail");
+    // A playable video with a hidden cell is a field the section shows, under its label.
+    expect(peek("event", withDetails({}, true), crew("c-plain"))).toBe("1 detail");
+    expect(peek("event", withDetails({ opening_reel: "TBD" }, true), crew("c-plain"))).toBe(
+      "1 detail",
+    );
+    // The player does not count twice over its own text.
+    expect(peek("event", withDetails({ opening_reel: "YES" }, true), crew("c-plain"))).toBe(
+      "1 detail",
+    );
+    for (const details of [{}, { notes: "TBD" }, { internet: "SSID: Hall", power: "100-amp" }]) {
+      expect(
+        peek("event", withDetails(details), crew("c-plain")),
+        JSON.stringify(details),
+      ).toBeNull();
+    }
+  });
+
+  it("peek: event reads a null event_details as no fields", () => {
+    const show = fullShow();
+    (show.show as { event_details: unknown }).event_details = null;
+    show.openingReelHasVideo = false;
+    expect(peek("event", show, crew("c-plain"))).toBeNull();
   });
 
   it("peek: gear counts a pack list only on the days its phase and stage gates show it", () => {

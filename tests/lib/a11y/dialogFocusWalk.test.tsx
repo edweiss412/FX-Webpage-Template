@@ -501,7 +501,7 @@ describe("walk mode (walkTabs, the crew section sheet): the hook moves focus on 
         <button type="button" data-testid="close">
           Close
         </button>
-        {/* The Gear section's opening reel (components/tiles/OpeningReelVideo.tsx). */}
+        {/* The Event details section's opening reel (components/tiles/OpeningReelVideo.tsx). */}
         <video controls preload="none" data-testid="reel" />
         <video preload="none" data-testid="silent" />
         <audio controls preload="none" data-testid="clip" />

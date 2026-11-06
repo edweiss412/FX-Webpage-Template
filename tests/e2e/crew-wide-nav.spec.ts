@@ -402,6 +402,20 @@ test.describe("crew wide nav (spec §5.3)", () => {
     await expect(navItem(page, "gear")).toHaveAttribute("aria-current", "true");
   });
 
+  // Crew page redesign PR C Task 5: Event details is a section of its own.
+  test("event details: a deep link ?s=event lands on the stacked section after hydration", async ({
+    page,
+  }) => {
+    await load(page, "?s=event");
+    await expect(page.getByTestId("section-event")).toHaveCount(1);
+    await expect
+      .poll(() => sectionTop(page, "event"), { timeout: 5000 })
+      .toBeLessThanOrEqual(SCROLL_SPY_OFFSET_PX);
+    expect(await sectionTop(page, "event")).toBeGreaterThanOrEqual(-1);
+    await expect(navItem(page, "event")).toHaveAttribute("aria-current", "true");
+    await expect(navItem(page, "event")).toHaveText(showSection("event").label);
+  });
+
   test("wide nav: Back and Forward over compact-created entries scroll without moving focus", async ({
     page,
   }) => {
@@ -980,8 +994,8 @@ test.describe("crew wide nav (spec §5.3)", () => {
 /**
  * The composed home in the wide layout (crew page redesign plan Task 11, spec
  * §3.1, §3.2): the Today block (day row, pass and run of show, with the quick
- * facts beside them and the show notes and Dress code card inside the block),
- * then every section stacked, and no "All sections" card. One seeded show
+ * facts beside them and the show notes inside the block), then every section
+ * stacked, and no "All sections" card. One seeded show
  * carries a run of show, a venue with notes, a split Wi-Fi value and a dress
  * code; values are read from the seed input, never typed. Titles carry "home".
  */
@@ -1054,7 +1068,7 @@ test.describe("the composed home, wide (crew page redesign Task 11)", () => {
     await expect(root).toHaveAttribute("data-crew-mode", "wide");
   }
 
-  test("home: the wide Today block puts the quick facts beside the run of show, the notes and Dress code card inside it, then every section", async ({
+  test("home: the wide Today block puts the quick facts beside the run of show, the notes inside it, then every section", async ({
     page,
   }) => {
     await loadWide(page, `/show/${seeded.slug}/${seeded.shareToken}`);
@@ -1074,12 +1088,10 @@ test.describe("the composed home, wide (crew page redesign Task 11)", () => {
         run: box('[data-testid="today-run-of-show"]'),
         facts: box('[data-testid="crew-quick-facts"]'),
         notes: box('[data-testid="today-notes"]'),
-        dress: box('[data-testid="today-dress"]'),
         firstSection: box('[data-testid="crew-wide-section"]'),
         inside: {
           facts: inBlock('[data-testid="crew-quick-facts"]'),
           notes: inBlock('[data-testid="today-notes"]'),
-          dress: inBlock('[data-testid="today-dress"]'),
           run: inBlock('[data-testid="today-run-of-show"]'),
         },
       };
@@ -1091,22 +1103,20 @@ test.describe("the composed home, wide (crew page redesign Task 11)", () => {
       "run",
       "facts",
       "notes",
-      "dress",
       "firstSection",
     ] as const) {
       expect(r[key], `${key} renders`).not.toBeNull();
       expect(r[key]!.h, `${key} has height`).toBeGreaterThan(0);
     }
-    expect(r.inside).toEqual({ facts: true, notes: true, dress: true, run: true });
+    expect(r.inside).toEqual({ facts: true, notes: true, run: true });
     const TOL = 0.5;
     // Beside: the quick facts sit to the right of the run-of-show column and
     // share its vertical span.
     expect(r.facts!.left, JSON.stringify(r)).toBeGreaterThanOrEqual(r.run!.right - TOL);
     expect(r.facts!.top).toBeLessThan(r.run!.bottom);
     expect(r.facts!.left).toBeGreaterThanOrEqual(r.pass!.right - TOL);
-    // The notes then the Dress code card under the quick facts, in that column.
+    // The notes under the quick facts, in that column.
     expect(r.notes!.top).toBeGreaterThanOrEqual(r.facts!.bottom - TOL);
-    expect(r.dress!.top).toBeGreaterThanOrEqual(r.notes!.bottom - TOL);
     expect(r.notes!.left).toBeGreaterThanOrEqual(r.run!.right - TOL);
     // The left column reads day row, pass, run of show.
     expect(r.pass!.top).toBeGreaterThanOrEqual(r.dayRow!.bottom - TOL);
@@ -1116,6 +1126,21 @@ test.describe("the composed home, wide (crew page redesign Task 11)", () => {
     await expect(page.getByTestId("crew-all-sections")).toHaveCount(0);
     await expect(page.getByTestId("today-run-of-show")).toContainText(RUN_ROWS[0]!);
     await expect(page.getByTestId("today-notes")).toContainText(VENUE.notes);
+  });
+
+  // Spec line 316. Scoped to the home's own root: on the wide page the same card
+  // id sits in the stacked Event details section, so a page-wide query cannot tell.
+  test("event details: the Dress code card sits in the stacked section and the Today block holds none", async ({
+    page,
+  }) => {
+    await loadWide(page, `/show/${seeded.slug}/${seeded.shareToken}`);
+    const dress = '[data-card-id="today-dress"]';
+    await expect(page.getByTestId("section-today").locator(dress)).toHaveCount(0);
+    await expect(page.getByTestId("crew-today-block").locator(dress)).toHaveCount(0);
+    // POSITIVE CONTROL: the seeded value is on the page, in its new home.
+    await expect(page.getByTestId("section-event").locator(dress)).toContainText(
+      EVENT_DETAILS.dress_code,
+    );
   });
 
   test("home: on the preview route the crew header sticks under the preview banner, and the nav, a section jump and the scroll padding clear both", async ({

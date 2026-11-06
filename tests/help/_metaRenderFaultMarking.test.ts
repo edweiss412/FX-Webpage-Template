@@ -656,7 +656,17 @@ describe("the scanner's population is pinned against resolver drift", () => {
     // Same contacts and transportation `tile-errors` rows, still marked. Nothing joined
     // or left: membership is still 34, and mapping those TWO rows back reproduces
     // 4c65a019... byte-for-byte (recomputed from scanCandidates()).
-    expect(digest).toBe("64e901050b3a4671806a61c99ae854287e4bafc661d8e100ac494ca4f23580f2");
+    // Regenerated for feat/crew-page-redesign-pr-c Task 5, to the same bar. EXACTLY FOUR
+    // inputs changed, line numbers, in the two files of this set the task edits:
+    //   components/crew/sections/GearSection.tsx 175 -> 142 (-33: the keynote, reel and
+    //   Tech specs derivations left for Event details)
+    //   components/crew/sections/HomeSection.tsx 198/199/200 -> 172/173/174 (-26: the
+    //   Dress code card, its imports and the prop left for Event details)
+    // Same rooms, hotel and contacts `tile-errors` rows, still marked. EventSection adds
+    // no candidate (no fetch-failure block). Nothing joined or left: membership is still
+    // 34, and mapping those FOUR rows back reproduces 64e90105... byte-for-byte
+    // (recomputed from scanCandidates()).
+    expect(digest).toBe("964312b28ae27371e8f77d7ff0c2b5aeaa960436a7a8fca5a6e704fcba77b51d");
   });
 });
 

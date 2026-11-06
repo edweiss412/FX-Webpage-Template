@@ -17,12 +17,11 @@
  *     the client island receives only what this viewer may see;
  *   - the show notes card: the 5-source aggregation venue, hotel, room,
  *     transport, contact (`SOURCE_CAP` / `TRUNCATE_AT`), the transport note
- *     behind `transportTileVisible`;
- *   - the full Dress code card (spec §6.2, PR A and PR B), the destination of
- *     the pass's truncated "Dress code" cell.
+ *     behind `transportTileVisible`.
  *
- * The notes and Dress code cards keep Today's card ids (`today-notes`,
- * `today-dress`) and header actions (spec §6.4). The quick facts summarize
+ * The full Dress code, the destination of the pass's truncated "Dress code" cell,
+ * sits in the Event details section (spec line 316, PR C Task 5). The notes card
+ * keeps Today's card id, `today-notes` (spec §6.4). The quick facts summarize
  * several sheet regions and carry none.
  *
  * Every piece sits inside the render-fault wrapper Today used
@@ -41,19 +40,15 @@ import { ChevronRight } from "lucide-react";
 import type { JSX } from "react";
 
 import { CrewQuickFacts } from "@/components/crew/CrewQuickFacts";
-import { DressCodeLines } from "@/components/crew/DressCodeLines";
 import { SectionTileError } from "@/components/crew/SectionTileError";
 import { WrappedSection } from "@/components/crew/WrappedSection";
 import { NoteIcon } from "@/components/crew/icons/sectionIcons";
-import { CardHeaderActions } from "@/components/crew/primitives/CardHeaderActions";
 import { SectionCard } from "@/components/crew/primitives/SectionCard";
 import { TODAY_TITLES, todayRows } from "@/components/crew/sections/todayRows";
-import { DEFAULT_CARD_REPORT, type CardReportContext } from "@/lib/crew/cardReportContext";
 import { buildQuickFacts } from "@/lib/crew/quickFacts";
 import { type TileRenderLedger } from "@/lib/crew/tileRenderLedger";
 import type { ShowForViewer, Viewer } from "@/lib/data/getShowForViewer";
 import { resolveViewerContext } from "@/lib/data/viewerContext";
-import { CARD_REGION_MAP } from "@/lib/sheet-links/buildSheetDeepLink";
 
 export { SOURCE_CAP, TRUNCATE_AT } from "@/components/crew/sections/todayRows";
 
@@ -64,7 +59,6 @@ type HomeSectionProps = {
   showId: string;
   /** Per-request tile ledger, threaded from _CrewShell. */
   ledger: TileRenderLedger;
-  cardReport?: CardReportContext | null;
 };
 
 export function HomeSection({
@@ -73,7 +67,6 @@ export function HomeSection({
   today,
   showId,
   ledger,
-  cardReport = DEFAULT_CARD_REPORT,
 }: HomeSectionProps): JSX.Element {
   // Single canonical viewer resolution, OUTSIDE the wrapper: a malformed
   // projection throws MalformedProjectionError to the route's infra arm rather
@@ -88,8 +81,8 @@ export function HomeSection({
         showId={showId}
         sheetName={data.show.title}
         render={() => {
-          // Notes and dress with their search targets: todayRows.ts, shared with
-          // the Today search builder.
+          // The notes with their search targets: todayRows.ts, shared with the
+          // Today search builder.
           const model = todayRows(data, ctx);
           const facts = buildQuickFacts({ data, viewer, today });
 
@@ -174,25 +167,6 @@ export function HomeSection({
               </div>
             ) : null;
 
-          const dressCard = model.dress ? (
-            <div data-testid="today-dress" data-card-id="today-dress">
-              <SectionCard
-                title={TODAY_TITLES.dress}
-                action={
-                  <CardHeaderActions
-                    cardId="today-dress"
-                    driveFileId={data.driveFileId}
-                    anchor={data.sourceAnchors[CARD_REGION_MAP["today-dress"]]}
-                    showId={showId}
-                    cardReport={cardReport}
-                  />
-                }
-              >
-                <DressCodeLines value={model.dress.value} searchTargets={model.dress.targets} />
-              </SectionCard>
-            </div>
-          ) : null;
-
           return (
             <>
               {roomsFetchFailed ? <SectionTileError domain="rooms" /> : null}
@@ -200,7 +174,6 @@ export function HomeSection({
               {contactsFetchFailed ? <SectionTileError domain="contacts" /> : null}
               {facts.length > 0 ? <CrewQuickFacts facts={facts} /> : null}
               {notesCard}
-              {dressCard}
             </>
           );
         }}

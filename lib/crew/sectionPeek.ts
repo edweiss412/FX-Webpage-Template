@@ -7,6 +7,8 @@
  * the section's own helper called here, never a copy of its rule:
  *
  *   - Gear's pack list through `isPackListVisibleToday` (GearSection).
+ *   - Event details' fields through the section's own hide rules
+ *     (`crewEventFieldCount`), so the count is the rows it draws.
  *   - Ground-transport legs through `transportTileVisible` (TransportSection),
  *     counted with the Transport body's own leg rule under the crew's options
  *     (`transportRouteLegs`, `crewTransportLegOptions`), so the ride count is
@@ -34,6 +36,7 @@ import type { ViewerContext } from "@/lib/data/viewerContext";
 import type { CrewSectionId } from "@/lib/crew/crewSections";
 import { visibleShowDays } from "@/lib/crew/agendaDisplay";
 import { suppressesDates } from "@/lib/crew/dateSuppression";
+import { crewEventFieldCount } from "@/lib/crew/eventDetailsSpecs";
 import { formatIsoDate } from "@/lib/format/date";
 import { venueDisplay } from "@/lib/venue/venueLocation";
 import { shouldHideGenericOptional } from "@/lib/visibility/emptyState";
@@ -154,6 +157,11 @@ function contactsPeek(data: ShowForViewer): string | null {
   return count === 0 ? null : plural(count, "contact", "contacts");
 }
 
+function eventPeek(data: ShowForViewer): string | null {
+  const count = crewEventFieldCount(data.show.event_details, data.openingReelHasVideo);
+  return count === 0 ? null : plural(count, "detail", "details");
+}
+
 /** The pack list's case count, only on a day its gate shows it to this viewer. */
 function gearPeek(data: ShowForViewer, viewer: SectionPeekViewer): string | null {
   const cases = data.pullSheet;
@@ -186,6 +194,8 @@ export function sectionPeek(
       return agendaPeek(data, viewer);
     case "venue":
       return venuePeek(data);
+    case "event":
+      return eventPeek(data);
     case "hotels":
       return hotelsPeek(data, viewer);
     case "transport":

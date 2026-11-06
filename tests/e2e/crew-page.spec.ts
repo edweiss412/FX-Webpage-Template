@@ -2416,7 +2416,7 @@ test.describe("the composed home (crew page redesign Task 11)", () => {
     }, mode);
   }
 
-  test("home: compact order: header, day row, pass, run of show, quick facts, show notes, Dress code card, All sections", async ({
+  test("home: compact order: header, day row, pass, run of show, quick facts, show notes, All sections", async ({
     page,
   }) => {
     await pinBothClocks(page, SHOW_DAY_1);
@@ -2428,7 +2428,6 @@ test.describe("the composed home (crew page redesign Task 11)", () => {
       "today-run-of-show",
       "crew-quick-facts",
       "today-notes",
-      "today-dress",
       "crew-all-sections",
     ];
     const rects = await page.evaluate((ids) => {
@@ -2449,10 +2448,9 @@ test.describe("the composed home (crew page redesign Task 11)", () => {
         `${ORDER[i]} sits below ${ORDER[i - 1]} (${JSON.stringify(rects)})`,
       ).toBeGreaterThanOrEqual(rects[i - 1]!.bottom - 0.5);
     }
-    // The run card and the notes carry the seeded rows; the dress card the seeded text.
+    // The run card and the notes carry the seeded rows.
     await expect(page.getByTestId("today-run-of-show")).toContainText(RUN_ROWS[SHOW_DAY_1]![0]!);
     await expect(page.getByTestId("today-notes")).toContainText(VENUE.notes);
-    await expect(page.getByTestId("today-dress")).toContainText(EVENT_DETAILS.dress_code);
     // Compact: no section sheet is open on the home, and the wide nav is not shown.
     await expect(page.getByRole("dialog")).toHaveCount(0);
     await expect(page.getByTestId("crew-wide-nav")).toHaveCount(0);
@@ -4233,5 +4231,208 @@ test.describe("crew: the roster's role line keeps its position code (PR B Task 6
       expect(r.linksWithSvg, `every action draws an svg icon at ${r.width}px`).toBe(r.links);
       expect(r.rowText, `no glyph stands in for an icon at ${r.width}px`).not.toMatch(/[☎✉]/);
     }
+  });
+});
+
+/**
+ * Event details on a seeded show (crew page redesign PR C Task 5; spec §6.2 `event`
+ * row at line 302, line 316, AC-1). The seed carries a dress code, a reel cell with
+ * a Drive URL, a keynote and Venue's two fields. Compact, on the mobile-safari
+ * project; a plain admin on the share route, a crew viewer on the preview route
+ * (harness rule "Viewer per case"). Every title carries "event details".
+ */
+test.describe("event details: the section on a seeded show (PR C Task 5)", () => {
+  test.setTimeout(180_000);
+
+  const SHOW_DAY = "2026-04-21";
+  const PINNED = `${SHOW_DAY}T12:00:00.000Z`;
+  const REEL_URL = "https://drive.google.com/file/d/prcEventReelFile/view";
+  const EVENT = {
+    stage_size: "Event Stage 8 x 24",
+    keynote_requirements: "Event keynote needs a confidence monitor",
+    opening_reel: `YES - ${REEL_URL}`,
+    dress_code: "Event show blacks and closed-toe shoes",
+    internet: "SSID: EventHallCrew code: EVENTPASS26",
+    power: "Event power 100-amp 3 phase",
+  };
+  const CREW_NAME = "Event Details Crew";
+  let seeded: Awaited<ReturnType<typeof seedShowWithCrew>>;
+  const sharePath = (search = "") => `/show/${seeded.slug}/${seeded.shareToken}${search}`;
+
+  test.beforeAll(async () => {
+    seeded = await seedShowWithCrew({
+      title: "Event Details Show",
+      dates: {
+        travelIn: "2026-04-19",
+        set: "2026-04-20",
+        showDays: [SHOW_DAY, "2026-04-22"],
+        travelOut: "2026-04-23",
+      },
+      venue: { name: "Event Details Hall", address: "12 Stage Door Way" } as never,
+      eventDetails: EVENT as never,
+      crew: [{ name: CREW_NAME, role: "A1" }],
+    });
+  });
+
+  test.afterAll(async () => {
+    if (seeded) await deleteSeededShow(seeded.driveFileId);
+  });
+
+  test.beforeEach(async ({ page }) => {
+    await page.clock.setFixedTime(new Date(PINNED));
+    await signOut(page);
+    await signInAs(page, ADMIN_FIXTURE);
+    await page.setExtraHTTPHeaders({
+      "X-Screenshot-Frozen-Now": PINNED,
+      Authorization: `Bearer ${TEST_AUTH_SECRET}`,
+    });
+  });
+
+  async function open(page: import("@playwright/test").Page, path: string): Promise<void> {
+    const res = await page.goto(path, { waitUntil: "domcontentloaded" });
+    expect(res?.status(), `${path} must render`).toBe(200);
+    await expect(page.getByTestId("crew-shell-sections")).toHaveAttribute(
+      "data-crew-controller-ready",
+      "true",
+      { timeout: 30_000 },
+    );
+  }
+
+  test("event details: the dress code renders inside the sheet and the home holds no card, while the pass cell and the quick fact still show", async ({
+    page,
+  }) => {
+    await open(page, sharePath());
+    const dress = '[data-card-id="today-dress"]';
+    await expect(page.getByTestId("section-today")).toBeVisible();
+    await expect(page.getByTestId("section-today").locator(dress)).toHaveCount(0);
+    // The pass cell and the quick fact keep their own derivations (spec line 316).
+    await expect(page.getByTestId("crew-pass").locator('[data-fact="dressCode"] dd')).toContainText(
+      EVENT.dress_code,
+    );
+    await expect(
+      page.locator('[data-testid="crew-quick-fact"][data-fact="dressCode"]'),
+    ).toContainText(EVENT.dress_code);
+
+    await page.getByTestId("crew-all-sections").locator('[data-section="event"]').click();
+    const sheet = page.getByTestId("crew-section-sheet-dialog");
+    await expect(sheet).toHaveAttribute("data-section", "event");
+    const card = sheet.getByTestId("section-event").locator(dress);
+    await expect(card).toContainText(EVENT.dress_code);
+    await expect(card.locator('[data-slot="section-card-action"]')).toHaveCount(1);
+    await expect(
+      sheet.getByRole("heading", { level: 4, name: "Dress code & key moments" }),
+    ).toBeVisible();
+    await expect(sheet.getByTestId("section-event")).not.toContainText("Wardrobe");
+  });
+
+  test("event details: the reel strip holds in the section's DOM and in a crew viewer's payload", async ({
+    page,
+  }) => {
+    // not-subject-to-meta: test-local fixture read, the positive control below.
+    const { data: row, error } = await admin
+      .from("shows")
+      .select("event_details")
+      .eq("drive_file_id", seeded.driveFileId)
+      .single();
+    if (error) throw new Error(`event details: show lookup FAILED: ${error.message}`);
+    // POSITIVE CONTROL: the stored cell carries the URL these searches look for.
+    premiseHolds(
+      "the seeded opening_reel cell carries a Drive URL",
+      String((row?.event_details as { opening_reel?: string })?.opening_reel).includes(REEL_URL),
+    );
+
+    const crewId = seeded.crew.find((c) => c.name === CREW_NAME)!.id;
+    const path = `/admin/show/${seeded.slug}/preview/${crewId}?s=event`;
+    await open(page, path);
+    const section = page.getByTestId("section-event");
+    await expect(section.locator('[data-card-id="gear-opening-reel"]')).toContainText("YES");
+    // The cards' "In sheet" links are the one sanctioned docs.google.com href (the
+    // show's own sheet, never the cell), so they leave the copy this search reads.
+    const dom = await section.evaluate((el) => {
+      const copy = el.cloneNode(true) as HTMLElement;
+      for (const link of copy.querySelectorAll('a[data-slot="source-link"]')) link.remove();
+      return copy.innerHTML;
+    });
+    for (const leak of ["https://", "drive.google.com", "docs.google.com"]) {
+      expect(dom, leak).not.toContain(leak);
+    }
+
+    // The payload: the server HTML, its flight data and the search index included.
+    const res = await page.request.get(path);
+    expect(res.status()).toBe(200);
+    const payload = await res.text();
+    // POSITIVE CONTROL: this is the viewer's page, with the reel's stripped text in it.
+    premiseHolds("the payload holds the section", payload.includes('data-testid="section-event"'));
+    expect(payload).not.toContain(REEL_URL);
+    expect(payload).not.toContain("prcEventReelFile");
+  });
+
+  // The browser check on the field card's wrap (PR C Task 2's note): `flex-wrap`
+  // decides on the row's basis alone, so a basis under the row's real need keeps the
+  // actions beside it on a wider phone and leaves the value a narrower column than
+  // the same row has wrapped on a narrower one (107px at 430 against 170px at 390).
+  test("event details: a field card's actions wrap under its row rather than narrow the value column", async ({
+    page,
+  }) => {
+    const MIN_VALUE_WIDTH = 200;
+    const TOL = 0.5;
+    const layouts = new Set<string>();
+    for (const width of [320, 390, 430, 600, 768]) {
+      await page.setViewportSize({ width, height: 844 });
+      await open(page, sharePath("?s=event"));
+      const cards = await page.getByTestId("section-event").evaluate((root) =>
+        ["gear-keynote", "gear-opening-reel", "today-dress"].map((id) => {
+          const box = (el: Element | null | undefined) => {
+            if (!el) return null;
+            const { top, bottom, left, right, width: w } = el.getBoundingClientRect();
+            return { top, bottom, left, right, width: w };
+          };
+          const card = root.querySelector(`[data-card-id="${id}"]`)!;
+          return {
+            id,
+            card: box(card)!,
+            row: box(card.firstElementChild)!,
+            actions: box(card.querySelector('[data-slot="section-card-action"]'))!,
+            value: box(card.querySelector(".grid")?.children[1])!,
+            next: box(card.nextElementSibling),
+          };
+        }),
+      );
+      for (const c of cards) {
+        const at = `${c.id} at ${width}px: ${JSON.stringify(c)}`;
+        const wrapped = c.actions.top >= c.row.bottom - TOL;
+        layouts.add(wrapped ? "wrapped" : "beside");
+        expect(c.actions.right, at).toBeLessThanOrEqual(c.card.right + TOL);
+        if (!wrapped) {
+          expect(c.value.width, at).toBeGreaterThanOrEqual(MIN_VALUE_WIDTH);
+          continue;
+        }
+        // Wrapped, the actions read as their own row's: well nearer it than the next.
+        expect(Math.abs(c.actions.right - c.card.right), at).toBeLessThanOrEqual(TOL);
+        if (c.next !== null) {
+          expect((c.actions.top - c.row.bottom) * 2, at).toBeLessThanOrEqual(
+            c.next.top - c.actions.bottom + TOL,
+          );
+        }
+      }
+    }
+    // PREMISE: the widths reach both layouts, so neither branch above is vacuous.
+    premise("the widths reach both the wrapped and the beside layout", layouts.size, 1);
+  });
+
+  test("event details: a seeded internet and power render in Venue and not here", async ({
+    page,
+  }) => {
+    await open(page, sharePath("?s=venue"));
+    const venue = page.getByTestId("section-venue");
+    await expect(venue).toContainText(EVENT.power);
+    await expect(venue).toContainText("EventHallCrew");
+
+    await open(page, sharePath("?s=event"));
+    const section = page.getByTestId("section-event");
+    // POSITIVE CONTROL: the section rendered its own fields.
+    await expect(section).toContainText(EVENT.stage_size);
+    await expect(section).not.toContainText(EVENT.power);
+    await expect(section).not.toContainText("EventHallCrew");
   });
 });

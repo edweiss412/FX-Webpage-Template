@@ -3,7 +3,7 @@
  *
  * The single synchronous Server Component that homes the gear-facing surfaces
  * the deleted AudioScopeTile / VideoScopeTile / LightingScopeTile / PackListTile
- * / OpeningReelTile / keynote-requirements row carried, into one curated page:
+ * carried, into one curated page:
  *
  *   - A/V/L scope cards — one card per discipline (Audio, Video, Lighting),
  *     each listing the non-sentinel per-room scalar value for that discipline
@@ -19,13 +19,9 @@
  *     `isPackListVisibleToday({ show, restriction, today })` (the `today` prop
  *     is threaded straight through). Cap 12 cases + `[data-tile-show-more]`
  *     overflow stub.
- *   - Keynote requirements — `event_details.keynote_requirements`, sentinel-
- *     guarded.
- *   - Opening reel — when `openingReelHasVideo` and the cell isn't hidden:
- *     a URL-stripped TEXT line (`stripOpeningReelText`, so no raw Drive URL
- *     reaches the DOM) + the proxied `<OpeningReelVideo showId={showId}>`
- *     player (`/api/asset/reel/${showId}` — uses the showId PROP, NEVER
- *     `data.show.id`, which doesn't exist on ShowRow).
+ *
+ * The Tech specs, keynote and opening reel cards left for the Event details
+ * section (crew page redesign PR C Task 5).
  *
  * When ALL blocks are hidden, a section-level `<EmptyState data-testid=
  * "section-empty">` renders so the surface is never blank.
@@ -36,16 +32,7 @@
  * crewMembers projection — this section does not swallow it).
  */
 import type { JSX, ReactNode } from "react";
-import {
-  Boxes,
-  ChevronRight,
-  Frame,
-  LayoutGrid,
-  Lightbulb,
-  SlidersHorizontal,
-  Video,
-  Volume2,
-} from "lucide-react";
+import { Boxes, ChevronRight, Frame, LayoutGrid, Lightbulb, Video, Volume2 } from "lucide-react";
 
 import { EmptyState } from "@/components/atoms/EmptyState";
 import { SectionTileError } from "@/components/crew/SectionTileError";
@@ -53,17 +40,13 @@ import { SectionCard } from "@/components/crew/primitives/SectionCard";
 import { CardHeaderActions } from "@/components/crew/primitives/CardHeaderActions";
 import { DEFAULT_CARD_REPORT, type CardReportContext } from "@/lib/crew/cardReportContext";
 import { CARD_REGION_MAP } from "@/lib/sheet-links/buildSheetDeepLink";
-import { BoxIcon, MonitorIcon, NoteIcon } from "@/components/crew/icons/sectionIcons";
+import { BoxIcon } from "@/components/crew/icons/sectionIcons";
 import { KeyValueRows } from "@/components/crew/primitives/KeyValueRows";
 import { WrappedSection } from "@/components/crew/WrappedSection";
-import { OpeningReelVideo } from "@/components/tiles/OpeningReelVideo";
 import {
   gearScopeCards,
-  keynoteRequirements,
-  openingReel,
   packList,
   roomDetailBlocks,
-  techSpecs,
   YOUR_SCOPE,
   type Discipline,
 } from "@/components/crew/sections/gearRows";
@@ -138,17 +121,7 @@ export function GearSection({
           const visibleCases = pack.cases;
           const overflowCount = pack.overflowCount;
 
-          // Keynote requirements — sentinel-guarded generic-optional text field.
-          const keynote = keynoteRequirements(data.show.event_details);
-
-          // Opening reel — URL-stripped text + the proxied player.
-          const reel = openingReel(data.show.event_details, data.openingReelHasVideo);
-          const hasReel = reel.visible;
-
-          // Tech specs (BL-EVENT-DETAILS-UNRENDERED) and per-room detail
-          // (BL-ROOM-DETAIL-UNRENDERED, capped at ROOM_DETAIL_CAP).
-          const specs = techSpecs(data.show.event_details);
-          const hasTechSpecs = specs.visible;
+          // Per-room detail (BL-ROOM-DETAIL-UNRENDERED, capped at ROOM_DETAIL_CAP).
           const roomDetails = roomDetailBlocks(data.rooms);
           const hasRoomDetails = roomDetails.visible;
           const shownRoomBlocks = roomDetails.shown;
@@ -162,13 +135,7 @@ export function GearSection({
           // producer). Composes with the WrappedSection render-throw arm.
           const roomsFetchFailed = Boolean(data.tileErrors["rooms"]) && ctx.isAdmin;
 
-          const allHidden =
-            scopeCards.length === 0 &&
-            !packVisible &&
-            keynote === null &&
-            !hasReel &&
-            !hasTechSpecs &&
-            !hasRoomDetails;
+          const allHidden = scopeCards.length === 0 && !packVisible && !hasRoomDetails;
 
           return (
             <>
@@ -359,28 +326,6 @@ export function GearSection({
                 </div>
               ) : null}
 
-              {hasTechSpecs ? (
-                <div data-testid="gear-tech-specs" data-card-id="gear-tech-specs">
-                  <SectionCard
-                    icon={<SlidersHorizontal size={14} strokeWidth={2} />}
-                    title="Tech specs"
-                    action={
-                      <CardHeaderActions
-                        cardId="gear-tech-specs"
-                        driveFileId={data.driveFileId}
-                        anchor={data.sourceAnchors[CARD_REGION_MAP["gear-tech-specs"]]}
-                        showId={showId}
-                        cardReport={cardReport}
-                      />
-                    }
-                  >
-                    {/* columns={2} packs ~15 reference specs efficiently on desktop;
-                        KeyValueRows collapses to a single column in a narrow container. */}
-                    <KeyValueRows rows={specs.rows} columns={2} />
-                  </SectionCard>
-                </div>
-              ) : null}
-
               {hasRoomDetails ? (
                 <div data-testid="gear-room-details" data-card-id="gear-room-details">
                   <SectionCard
@@ -424,51 +369,6 @@ export function GearSection({
                           …and {hiddenRoomCount} more room{hiddenRoomCount === 1 ? "" : "s"}
                         </p>
                       ) : null}
-                    </div>
-                  </SectionCard>
-                </div>
-              ) : null}
-
-              {keynote !== null ? (
-                <div data-testid="gear-keynote" data-card-id="gear-keynote">
-                  <SectionCard
-                    icon={<NoteIcon />}
-                    title="Keynote requirements"
-                    action={
-                      <CardHeaderActions
-                        cardId="gear-keynote"
-                        driveFileId={data.driveFileId}
-                        anchor={data.sourceAnchors[CARD_REGION_MAP["gear-keynote"]]}
-                        showId={showId}
-                        cardReport={cardReport}
-                      />
-                    }
-                  >
-                    <p data-search-target={keynote.entry?.id} className="text-sm text-text">
-                      {keynote.text}
-                    </p>
-                  </SectionCard>
-                </div>
-              ) : null}
-
-              {hasReel ? (
-                <div data-testid="gear-opening-reel" data-card-id="gear-opening-reel">
-                  <SectionCard
-                    icon={<MonitorIcon />}
-                    title="Opening reel"
-                    action={
-                      <CardHeaderActions
-                        cardId="gear-opening-reel"
-                        driveFileId={data.driveFileId}
-                        anchor={data.sourceAnchors[CARD_REGION_MAP["gear-opening-reel"]]}
-                        showId={showId}
-                        cardReport={cardReport}
-                      />
-                    }
-                  >
-                    <div className="flex flex-col gap-3">
-                      {reel.rows.length > 0 ? <KeyValueRows rows={reel.rows} /> : null}
-                      {reel.showPlayer ? <OpeningReelVideo showId={showId} /> : null}
                     </div>
                   </SectionCard>
                 </div>

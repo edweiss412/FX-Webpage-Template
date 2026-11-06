@@ -598,7 +598,7 @@ test.describe("crew layout dimensions — split-wide ratio + natural height (Tas
   // TodaySection (crew page redesign plan Task 11), and with it the 720px
   // container split the Today block owned: the home body reads no container
   // query. The failure modes carried over are the stack and the overflow: below
-  // 1024px the home body (quick facts, show notes, Dress code card) sits under
+  // 1024px the home body (quick facts, show notes) sits under
   // the day row and the pass at the Today block's full width, and the page never
   // scrolls sideways. A POST-show server clock (2026-04-25; the Waldorf seed's
   // show days are 2026-04-21/22) keeps the run card out, as Mode B did.
@@ -894,7 +894,10 @@ test.describe("crew layout dimensions — split-wide ratio + natural height (Tas
       // inner ones a live run captured, as Crew's is.
       { section: "hotels", anchor: "crew-panel-hotel-card" },
       { section: "transport", anchor: "crew-panel-card" },
-      { section: "gear", anchor: "section-gear" },
+      // The Tech specs, keynote and reel cards left for Event details (PR C Task 5),
+      // so on this seed the root holds Room details alone and is no gapped container.
+      // The anchor is the card's, captured from a live run.
+      { section: "gear", anchor: "section-card" },
     ] as const;
 
     /**

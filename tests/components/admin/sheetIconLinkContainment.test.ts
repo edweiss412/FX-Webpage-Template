@@ -1116,14 +1116,17 @@ describe("sheet-link phrase containment (spec §7.10)", () => {
         // (PR B Task 7); the roster's stays there.
         "components/crew/sections/ContactsSection.tsx": 1,
         "components/crew/sections/CrewSection.tsx": 1,
+        // The Dress code card's source link left the home for Event details (PR C
+        // Task 5), and `eventRows.ts` types the field cards' ids.
+        "components/crew/sections/EventSection.tsx": 1,
         "components/crew/sections/GearSection.tsx": 1,
-        "components/crew/sections/HomeSection.tsx": 1,
         "components/crew/sections/ScheduleSection.tsx": 1,
         // Travel's card source links split with it (PR B Task 9): the Hotels card's
         // and the Your flight and Transport cards'.
         "components/crew/sections/HotelsSection.tsx": 1,
         "components/crew/sections/TransportSection.tsx": 1,
         "components/crew/sections/VenueSection.tsx": 1,
+        "components/crew/sections/eventRows.ts": 1,
         "components/shared/CardReportTrigger.tsx": 1,
         // Carries the `SourceAnchor` type import that came out of
         // OnboardingWizard.tsx with the Step-3 row assembly (2026-08-02

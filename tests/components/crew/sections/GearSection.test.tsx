@@ -92,32 +92,6 @@ test("no-flag viewer → default order, no emphasis; all-empty → section Empty
   ).toBeTruthy();
 });
 
-test("opening-reel cell is text-only (no Drive URL) AND the proxied player uses /api/asset/reel/<showId>", () => {
-  const data = makeShowForViewer({
-    show: { event_details: { opening_reel: "YES - https://drive.google.com/file/d/abc/view" } },
-    openingReelHasVideo: true,
-  });
-  const { container } = render(
-    <GearSection
-      {...ledgerProp()}
-      data={data}
-      viewer={{ kind: "crew", crewMemberId: "c1" }}
-      today={TODAY}
-      showId={SHOW_ID}
-    />,
-  );
-  const html = container.innerHTML;
-  for (const leak of ["https://", "drive.google.com", "docs.google.com"])
-    expect(html).not.toContain(leak);
-  expect(container.querySelector(`video[src="/api/asset/reel/${SHOW_ID}"]`)).toBeTruthy();
-  // Mock `.card-head .ico` parity: the Opening-reel card carries its glyph.
-  expect(
-    container.querySelector(
-      '[data-testid="gear-opening-reel"] [data-slot="section-card-icon"] svg',
-    ),
-  ).not.toBeNull();
-});
-
 test("pack list omitted when isPackListVisibleToday is false", () => {
   // Default fixture has schedule_phases: {} — TODAY maps to NO work phase, so
   // todayWorkPhases([]) never overlaps PACK_LIST_VISIBLE_PHASES and
@@ -135,26 +109,6 @@ test("pack list omitted when isPackListVisibleToday is false", () => {
       />,
     ).container.querySelector('[data-testid="gear-pack-list"]'),
   ).toBeNull();
-});
-
-test("a pure-URL opening reel with no video renders NO Opening reel card (whole-card-missing; Codex review R1)", () => {
-  // A pure Drive URL strips to "" → shouldHideOpeningReel hides it (reelText null);
-  // with no video, hasReel is false → the card must NOT render (no empty shell),
-  // preserving the deleted OpeningReelTile's whole-tile-missing contract.
-  const data = makeShowForViewer({
-    show: { event_details: { opening_reel: "https://drive.google.com/file/d/abc/view" } },
-    openingReelHasVideo: false,
-  });
-  const { container } = render(
-    <GearSection
-      {...ledgerProp()}
-      data={data}
-      viewer={{ kind: "crew", crewMemberId: "c1" }}
-      today={TODAY}
-      showId={SHOW_ID}
-    />,
-  );
-  expect(container.querySelector('[data-testid="gear-opening-reel"]')).toBeNull();
 });
 
 test("Scenic + Other scope cards render when populated and auto-omit when empty (spec §3.6)", () => {
@@ -213,37 +167,6 @@ test("Scenic + Other scope cards render when populated and auto-omit when empty 
   ).container;
   expect(c2.querySelector('[data-testid="gear-scope-scenic"]')).toBeNull();
   expect(c2.querySelector('[data-testid="gear-scope-other"]')).toBeNull();
-});
-
-test("keynote requirements card renders from event_details (closes the missing-coverage gap)", () => {
-  const data = makeShowForViewer({
-    show: { event_details: { keynote_requirements: "Confidence monitor + clicker" } },
-  });
-  const { container } = render(
-    <GearSection
-      {...ledgerProp()}
-      data={data}
-      viewer={{ kind: "crew", crewMemberId: "c1" }}
-      today={TODAY}
-      showId={SHOW_ID}
-    />,
-  );
-  const card = container.querySelector('[data-testid="gear-keynote"]');
-  expect(card).not.toBeNull();
-  expect(card!.textContent).toContain("Confidence monitor + clicker");
-  // sentinel keynote → omitted:
-  const tbd = makeShowForViewer({ show: { event_details: { keynote_requirements: "TBD" } } });
-  expect(
-    render(
-      <GearSection
-        {...ledgerProp()}
-        data={tbd}
-        viewer={{ kind: "crew", crewMemberId: "c1" }}
-        today={TODAY}
-        showId={SHOW_ID}
-      />,
-    ).container.querySelector('[data-testid="gear-keynote"]'),
-  ).toBeNull();
 });
 
 test("scope-card source link targets gear_scope (GEAR tab) when present, else rooms/INFO (spec §3.6 / R4-M2)", () => {

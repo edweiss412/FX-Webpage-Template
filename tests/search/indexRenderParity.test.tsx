@@ -33,6 +33,8 @@ import { ContactsSection } from "@/components/crew/sections/ContactsSection";
 import * as crewRowsModule from "@/components/crew/sections/crewRows";
 import * as diagramItemsModule from "@/components/crew/diagramItems";
 import { CrewSection } from "@/components/crew/sections/CrewSection";
+import { EventSection } from "@/components/crew/sections/EventSection";
+import * as eventRows from "@/components/crew/sections/eventRows";
 import { GearSection } from "@/components/crew/sections/GearSection";
 import * as gearRows from "@/components/crew/sections/gearRows";
 import { AgendaSection } from "@/components/crew/sections/AgendaSection";
@@ -140,6 +142,7 @@ function renderSection(id: SectionId, c: ViewerCase): HTMLElement {
     schedule: () => <ScheduleSection {...props} />,
     agenda: () => <AgendaSection {...props} />,
     venue: () => <VenueSection {...props} />,
+    event: () => <EventSection {...props} />,
     hotels: () => <HotelsSection {...props} />,
     transport: () => <TransportSection {...props} />,
     crew: () => <CrewSection {...props} />,
@@ -622,13 +625,12 @@ describe("gear", () => {
   /**
    * The Gear shapes no shared case renders: a pack case with no label (the page
    * invents "Case N", which is not sheet data) holding an item with a raw sheet
-   * snippet and a sentinel category, an itemless case, a playable opening reel
-   * (the player is client chrome), and a second room with the same label and
-   * scope text as another, so its scope row and room-details heading get `~2`.
+   * snippet and a sentinel category, an itemless case, and a second room with the
+   * same label and scope text as another, so its scope row and room-details
+   * heading get `~2`.
    */
   const gearFallbacks = variant(fullContent, "gearFallbacks", {
     ...fullContent.data,
-    openingReelHasVideo: true,
     pullSheet: [
       ...pullSheet,
       {
@@ -674,10 +676,6 @@ describe("gear", () => {
     gearFallbacks: (root) => {
       const pack = squash(root.querySelector('[data-testid="gear-pack-list"]')?.textContent);
       premiseHolds("gearFallbacks renders an invented Case N label", /Case \d+/.test(pack));
-      premiseHolds(
-        "gearFallbacks renders the opening reel player",
-        byTestIds(root, "opening-reel-video").length === 1,
-      );
       const headings = [...root.querySelectorAll('[data-testid="gear-room-details"] h4')].map((h) =>
         squash(h.textContent),
       );
@@ -699,7 +697,7 @@ describe("gear", () => {
   const snippets = (c: ViewerCase) =>
     (c.data.pullSheet ?? []).flatMap((k) => k.items.map((i) => i.rawSnippet ?? "")).filter(Boolean);
 
-  /** Inventory §6, G1 to G7 (G5b is the room-details heading). */
+  /** Inventory §6, G1 to G5 (G5b is the room-details heading); G4, G6 and G7 left for `event`. */
   const LINE_KINDS: readonly LineKind[] = [
     {
       kind: "G1 scope row",
@@ -735,11 +733,6 @@ describe("gear", () => {
         ),
     },
     {
-      kind: "G4 tech spec",
-      caseName: fullContent.name,
-      present: (es) => es.some((e) => e.group === "Tech specs" && e.label !== null),
-    },
-    {
       kind: "G5 room detail field",
       caseName: fullContent.name,
       present: (es) => es.some((e) => e.group === "Room details" && e.label !== null),
@@ -748,16 +741,6 @@ describe("gear", () => {
       kind: "G5b room-details heading",
       caseName: fullContent.name,
       present: (es) => es.some((e) => e.group === "Room details" && e.label === null),
-    },
-    {
-      kind: "G6 keynote requirements",
-      caseName: fullContent.name,
-      present: (es) => es.some((e) => e.group === "Keynote requirements"),
-    },
-    {
-      kind: "G7 opening reel status",
-      caseName: fullContent.name,
-      present: (es) => es.some((e) => e.group === "Opening reel" && e.label === "Status"),
     },
   ];
 
@@ -778,12 +761,12 @@ describe("gear", () => {
     );
     cleanup();
 
-    const spy = vi.spyOn(gearRows, "techSpecs").mockImplementation(() => {
-      throw new Error("planted techSpecs fault");
+    const spy = vi.spyOn(gearRows, "roomDetailBlocks").mockImplementation(() => {
+      throw new Error("planted roomDetailBlocks fault");
     });
     try {
       const root = renderGear(c);
-      expect(spy, "the section derives its tech specs through gearRows").toHaveBeenCalled();
+      expect(spy, "the section derives its room details through gearRows").toHaveBeenCalled();
       expect(root.querySelector('[data-testid="tile-error-fallback"]')).not.toBeNull();
       expect(root.querySelector("[data-search-target]")).toBeNull();
 
@@ -791,7 +774,7 @@ describe("gear", () => {
       const entries = SECTION_BUILDERS.gear(c);
       expect(
         spy,
-        "the builder derives its tech specs through the same function",
+        "the builder derives its room details through the same function",
       ).toHaveBeenCalled();
       expect(entries).toEqual([]);
       expect(assertParity(root, entries)).toEqual([]);
@@ -804,6 +787,172 @@ describe("gear", () => {
     const entries = SECTION_BUILDERS.gear(gearFallbacks);
     expect(entries.some((e) => /^Case \d+$/.test(e.value))).toBe(false);
     expect(entries.some((e) => e.value.includes("Spare batteries"))).toBe(true);
+  });
+});
+
+// ── event ────────────────────────────────────────────────────────────────────
+
+describe("event", () => {
+  /**
+   * The Event details shapes no shared case renders: a playable opening reel over
+   * text (the player is client chrome), and the same over a hidden cell, whose card
+   * is its label and the player, with no line at all.
+   */
+  const eventPlayer = variant(fullContent, "eventPlayer", (d) => ({
+    ...d,
+    openingReelHasVideo: true,
+  }));
+  const eventPlayerAlone = variant(fullContent, "eventPlayerAlone", (d) => ({
+    ...d,
+    openingReelHasVideo: true,
+    show: {
+      ...d.show,
+      event_details: { ...d.show.event_details, opening_reel: "TBD" },
+    },
+  }));
+  /** Every field gone: the empty state renders, and there is no line. */
+  const eventEmpty = variant(fullContent, "eventEmpty", (d) => ({
+    ...d,
+    openingReelHasVideo: false,
+    show: { ...d.show, event_details: {} },
+  }));
+
+  const LOCAL_CASES: readonly ViewerCase[] = [eventPlayer, eventPlayerAlone, eventEmpty];
+  const cases = [...ALL_CASES, ...LOCAL_CASES].filter((c) => canOpen("event", c));
+
+  const renderEvent = (c: ViewerCase) => renderRoot(<EventSection {...shellProps(c)} />);
+  const card = (root: HTMLElement, id: string) => root.querySelector(`[data-card-id="${id}"]`);
+
+  /** Each case whose shape concerns this section proves it in its own render. */
+  const PREMISES: Partial<Record<string, (root: HTMLElement, c: ViewerCase) => void>> = {
+    fullContent: (root) =>
+      premiseHolds(
+        "fullContent renders all three field cards",
+        ["gear-keynote", "gear-opening-reel", "today-dress"].every((id) => card(root, id) !== null),
+      ),
+    eventPlayer: (root) => {
+      premiseHolds(
+        "eventPlayer renders the opening reel player",
+        byTestIds(root, "opening-reel-video").length === 1,
+      );
+      premiseHolds(
+        "eventPlayer's reel card holds a line",
+        card(root, "gear-opening-reel")?.querySelector("[data-search-target]") !== null,
+      );
+    },
+    eventPlayerAlone: (root) => {
+      premiseHolds(
+        "eventPlayerAlone renders the player",
+        byTestIds(root, "opening-reel-video").length === 1,
+      );
+      premiseHolds(
+        "eventPlayerAlone's reel card holds no line",
+        card(root, "gear-opening-reel")?.querySelector("[data-search-target]") === null,
+      );
+    },
+    eventEmpty: (root) =>
+      premiseHolds(
+        "eventEmpty renders the empty state",
+        byTestIds(root, "section-empty").length === 1,
+      ),
+  };
+
+  test.each(parityOver("event", cases))("$name: index equals render", (c) => {
+    const root = renderEvent(c);
+    PREMISES[c.name]?.(root, c);
+    expect(assertParity(root, SECTION_BUILDERS.event(c))).toEqual([]);
+  });
+
+  const inRegion = (e: SearchEntry, region: string) => regionOf(e) === region;
+  const PANEL_LABEL = showSection("event").label;
+
+  /** One row per line kind the section renders; E4 and E5 are Today's old T12 and T13. */
+  const LINE_KINDS: readonly LineKind[] = [
+    {
+      kind: "E1 panel row",
+      caseName: fullContent.name,
+      present: (es) =>
+        es.some(
+          (e) => inRegion(e, "gear-tech-specs") && e.group === PANEL_LABEL && e.label !== null,
+        ),
+    },
+    {
+      kind: "E2 keynote",
+      caseName: fullContent.name,
+      present: (es) => es.some((e) => inRegion(e, "gear-keynote") && e.group === "Keynote"),
+    },
+    {
+      kind: "E3 opening reel",
+      caseName: fullContent.name,
+      present: (es) =>
+        es.some((e) => inRegion(e, "gear-opening-reel") && e.group === "Opening reel"),
+    },
+    {
+      kind: "E4 dress code phase line",
+      caseName: fullContent.name,
+      present: (es) =>
+        es.some((e) => inRegion(e, "today-dress") && e.group === "Dress code" && e.label !== null),
+    },
+    {
+      kind: "E5 dress code paragraph",
+      caseName: "modeAToday",
+      present: (es) =>
+        es.some((e) => inRegion(e, "today-dress") && e.group === "Dress code" && e.label === null),
+    },
+  ];
+
+  test.each(LINE_KINDS)("line kind $kind renders in $caseName", ({ caseName, present }) => {
+    const c = caseNamed([...ALL_CASES, ...LOCAL_CASES], caseName);
+    expect(present(SECTION_BUILDERS.event(c), c)).toBe(true);
+  });
+
+  test("the reel's entries hold no Drive URL, over a cell that carries one", () => {
+    const cell = fullContent.data.show.event_details["opening_reel"] ?? "";
+    premiseHolds("the fixture cell carries a Drive URL", cell.includes("drive.google.com"));
+    const entries = SECTION_BUILDERS.event(fullContent);
+    premise(
+      "the reel has a line",
+      entries.filter((e) => inRegion(e, "gear-opening-reel")).length,
+      0,
+    );
+    expect(JSON.stringify(entries)).not.toContain("drive.google.com");
+  });
+
+  test("Venue's two fields are no line here", () => {
+    const { internet, power } = fullContent.data.show.event_details;
+    premiseHolds("the fixture carries both", Boolean(internet) && Boolean(power));
+    const values = SECTION_BUILDERS.event(fullContent).map((e) => e.value);
+    expect(values).not.toContain(internet);
+    expect(values).not.toContain(power);
+  });
+
+  test("error guard: a throwing derivation empties the page block and the index alike", () => {
+    // The section's whole body is one WrappedSection (`crew:event:details`), so the
+    // block that throws is the section: its fallback replaces every line.
+    const c = fullContent;
+    premiseHolds(
+      "fullContent renders Event details search targets when nothing throws",
+      renderEvent(c).querySelector("[data-search-target]") !== null,
+    );
+    cleanup();
+
+    const spy = vi.spyOn(eventRows, "eventPanel").mockImplementation(() => {
+      throw new Error("planted eventPanel fault");
+    });
+    try {
+      const root = renderEvent(c);
+      expect(spy, "the section derives its model through eventRows").toHaveBeenCalled();
+      expect(root.querySelector('[data-testid="tile-error-fallback"]')).not.toBeNull();
+      expect(root.querySelector("[data-search-target]")).toBeNull();
+
+      spy.mockClear();
+      const entries = SECTION_BUILDERS.event(c);
+      expect(spy, "the builder derives its model through the same function").toHaveBeenCalled();
+      expect(entries).toEqual([]);
+      expect(assertParity(root, entries)).toEqual([]);
+    } finally {
+      spy.mockRestore();
+    }
   });
 });
 
@@ -2106,17 +2255,8 @@ describe("today", () => {
     // T1 to T11 (the Tonight, Where and Need something cards and the key times)
     // retired with TodaySection (crew page redesign plan Task 11): their facts are
     // the home's quick facts, outside search coverage because each repeats a line
-    // its own section renders, and the pass, which is not indexed.
-    {
-      kind: "dress code phase line (T12)",
-      caseName: "fullContent",
-      present: (es) => at(es, "today-dress").some((e) => e.label !== null),
-    },
-    {
-      kind: "dress code paragraph (T13)",
-      caseName: "modeAToday",
-      present: (es) => at(es, "today-dress").some((e) => e.label === null),
-    },
+    // its own section renders, and the pass, which is not indexed. T12 and T13, the
+    // dress code's lines, left with the card for `event` (PR C Task 5).
     {
       kind: "note folded past TRUNCATE_AT (T14)",
       caseName: "fullContent",

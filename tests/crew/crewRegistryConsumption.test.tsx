@@ -106,8 +106,12 @@ const TODAY = new Date("2026-05-14T15:00:00Z");
 function fullData(): ShowForViewer {
   return makeShowForViewer({
     // The Agenda is listed, and draws its panel card, only over an agenda link with
-    // a file (PR B Task 10).
-    show: { agenda_links: [{ label: "AGENDA", fileId: "agenda-file-9" }] },
+    // a file (PR B Task 10); Event details draws its panel only over a field to show
+    // (PR C Task 5).
+    show: {
+      agenda_links: [{ label: "AGENDA", fileId: "agenda-file-9" }],
+      event_details: { stage_size: "8 x 24" },
+    },
     financials: { po: "PO-9", proposal: "PR-9", invoice: "INV-9", invoice_notes: "Net 9" },
     // The Contacts section draws its panel card only over contacts (PR B Task 7).
     contacts: [{ kind: "venue", name: "Vic Venue", email: null, phone: "555-0120", notes: null }],

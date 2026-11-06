@@ -17,17 +17,14 @@
  * `"use client"`: the builder runs on the server.
  */
 import type { KeyValueRow } from "@/components/crew/primitives/KeyValueRows";
+import { searchLine, type Seen } from "@/components/crew/sections/sectionLines";
 import { YOUR_SCOPE } from "@/components/show-panels/roomScope";
-import { CREW_TECH_SPEC_KEYS, EVENT_DETAILS_LABELS } from "@/lib/crew/eventDetailsSpecs";
 import { compareRooms, type ProjectedRoomRow } from "@/lib/crew/resolveKeyTimes";
 import { ROOM_DETAIL_FIELDS } from "@/lib/crew/roomDetailFields";
 import type { ShowForViewer } from "@/lib/data/getShowForViewer";
 import type { PullSheetItem, RoleFlag, StageRestriction } from "@/lib/parser/types";
-import { entryId } from "@/lib/search/entryId";
-import { normalize } from "@/lib/search/normalize";
 import type { SearchEntry } from "@/lib/search/types";
-import { shouldHideGenericOptional, shouldHideOpeningReel } from "@/lib/visibility/emptyState";
-import { stripOpeningReelText } from "@/lib/visibility/openingReelText";
+import { shouldHideGenericOptional } from "@/lib/visibility/emptyState";
 import { isPackListVisibleToday } from "@/lib/visibility/packList";
 import { roomLabel } from "@/lib/visibility/roomLabel";
 import {
@@ -48,46 +45,6 @@ export const CASE_CAP = 12;
  * more rooms" line renders instead). Exported for the crew search builder.
  */
 export const ROOM_DETAIL_CAP = 12;
-
-type Seen = Map<string, number>;
-type EventDetails = ShowForViewer["show"]["event_details"];
-
-const tokens = (s: string) =>
-  normalize(s)
-    .map((t) => t.text)
-    .join(" ");
-
-/**
- * One search entry for one rendered line of a Gear card, or null when the line's
- * value is blank (the page renders no target for it). A label that equals its
- * group is stored as null (spec §3) and kept as context, so the rendered label
- * text is still carried by the entry (INV-1 clause 3).
- */
-function searchLine(
-  region: string,
-  group: string,
-  label: string | null,
-  value: string,
-  context: readonly (string | null | undefined)[],
-  seen: Seen,
-): SearchEntry | null {
-  if (value.trim().length === 0) return null;
-  const ctx = context.filter((c): c is string => typeof c === "string" && c.trim().length > 0);
-  let lab = label !== null && label.trim().length > 0 ? label : null;
-  if (lab !== null && tokens(lab) === tokens(group)) {
-    ctx.unshift(lab);
-    lab = null;
-  }
-  return {
-    id: entryId("gear", region, group, lab, value, seen),
-    section: "gear",
-    group,
-    label: lab,
-    value,
-    context: ctx,
-    copy: null,
-  };
-}
 
 /** `row` with its search target set, when the line has an entry. */
 function targeted(row: KeyValueRow, entry: SearchEntry | null): KeyValueRow {
@@ -163,7 +120,15 @@ export function gearScopeCards(rooms: ProjectedRoomRow[], flags: RoleFlag[]): Sc
       const v = d.value(r);
       if (shouldHideGenericOptional(v)) continue;
       const k = roomLabel(r);
-      const entry = searchLine(region, d.heading, k, v!, [emphasized ? YOUR_SCOPE : null], seen);
+      const entry = searchLine(
+        "gear",
+        region,
+        d.heading,
+        k,
+        v!,
+        [emphasized ? YOUR_SCOPE : null],
+        seen,
+      );
       rows.push(targeted({ k, v: v! }, entry));
       if (entry !== null) entries.push(entry);
     }
@@ -232,7 +197,7 @@ export function packList(
     const realLabel = c.caseLabel ? c.caseLabel : null;
     const entry =
       realLabel !== null
-        ? searchLine(PACK.region, PACK.group, null, realLabel, [count], seen)
+        ? searchLine("gear", PACK.region, PACK.group, null, realLabel, [count], seen)
         : null;
     const items = c.items.map((item, itemIdx): PackItem => {
       const label = packListItemLabel(item);
@@ -245,7 +210,15 @@ export function packList(
         key: `${item.item}-${itemIdx}`,
         label,
         rawSnippet,
-        entry: searchLine(PACK.region, PACK.group, null, value, [...rest, entry?.value], seen),
+        entry: searchLine(
+          "gear",
+          PACK.region,
+          PACK.group,
+          null,
+          value,
+          [...rest, entry?.value],
+          seen,
+        ),
       };
     });
     return {
@@ -257,31 +230,6 @@ export function packList(
     };
   });
   return { visible, cases, overflowCount: Math.max(0, data.pullSheet.length - CASE_CAP) };
-}
-
-// ── Tech specs ───────────────────────────────────────────────────────────────
-
-export type TechSpecs = { visible: boolean; rows: KeyValueRow[]; entries: SearchEntry[] };
-
-/**
- * The show-level event_details specs not surfaced elsewhere
- * (BL-EVENT-DETAILS-UNRENDERED), in `CREW_TECH_SPEC_KEYS` order. `?? {}` is
- * null-safe parity with the modal; `String(...)` coerces non-string JSONB
- * values without throwing. KeyValueRows omits any sentinel/empty row, so a
- * row's entry exists exactly when the row renders.
- */
-export function techSpecs(eventDetails: EventDetails | null | undefined): TechSpecs {
-  const ed = eventDetails ?? {};
-  const seen: Seen = new Map();
-  const entries: SearchEntry[] = [];
-  const rows = CREW_TECH_SPEC_KEYS.map((key): KeyValueRow => {
-    const row = { k: EVENT_DETAILS_LABELS[key], v: String(ed[key] ?? "").trim() };
-    if (shouldHideGenericOptional(row.v)) return row;
-    const entry = searchLine("gear-tech-specs", "Tech specs", row.k, row.v, [], seen);
-    if (entry !== null) entries.push(entry);
-    return targeted(row, entry);
-  });
-  return { visible: rows.some((r) => !shouldHideGenericOptional(r.v)), rows, entries };
 }
 
 // ── Room details ─────────────────────────────────────────────────────────────
@@ -326,65 +274,15 @@ export function roomDetailBlocks(rooms: ProjectedRoomRow[]): RoomDetails {
   const seen: Seen = new Map();
   const shown = all.slice(0, ROOM_DETAIL_CAP).map((b): RoomDetailBlock => {
     // The room heading is a line of its own; each field line names its room.
-    const heading = searchLine(ROOMS.region, ROOMS.group, null, b.label, [], seen);
+    const heading = searchLine("gear", ROOMS.region, ROOMS.group, null, b.label, [], seen);
     const entries: SearchEntry[] = [];
     const rows = b.rows.map((row) => {
       if (shouldHideGenericOptional(row.v)) return row;
-      const entry = searchLine(ROOMS.region, ROOMS.group, row.k, row.v, [b.label], seen);
+      const entry = searchLine("gear", ROOMS.region, ROOMS.group, row.k, row.v, [b.label], seen);
       if (entry !== null) entries.push(entry);
       return targeted(row, entry);
     });
     return { id: b.id, label: b.label, heading, rows, entries };
   });
   return { visible: all.length > 0, shown, hiddenCount: all.length - shown.length };
-}
-
-// ── Keynote requirements, opening reel ───────────────────────────────────────
-
-export type TextLine = { text: string; entry: SearchEntry | null };
-
-/** `event_details.keynote_requirements`, sentinel-guarded, trimmed. */
-export function keynoteRequirements(eventDetails: EventDetails): TextLine | null {
-  const rawKeynote = eventDetails["keynote_requirements"] ?? null;
-  if (shouldHideGenericOptional(rawKeynote)) return null;
-  const text = rawKeynote!.trim();
-  return {
-    text,
-    entry: searchLine("gear-keynote", "Keynote requirements", null, text, [], new Map()),
-  };
-}
-
-export type OpeningReel = {
-  /** The card renders: a playable video, or reel text. */
-  visible: boolean;
-  showPlayer: boolean;
-  /** The URL-stripped "Status" row, targeted; empty when there is no reel text. */
-  rows: KeyValueRow[];
-  entries: SearchEntry[];
-};
-
-/**
- * Opening reel — URL-stripped text + the proxied player. The text line is shown
- * only when the cell isn't hidden (shouldHideOpeningReel); the player is shown
- * when the projection says a playable video exists.
- */
-export function openingReel(eventDetails: EventDetails, hasVideo: boolean): OpeningReel {
-  const rawReel = eventDetails["opening_reel"] ?? null;
-  const reelText = shouldHideOpeningReel(rawReel) ? null : stripOpeningReelText(rawReel);
-  // Defensive invariant: "has reel text" requires a NON-EMPTY string. Today
-  // `shouldHideOpeningReel` already returns true for any value that strips to
-  // "" (OPENING_REEL_HIDE contains "", emptyState.ts:49), so `reelText` is
-  // never "" — but making the non-empty requirement explicit keeps the
-  // whole-card-missing contract (no text + no video → render nothing, the
-  // ported OpeningReelTile behavior) robust if that hide-set ever changes.
-  const hasReelText = reelText !== null && reelText.length > 0;
-  const entry = hasReelText
-    ? searchLine("gear-opening-reel", "Opening reel", "Status", reelText, [], new Map())
-    : null;
-  return {
-    visible: hasVideo || hasReelText,
-    showPlayer: hasVideo,
-    rows: hasReelText ? [targeted({ k: "Status", v: reelText }, entry)] : [],
-    entries: entry !== null ? [entry] : [],
-  };
 }

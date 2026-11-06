@@ -1022,8 +1022,14 @@ export function scanCandidates(): Candidate[] {
       // each still counted once. Three are new: the room list present or not, a room's
       // scope list present or not, and the "Your scope" label on an emphasized row. None
       // is a fault branch; 79 kept. Re-derived by running the guard.
+      // 801 -> 796 on feat/crew-page-redesign-pr-c Task 5: the Tech specs, keynote and
+      // opening reel cards left Gear, five ternaries (three card gates, the reel's text
+      // and player), and the Dress code card left the home, one. Their rows moved into
+      // the shared Event details body, which already counted them. EventSection adds
+      // one, the player in its slot. None is a fault branch; 79 kept. Re-derived by
+      // running the guard.
       //
-      // Probed: 801 such ternaries under the derived roots, 79 on a
+      // Probed: 796 such ternaries under the derived roots, 79 on a
       // fault-vocabulary guard and unclassifiable. 69 of those 79 sit in
       // `"use client"` files, where the guard is interaction state -- `errorCode`,
       // `state.kind === "error"`, `switchStatus === "error"` -- and not a server-render

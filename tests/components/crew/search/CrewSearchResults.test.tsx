@@ -47,6 +47,7 @@ const LABEL: Record<SectionId, string> = {
   schedule: "Schedule",
   agenda: "Agenda",
   venue: "Venue",
+  event: "Event details",
   hotels: "Hotels",
   transport: "Transport",
   crew: "Crew",

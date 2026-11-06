@@ -21,6 +21,7 @@ import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
 import { BillingSection } from "@/components/crew/sections/BillingSection";
 import { ContactsSection } from "@/components/crew/sections/ContactsSection";
 import { CrewSection } from "@/components/crew/sections/CrewSection";
+import { EventSection } from "@/components/crew/sections/EventSection";
 import { GearSection } from "@/components/crew/sections/GearSection";
 import { AgendaSection } from "@/components/crew/sections/AgendaSection";
 import { ScheduleSection } from "@/components/crew/sections/ScheduleSection";
@@ -92,6 +93,7 @@ function renderSection(id: SectionId, c: ViewerCase): HTMLElement {
     schedule: () => <ScheduleSection {...props} />,
     agenda: () => <AgendaSection {...props} />,
     venue: () => <VenueSection {...props} />,
+    event: () => <EventSection {...props} />,
     hotels: () => <HotelsSection {...props} />,
     transport: () => <TransportSection {...props} />,
     crew: () => <CrewSection {...props} />,
@@ -105,6 +107,12 @@ function renderSection(id: SectionId, c: ViewerCase): HTMLElement {
 function byTestId(root: ParentNode, id: string): HTMLElement {
   const el = root.querySelector<HTMLElement>(`[data-testid="${id}"]`);
   if (el === null) throw new Error(`no [data-testid="${id}"] rendered`);
+  return el;
+}
+
+function byCardId(root: ParentNode, id: string): HTMLElement {
+  const el = root.querySelector<HTMLElement>(`[data-card-id="${id}"]`);
+  if (el === null) throw new Error(`no [data-card-id="${id}"] rendered`);
   return el;
 }
 
@@ -183,12 +191,12 @@ describe("modeAToday (the home)", () => {
     ).toBeGreaterThan(0);
   });
 
-  test("renders the dress code as one paragraph (the unparsed form)", () => {
+  test("renders the dress code as one paragraph (the unparsed form), in Event details", () => {
     const dress = modeAToday.data.show.event_details["dress_code"];
     expect(dress).toBeTruthy();
     expect(parseDressCodeLines(dress!)).toBeNull();
 
-    const card = byTestId(renderSection("today", modeAToday), "today-dress");
+    const card = byCardId(renderSection("event", modeAToday), "today-dress");
     expect(card.querySelector("dl")).toBeNull();
     expect(squash(card.textContent ?? "")).toContain(squash(dress!));
   });
@@ -215,10 +223,10 @@ describe("fullContent", () => {
     expect(squash(details!.textContent ?? "")).toContain(squash(venueNotes!));
   });
 
-  test("Today: the dress code renders as phase lines (the parsed form)", () => {
+  test("Event details: the dress code renders as phase lines (the parsed form)", () => {
     const lines = parseDressCodeLines(ed["dress_code"] ?? "");
     expect(lines).not.toBeNull();
-    const card = byTestId(renderSection("today", fullContent), "today-dress");
+    const card = byCardId(renderSection("event", fullContent), "today-dress");
     expect(card.querySelectorAll("dt")).toHaveLength(lines!.length);
   });
 
@@ -256,7 +264,7 @@ describe("fullContent", () => {
     expect(byTestId(root, "venue-facilities")).toHaveTextContent(ed["power"]!);
   });
 
-  test("Gear: one scope card per discipline, pack list, tech specs, room details, keynote, reel", () => {
+  test("Gear: one scope card per discipline, pack list, room details", () => {
     const root = renderSection("gear", fullContent);
 
     const scopeCards = Object.keys(CARD_REGION_MAP).filter((k) => k.startsWith("gear-scope-"));
@@ -268,18 +276,22 @@ describe("fullContent", () => {
       fullContent.data.pullSheet!.length,
     );
 
-    const specs = byTestId(root, "gear-tech-specs");
-    for (const key of CREW_TECH_SPEC_KEYS) {
-      expect(specs).toHaveTextContent(EVENT_DETAILS_LABELS[key]);
-      expect(specs).toHaveTextContent(ed[key]!);
-    }
-
     const details = byTestId(root, "gear-room-details");
     for (const room of fullContent.data.rooms) byTestId(details, `gear-room-detail-${room.id}`);
+  });
 
-    expect(byTestId(root, "gear-keynote")).toHaveTextContent(ed["keynote_requirements"]!);
+  test("Event details: every tech spec row, the keynote and the reel", () => {
+    const root = renderSection("event", fullContent);
+
+    const panel = byCardId(root, "gear-tech-specs");
+    for (const key of CREW_TECH_SPEC_KEYS) {
+      expect(panel).toHaveTextContent(EVENT_DETAILS_LABELS[key]);
+      expect(panel).toHaveTextContent(ed[key]!);
+    }
+
+    expect(byCardId(root, "gear-keynote")).toHaveTextContent(ed["keynote_requirements"]!);
     const reel = stripOpeningReelText(ed["opening_reel"] ?? null);
     expect(reel.length).toBeGreaterThan(0);
-    expect(byTestId(root, "gear-opening-reel")).toHaveTextContent(reel);
+    expect(byCardId(root, "gear-opening-reel")).toHaveTextContent(reel);
   });
 });

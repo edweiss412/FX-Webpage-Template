@@ -182,16 +182,6 @@ export function InfoIcon({ className }: GlyphProps) {
   );
 }
 
-/** Monitor — a screen on a stand (mock `monitor`). Gear "Opening reel" card. */
-export function MonitorIcon({ className }: GlyphProps) {
-  return (
-    <svg {...baseProps} className={className} aria-hidden="true">
-      <rect x="2.5" y="4" width="19" height="13" rx="2" />
-      <path d="M8 21h8M12 17v4" />
-    </svg>
-  );
-}
-
 /**
  * Sheet — a spreadsheet/grid silhouette: a rounded frame with a header band and
  * a single column divider. Used by <SourceLink> ("In sheet" deep link) so the

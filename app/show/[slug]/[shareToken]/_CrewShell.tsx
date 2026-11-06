@@ -50,6 +50,7 @@ import { BillingSection } from "@/components/crew/sections/BillingSection";
 import { ContactsSection } from "@/components/crew/sections/ContactsSection";
 import { HotelsSection } from "@/components/crew/sections/HotelsSection";
 import { CrewSection } from "@/components/crew/sections/CrewSection";
+import { EventSection } from "@/components/crew/sections/EventSection";
 import { GearSection } from "@/components/crew/sections/GearSection";
 import { HomeSection } from "@/components/crew/sections/HomeSection";
 import { ScheduleSection } from "@/components/crew/sections/ScheduleSection";
@@ -413,9 +414,9 @@ export async function CrewShell({
   const renderOne = (id: SectionId): JSX.Element => {
     switch (id) {
       case "today":
-        // The composed home's server body (quick facts, show notes, the Dress
-        // code card, the admin fetch-failure blocks), placed by the controller
-        // after the day row, the pass and the run card (plan Task 11).
+        // The composed home's server body (quick facts, show notes, the admin
+        // fetch-failure blocks), placed by the controller after the day row, the
+        // pass and the run card (plan Task 11).
         return (
           <HomeSection
             data={data}
@@ -423,7 +424,6 @@ export async function CrewShell({
             today={today}
             showId={showId}
             ledger={tileLedger}
-            cardReport={cardReport}
           />
         );
       case "schedule":
@@ -451,6 +451,17 @@ export async function CrewShell({
       case "venue":
         return (
           <VenueSection
+            data={data}
+            viewer={viewer}
+            today={today}
+            showId={showId}
+            ledger={tileLedger}
+            cardReport={cardReport}
+          />
+        );
+      case "event":
+        return (
+          <EventSection
             data={data}
             viewer={viewer}
             today={today}

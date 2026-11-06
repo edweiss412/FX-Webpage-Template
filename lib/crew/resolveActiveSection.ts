@@ -14,6 +14,7 @@
  */
 export const CREW_SECTION_IDS = [
   "venue",
+  "event",
   "crew",
   "contacts",
   "schedule",

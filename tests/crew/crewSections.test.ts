@@ -330,6 +330,14 @@ describe("hotels and transport replace travel (PR B Task 9, spec line 240, plan 
     }
   });
 
+  it("sections: event follows venue in nav order, a moved id every viewer is listed, with its registry label", () => {
+    const ids: readonly string[] = CREW_SECTION_IDS;
+    expect(ids.indexOf("event")).toBe(ids.indexOf("venue") + 1);
+    expect(CREW_MOVED_IDS as readonly string[]).toContain("event");
+    expect(CREW_SECTION_LABELS.event).toBe(showSection("event").label);
+    expect(CREW_ALWAYS_SECTION_IDS).toContain("event");
+  });
+
   it("transport: entitled and listed for an admin, a viewer the transport gate admits and a flight-only viewer; neither for a viewer with no flight and no ride, whose ?s=transport resolves home", () => {
     const transport = "transport" as CrewSectionId;
     const cases: Array<{ name: string; viewer: Viewer; data: ShowForViewer; listed: boolean }> = [

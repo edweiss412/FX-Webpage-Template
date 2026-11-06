@@ -611,7 +611,10 @@ export const DISPOSITION_RULES: DispositionRule[] = [
     // route-fit cases in crew-section-toggle.spec.ts load the share route through a
     // `path` variable at each width. Same disposition: a crew page. Re-derived from
     // the failure's own count (34 candidates).
-    expectedCount: 34,
+    // 35 since PR C's Task 5: the event details block in crew-page.spec.ts loads crew
+    // routes through open's `path`. Same disposition: a crew page. Re-derived from the
+    // failure's own count (35 candidates).
+    expectedCount: 35,
     match: (c) =>
       !c.file.startsWith("tests/e2e/published-review-modal.") &&
       !/\bcrewPage\.goto\(/.test(c.matchLineText) &&
@@ -725,7 +728,10 @@ export const DISPOSITION_RULES: DispositionRule[] = [
     // 29 since Task 10: the agenda compact block builds the preview-as path for its
     // seeded viewers (`previewOf(seeded, name)` in crew-section-toggle.spec.ts).
     // Re-derived from the failure's own count (29 candidates).
-    expectedCount: 29,
+    // 30 since PR C's Task 5: the event details reel case in crew-page.spec.ts builds
+    // a crew member's preview path. Re-derived from the failure's own count (30
+    // candidates).
+    expectedCount: 30,
     match: (c) =>
       !isTestTitle(c.matchLineText) &&
       !/^\["\/admin\/show\//.test(c.matchLineText) &&

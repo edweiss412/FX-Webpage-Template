@@ -1,9 +1,10 @@
+import { shouldHideGenericOptional, shouldHideOpeningReel } from "@/lib/visibility/emptyState";
 import { stripOpeningReelText } from "@/lib/visibility/openingReelText";
 
 /**
  * Closed-vocab whitelist for surfacing event_details text specs — single source
- * of truth for the crew GearSection "Tech specs" card AND the Step-3 review
- * modal. Keys with NO entry (PII/financial/unknown, and `diagrams` — a folder
+ * of truth for the crew Event details section AND the Step-3 review modal, which
+ * render the one shared body. Keys with NO entry (PII/financial/unknown, and `diagrams` — a folder
  * link surfaced by the Diagrams tile) never render. (BL-EVENT-DETAILS-UNRENDERED)
  */
 export const EVENT_DETAILS_LABELS = {
@@ -22,7 +23,8 @@ export const EVENT_DETAILS_LABELS = {
   virtual_speaker: "Virtual speaker",
   virtual_audience: "Virtual audience",
   notes: "Notes",
-  // Shown in the operator modal; already rendered elsewhere on the crew page:
+  // Shown in the operator modal; on the crew page the first three join the Event
+  // details section as field cards or the reel, and Wi-Fi and power stay in Venue:
   keynote_requirements: "Keynote",
   opening_reel: "Opening reel",
   internet: "Internet / Wi-Fi",
@@ -92,9 +94,30 @@ export function eventDetailGroups(
 }
 
 /**
- * Ordered crew Tech-specs card subset — EXCLUDES keys rendered on other crew
- * surfaces (dress→Today, internet/power→Venue, keynote/opening_reel→Gear) and
- * `diagrams`. Crew-impact first.
+ * Each key hides on its own rule: the reel keeps an "N/A", every other field drops
+ * it. What `sentinels: "hide"` means, in `EventDetailsBody` and in every crew
+ * reader of the same fields.
+ */
+export function hiddenEventField(field: EventDetailField): boolean {
+  return field.key === "opening_reel"
+    ? shouldHideOpeningReel(field.value)
+    : shouldHideGenericOptional(field.value);
+}
+
+/** `groups` with each hidden field gone, and any group that leaves empty. */
+export function withoutHiddenEventFields(
+  groups: readonly EventDetailGroup[],
+): readonly EventDetailGroup[] {
+  return groups
+    .map((g) => ({ ...g, fields: g.fields.filter((f) => !hiddenEventField(f)) }))
+    .filter((g) => g.fields.length > 0);
+}
+
+/**
+ * Ordered crew Tech-specs subset, the rows of the Event details panel — EXCLUDES
+ * the keys with a card of their own there (`CREW_EVENT_KEYS` below), the keys
+ * rendered on another crew surface (internet/power→Venue) and `diagrams`.
+ * Crew-impact first.
  */
 export const CREW_TECH_SPEC_KEYS = [
   "stage_size",
@@ -114,6 +137,39 @@ export const CREW_TECH_SPEC_KEYS = [
   "notes",
 ] as const;
 
+/**
+ * Every key the crew page's Event details section shows (spec §6.2 `event` row):
+ * the Tech specs, the keynote, the opening reel and the dress code. Wi-Fi and
+ * power stay in Venue.
+ */
+export const CREW_EVENT_KEYS = [
+  ...CREW_TECH_SPEC_KEYS,
+  "keynote_requirements",
+  "opening_reel",
+  "dress_code",
+] as const;
+
+/** The groups the crew section shows: its keys, each hidden on its own rule. */
+export function crewEventGroups(
+  details: Readonly<Record<string, unknown>> | null | undefined,
+): readonly EventDetailGroup[] {
+  return withoutHiddenEventFields(eventDetailGroups(details, CREW_EVENT_KEYS));
+}
+
+/**
+ * How many fields the crew section shows. A playable video with no reel text is
+ * one of them: the reel's label renders over the player alone. JSX-free, so the
+ * client-reachable peek reads it (tests/crew/crewSectionsClientGraph.test.ts).
+ */
+export function crewEventFieldCount(
+  details: Readonly<Record<string, unknown>> | null | undefined,
+  hasVideo: boolean,
+): number {
+  const fields = crewEventGroups(details).flatMap((g) => g.fields);
+  const playerAlone = hasVideo && !fields.some((f) => f.key === "opening_reel");
+  return fields.length + (playerAlone ? 1 : 0);
+}
+
 // Compile-time guard: every crew key MUST be a declared label key.
-const _crewKeysAreLabeled: readonly (keyof typeof EVENT_DETAILS_LABELS)[] = CREW_TECH_SPEC_KEYS;
+const _crewKeysAreLabeled: readonly (keyof typeof EVENT_DETAILS_LABELS)[] = CREW_EVENT_KEYS;
 void _crewKeysAreLabeled;

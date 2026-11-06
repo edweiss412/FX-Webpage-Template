@@ -9,9 +9,10 @@
  * - Admin: every key, sentinels as parsed and muted (`sentinels: "show"`), the
  *   chips, and the attention cards the wrapper reads from context in `reelCards`.
  *   It passes nothing else, so every prop below defaults to its output.
- * - Crew (PR C plan Task 5): the crew keys, sentinels hidden, rows in place of
- *   chips, `h4` titles, the crew's title map, a field card per key that keeps its
- *   card id and actions, the reel player in its slot, and search targets.
+ * - Crew (components/crew/sections/EventSection.tsx): the crew keys, sentinels
+ *   hidden, rows in place of chips, `h4` titles, the crew's title map, a field card
+ *   per key that keeps its card id and actions, the reel player in its slot, and
+ *   search targets.
  *
  * Plain props, hook-free, no context: the crew page calls it as a function inside
  * `WrappedSection`'s render callback (spec §6.1, error containment), and it calls
@@ -30,8 +31,9 @@ import {
   type EventDetailField,
   type EventDetailGroup,
   type EventDetailKey,
+  withoutHiddenEventFields,
 } from "@/lib/crew/eventDetailsSpecs";
-import { shouldHideGenericOptional, shouldHideOpeningReel } from "@/lib/visibility/emptyState";
+import { shouldHideGenericOptional } from "@/lib/visibility/emptyState";
 
 export { eventDetailGroups } from "@/lib/crew/eventDetailsSpecs";
 
@@ -82,19 +84,6 @@ function interpretBooleanValue(value: string): "yes" | "no" | null {
   if (/^(y|yes|true|yep|yeah)\b/.test(v)) return "yes";
   if (/^(n|no|none|false|nope)\b/.test(v)) return "no";
   return null;
-}
-
-/** Each key hides on its own rule: the reel keeps an "N/A", every other field drops it. */
-function hiddenSentinel(field: EventDetailField): boolean {
-  return field.key === "opening_reel"
-    ? shouldHideOpeningReel(field.value)
-    : shouldHideGenericOptional(field.value);
-}
-
-function withoutSentinels(groups: readonly EventDetailGroup[]): readonly EventDetailGroup[] {
-  return groups
-    .map((g) => ({ ...g, fields: g.fields.filter((f) => !hiddenSentinel(f)) }))
-    .filter((g) => g.fields.length > 0);
 }
 
 /**
@@ -185,13 +174,20 @@ function BooleanChip({ label, value }: { label: string; value: string }) {
  * A row that keeps its own card: `data-card-id` is its search region and its report
  * target, and the actions sit in the slot every source-link check scopes to
  * (tests/components/crew/sourceLinkCoverage.test.tsx). The row's basis is what it
- * needs to stay readable: past that, the actions take their own line, right-aligned,
- * the crew card header's wrap rule.
+ * needs to stay readable, the 8rem label, its gap and a 13rem value: `flex-wrap`
+ * decides on the basis alone, so a smaller one keeps the actions beside the row on a
+ * wider phone and leaves the value narrower than it is wrapped on a narrower one
+ * (measured at 240px: 107px at a 430 viewport, 170px at 390). Past it, the actions
+ * take their own line, right-aligned, the crew card header's wrap rule, under half
+ * the rows' gap so they read as this row's and not the next one's.
  */
 function FieldCard({ card, children }: { card: EventFieldCard; children: ReactNode }) {
   return (
-    <div data-card-id={card.cardId} className="flex flex-wrap items-start justify-between gap-2">
-      <div className="min-w-0 grow basis-60">{children}</div>
+    <div
+      data-card-id={card.cardId}
+      className="flex flex-wrap items-start justify-between gap-x-2 gap-y-1"
+    >
+      <div className="min-w-0 grow basis-88">{children}</div>
       <div data-slot="section-card-action" className="ml-auto flex shrink-0 items-center">
         {card.actions}
       </div>
@@ -327,7 +323,7 @@ export function EventDetailsBody({
   reelPlayer,
   targets,
 }: EventDetailsBodyProps) {
-  const unhidden = sentinels === "hide" ? withoutSentinels(groups) : groups;
+  const unhidden = sentinels === "hide" ? withoutHiddenEventFields(groups) : groups;
   const shown = reelPlayer ? withReelSlot(unhidden) : unhidden;
   if (shown.length === 0) return null;
   return (

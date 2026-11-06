@@ -28,6 +28,7 @@ const SECTION_COMPONENTS = [
   "TransportSection",
   "CrewSection",
   "ContactsSection",
+  "EventSection",
   "GearSection",
   "BillingSection",
 ] as const;
@@ -39,8 +40,8 @@ const SECTION_COMPONENTS = [
  */
 const EXPECTED_TILE_BY_FILE: Record<string, string> = {
   // The composed home's server body (crew page redesign plan Task 11) took over
-  // Today's wrapper and its tileId: it covers the quick facts, the show notes,
-  // the Dress code card and the admin fetch-failure blocks. The pass, the day
+  // Today's wrapper and its tileId: it covers the quick facts, the show notes and
+  // the admin fetch-failure blocks. The pass, the day
   // row and the run card mount from the section controller with the shell's
   // server-built props, outside every WrappedSection, and own no tileId.
   "HomeSection.tsx": "crew:today:notes",
@@ -59,6 +60,9 @@ const EXPECTED_TILE_BY_FILE: Record<string, string> = {
   // PR B plan Task 7: the contacts left the Crew section's wrapper for their own
   // section and a new tile id (decision 6), so neither id is shared.
   "ContactsSection.tsx": "crew:contacts:list",
+  // PR C plan Task 5: the Tech specs, keynote and reel cards left Gear's wrapper,
+  // and the Dress code card the home's, for this section's (decision 5).
+  "EventSection.tsx": "crew:event:details",
   "GearSection.tsx": "crew:gear:scope",
   "BillingSection.tsx": "crew:budget:rows",
 };

@@ -497,6 +497,28 @@ test.describe("crew compact home and section sheet (spec §5.2)", () => {
     }
   });
 
+  // Crew page redesign PR C Task 5: Event details is a section of its own.
+  test("event details: ?s=event opens the sheet on initial load, in the server HTML and after hydration", async ({
+    page,
+  }) => {
+    const res = await page.request.get(`${route}?s=event`);
+    expect(res.status()).toBe(200);
+    const html = await res.text();
+    const dialogAt = html.search(/<[^>]*data-testid="crew-section-sheet-dialog"[^>]*>/);
+    expect(dialogAt, "the open sheet is in the server HTML").toBeGreaterThan(-1);
+    const dialogTag = html.slice(dialogAt, html.indexOf(">", dialogAt) + 1);
+    expect(dialogTag).toContain('data-section="event"');
+    expect(html.indexOf('data-testid="section-event"', dialogAt)).toBeGreaterThan(dialogAt);
+
+    await load(page, "?s=event");
+    await expect(sheetDialog(page)).toHaveAttribute("data-section", "event");
+    await expect(sheetDialog(page).getByTestId("section-event")).toBeVisible();
+    await expect(sheetDialog(page).getByRole("heading", { level: 2 })).toHaveText(
+      showSection("event").label,
+    );
+    expect(new URL(page.url()).searchParams.get("s")).toBe("event");
+  });
+
   test("sheet: ?s=today renders the home with no sheet, in the HTML and after hydration", async ({
     page,
   }) => {
@@ -2045,10 +2067,11 @@ test.describe("agenda: the Agenda section, compact (PR B Task 10)", () => {
         showSection("schedule").label,
       );
       // The moved set, pinned whole in this one place: the seven sections spec line
-      // 324 moves in PR B. Every other check reads CREW_MOVED_IDS, so this is what
-      // catches a section left out of it (it would keep its crew label and glyph).
+      // 324 moves in PR B, and each PR C moves in its own task. Every other check
+      // reads CREW_MOVED_IDS, so this is what catches a section left out of it (it
+      // would keep its crew label and glyph).
       expect([...moved].sort()).toEqual(
-        ["agenda", "billing", "contacts", "crew", "hotels", "transport", "venue"].sort(),
+        ["agenda", "billing", "contacts", "crew", "event", "hotels", "transport", "venue"].sort(),
       );
     } finally {
       await deleteSeededShow(seeded.driveFileId);

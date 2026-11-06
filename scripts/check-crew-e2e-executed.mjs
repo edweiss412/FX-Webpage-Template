@@ -60,7 +60,10 @@ export const REQUIRED = {
   // route-fit case at 320, 390 and 768 (no text in the eight-leg route paints over
   // another; the driver's phone and email each hold one line). Re-derived from the
   // wiring guard's live Playwright resolution (47).
-  "crew-section-toggle.spec.ts": 47,
+  // 48 since PR C's Task 5 added the "event details" case (?s=event opens the sheet
+  // on initial load). Re-derived from the wiring guard's live Playwright resolution
+  // (48).
+  "crew-section-toggle.spec.ts": 48,
   "picker-flow.spec.ts": 7,
   "alert-action-links.spec.ts": 4,
   // 3 SFS-1 cases + 3 seeded agenda-fold cases.
@@ -123,7 +126,11 @@ export const REQUIRED = {
   // 800px ("venue"). Counted from the observed mobile-safari run.
   // 56 since Task 6 added the roster role-line case, one case over 390px and 320px
   // ("crew"). Re-derived from the wiring guard's live Playwright resolution (56).
-  "crew-page.spec.ts": 56,
+  // 60 since PR C's Task 5 added four "event details" cases on a seeded show (the
+  // dress code in the sheet and off the home, the reel strip in the DOM and the
+  // payload, the field card's wrap, Venue's two fields). Re-derived from the wiring
+  // guard's live Playwright resolution (60).
+  "crew-page.spec.ts": 60,
   // The crew page's wide layout (crew page redesign plan PR A, Task 6): eight cases,
   // desktop-chromium ALONE (its testMatch; the wide layout begins at 1024px). Nine
   // since Task 7 added the wide header case (search between title and chip).
@@ -153,8 +160,11 @@ export const REQUIRED = {
   // Counted from the observed desktop-chromium run. Thirty-two since PR B's Task 10
   // added two "agenda" cases (the wide nav's order and labels, and the crossing into
   // wide with an unlisted Agenda open from a scrolled page). Re-derived from the
-  // wiring guard's live Playwright resolution (32).
-  "crew-wide-nav.spec.ts": 32,
+  // wiring guard's live Playwright resolution (32). Thirty-four since PR C's Task 5
+  // added two "event details" cases (?s=event lands on the stacked section, and the
+  // Dress code card sits there and not in the Today block). Re-derived from the
+  // wiring guard's live Playwright resolution (34).
+  "crew-wide-nav.spec.ts": 34,
   // 9, and the number is the MATRIX rather than a multiple (plan
   // 2026-08-09-quick-wins-2 "e2e harness readiness"). theme-toggle runs two arms:
   //   arm (a) — 4 standalone-toggle cases, BOTH projects            = 8
@@ -199,8 +209,10 @@ export const REQUIRED = {
   // adding or removing a case. 12 since review repair R1-F1 added two cases at each
   // viewport (a Today run-of-show result reveals its line after the viewer picked
   // another day, and after the device clock passed midnight). 14 since PR B's Task 9
-  // added one at each viewport (a hotel-name result reveals its line in Hotels).
-  "crew-search.spec.ts": 14,
+  // added one at each viewport (a hotel-name result reveals its line in Hotels). 16
+  // since PR C's Task 5 added one at each viewport (a dress code result reveals its
+  // line in Event details).
+  "crew-search.spec.ts": 16,
   // The census, across mobile-safari + desktop-chromium. The checker enforces
   // `executed >= min`, so THE NUMBER IS THE GUARD: a row of 1 would let every
   // case but one skip while CI stayed green, which is exactly what the registry

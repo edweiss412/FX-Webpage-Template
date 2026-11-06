@@ -16,7 +16,7 @@
  *     the Transport card (PR B Task 9; it was Travel's "Getting there").
  *   - hotel address / confirmation / notes → HotelsSection (PR B Task 9).
  *   - venue notes / loadingDock / googleLink (+URL guard) → VenueSection.
- *   - dress code → HomeSection "Dress code".
+ *   - dress code → EventSection "Dress code".
  *   - contact phone/email/notes (dead-link guard) → ContactsSection →
  *     ContactsBody (crew page redesign PR B Task 7).
  *   - crew member phone/email (dead-link guard) → CrewSection → CrewBody.
@@ -35,6 +35,7 @@ import { cleanup, render } from "@testing-library/react";
 
 import { ContactsSection } from "@/components/crew/sections/ContactsSection";
 import { CrewSection } from "@/components/crew/sections/CrewSection";
+import { EventSection } from "@/components/crew/sections/EventSection";
 import { GearSection } from "@/components/crew/sections/GearSection";
 import { HotelsSection } from "@/components/crew/sections/HotelsSection";
 import { TransportSection } from "@/components/crew/sections/TransportSection";
@@ -165,13 +166,13 @@ describe("§8.3 sentinel-hiding — Show notes aggregation (HomeSection, the hom
 });
 
 // ─────────────────────────────────────────────────────────────────────
-// Dress code → HomeSection
+// Dress code → EventSection, its field card
 // ─────────────────────────────────────────────────────────────────────
 
-describe("§8.3 sentinel-hiding — Dress code (HomeSection, the home body)", () => {
+describe("§8.3 sentinel-hiding — Dress code (EventSection, its field card)", () => {
   function renderDress(dress: string) {
     return render(
-      <HomeSection
+      <EventSection
         {...ledgerProp()}
         data={makeShowForViewer({ show: { event_details: { dress_code: dress } } })}
         viewer={ADMIN}
@@ -184,7 +185,7 @@ describe("§8.3 sentinel-hiding — Dress code (HomeSection, the home body)", ()
   for (const sentinel of SENTINELS) {
     test(`dress_code = "${sentinel}" → no Dress code block`, () => {
       const c = renderDress(sentinel);
-      expect(c.querySelector('[data-testid="today-dress"]')).toBeNull();
+      expect(c.querySelector('[data-card-id="today-dress"]')).toBeNull();
       if (sentinel.trim().length > 0) {
         expect(html(c)).not.toContain(sentinel);
       }
@@ -193,16 +194,15 @@ describe("§8.3 sentinel-hiding — Dress code (HomeSection, the home body)", ()
 
   test("non-sentinel dress_code renders (anti-tautology)", () => {
     const c = renderDress("Business casual");
-    expect(c.querySelector('[data-testid="today-dress"]')).toBeTruthy();
+    expect(c.querySelector('[data-card-id="today-dress"]')).toBeTruthy();
     expect(c.textContent ?? "").toContain("Business casual");
   });
 
   test("single-key sentinel dress_code with no other candidate → block omitted", () => {
     // A sentinel `dress_code` alone reflows out (the predicate is wired on the
-    // resolved value). This is the part of the dress contract HomeSection DOES
-    // satisfy.
+    // resolved value).
     const c = render(
-      <HomeSection
+      <EventSection
         {...ledgerProp()}
         data={makeShowForViewer({ show: { event_details: { dress_code: "N/A" } } })}
         viewer={ADMIN}
@@ -210,7 +210,7 @@ describe("§8.3 sentinel-hiding — Dress code (HomeSection, the home body)", ()
         showId={SHOW_ID}
       />,
     ).container;
-    expect(c.querySelector('[data-testid="today-dress"]')).toBeNull();
+    expect(c.querySelector('[data-card-id="today-dress"]')).toBeNull();
     expect(html(c)).not.toContain("N/A");
   });
 
@@ -222,12 +222,12 @@ describe("§8.3 sentinel-hiding — Dress code (HomeSection, the home body)", ()
     // (including the `dress_code:"N/A"` + `attire:"Black tie"` → "Black tie"
     // case in both orders) is pinned by the parser test:
     //   tests/parser/blocks/event.test.ts → "dress-code canonicalization (M4-D1)".
-    // HomeSection reads `event_details.dress_code` only, so this component
+    // EventSection reads `event_details.dress_code` only, so this component
     // test exercises the POST-parser shape: a single canonical `dress_code`
     // holding the resolved real value renders, and the value-level sentinel
     // guard still applies (covered by the single-key sentinel test above).
     const c = render(
-      <HomeSection
+      <EventSection
         {...ledgerProp()}
         data={makeShowForViewer({
           show: { event_details: { dress_code: "Black tie" } },
@@ -237,7 +237,7 @@ describe("§8.3 sentinel-hiding — Dress code (HomeSection, the home body)", ()
         showId={SHOW_ID}
       />,
     ).container;
-    expect(c.querySelector('[data-testid="today-dress"]')).toBeTruthy();
+    expect(c.querySelector('[data-card-id="today-dress"]')).toBeTruthy();
     expect(c.textContent ?? "").toContain("Black tie");
   });
 });
