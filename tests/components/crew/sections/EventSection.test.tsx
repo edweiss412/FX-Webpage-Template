@@ -229,6 +229,44 @@ describe("event details: the order", () => {
   });
 });
 
+describe("event details: the actions' names", () => {
+  const FIELDS = {
+    opening_reel: "YES",
+    keynote_requirements: "Clicker",
+    dress_code: "Show blacks",
+  };
+  const names = (root: HTMLElement, selector: string) =>
+    [...root.querySelectorAll(selector)].map((el) => el.getAttribute("aria-label") ?? "");
+
+  // Gate repair 11 (audit P3-6, B): four links and four buttons with one name in one
+  // section, so a screen reader user tabbing through could not tell them apart.
+  test("event details: each card's link and report button name what they act on", () => {
+    const root = renderEvent(withDetails(FIELDS, { driveFileId: "DRIVE123" }));
+    const links = names(root, '[data-slot="source-link"]');
+    const reports = names(root, '[data-slot="card-report-trigger"]');
+    premise("the panel and its three field cards carry actions", links.length, 3);
+    expect(new Set(links).size).toBe(links.length);
+    expect(new Set(reports).size).toBe(reports.length);
+    expect(links).toContain(
+      `In sheet, view ${EVENT_DETAILS_LABELS.dress_code} in Google Sheets (opens in a new tab)`,
+    );
+    expect(reports).toContain(`Report a problem with ${EVENT_DETAILS_LABELS.keynote_requirements}`);
+    // Label in name (WCAG 2.5.3): the visible words stay in every link's name.
+    for (const name of links) expect(name).toContain("In sheet");
+  });
+
+  test("event details: the panel's actions name the section", () => {
+    const root = renderEvent(withDetails(FIELDS, { driveFileId: "DRIVE123" }));
+    const label = showSection("event").label;
+    expect(names(root, '[data-slot="source-link"]')).toContain(
+      `In sheet, view ${label} in Google Sheets (opens in a new tab)`,
+    );
+    expect(names(root, '[data-slot="card-report-trigger"]')).toContain(
+      `Report a problem with ${label}`,
+    );
+  });
+});
+
 describe("event details: the keynote card", () => {
   test("event details: the keynote is a field card with its own id and actions, inside the panel", () => {
     const root = renderEvent(withDetails({ keynote_requirements: "Confidence monitor + clicker" }));

@@ -27,6 +27,7 @@ export function CardHeaderActions({
   showId,
   cardReport = DEFAULT_CARD_REPORT,
   hitDirection = "up",
+  label,
 }: {
   cardId: CardId;
   driveFileId: string | null;
@@ -42,6 +43,12 @@ export function CardHeaderActions({
    * (a forgotten prop would silently default schedule-days to `"up"`).
    */
   hitDirection?: "up" | "down";
+  /**
+   * What these actions act on, for a section holding several clusters: without it
+   * Event details' four links and four report buttons share one accessible name.
+   * Absent, each leaf keeps its own ("this section", "this card").
+   */
+  label?: string;
 }): ReactNode {
   const region = CARD_REGION_MAP[cardId];
   return (
@@ -55,13 +62,19 @@ export function CardHeaderActions({
       data-hit-direction={hitDirection}
       className="inline-flex h-fit shrink-0 items-center gap-4"
     >
-      <SourceLink driveFileId={driveFileId} anchor={anchor} hitDirection={hitDirection} />
+      <SourceLink
+        driveFileId={driveFileId}
+        anchor={anchor}
+        hitDirection={hitDirection}
+        {...(label === undefined ? {} : { label })}
+      />
       <CardReportTrigger
         cardId={cardId}
         region={region}
         showId={showId}
         cardReport={cardReport}
         hitDirection={hitDirection}
+        {...(label === undefined ? {} : { label })}
       />
     </div>
   );

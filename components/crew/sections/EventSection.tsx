@@ -38,10 +38,12 @@ import { EventDetailsBody } from "@/components/show-panels/EventDetailsBody";
 import { PanelCard } from "@/components/show-panels/PanelCard";
 import { OpeningReelVideo } from "@/components/tiles/OpeningReelVideo";
 import { DEFAULT_CARD_REPORT, type CardReportContext } from "@/lib/crew/cardReportContext";
+import { EVENT_DETAILS_LABELS } from "@/lib/crew/eventDetailsSpecs";
 import { type TileRenderLedger } from "@/lib/crew/tileRenderLedger";
 import type { ShowForViewer, Viewer } from "@/lib/data/getShowForViewer";
 import { resolveViewerContext } from "@/lib/data/viewerContext";
 import { CARD_REGION_MAP, type CardId } from "@/lib/sheet-links/buildSheetDeepLink";
+import { showSection } from "@/lib/showSections/registry";
 
 type EventSectionProps = {
   data: ShowForViewer;
@@ -63,7 +65,7 @@ export function EventSection({
   // Outside the wrapper: a malformed projection reaches the route's infra arm.
   resolveViewerContext(viewer, data);
 
-  const headerActions = (cardId: CardId, hitDirection: "up" | "down" = "up") => (
+  const headerActions = (cardId: CardId, label: string, hitDirection: "up" | "down" = "up") => (
     <CardHeaderActions
       cardId={cardId}
       driveFileId={data.driveFileId}
@@ -71,11 +73,12 @@ export function EventSection({
       showId={showId}
       cardReport={cardReport}
       hitDirection={hitDirection}
+      label={label}
     />
   );
-  const fieldCard = (cardId: CardId, hitDirection?: "down") => ({
-    cardId,
-    actions: headerActions(cardId, hitDirection),
+  const fieldCard = (key: keyof typeof EVENT_FIELD_CARD_IDS, hitDirection?: "down") => ({
+    cardId: EVENT_FIELD_CARD_IDS[key],
+    actions: headerActions(EVENT_FIELD_CARD_IDS[key], EVENT_DETAILS_LABELS[key], hitDirection),
   });
 
   return (
@@ -98,7 +101,7 @@ export function EventSection({
             <PanelCard
               sectionId="event"
               cardId={EVENT_PANEL_CARD_ID}
-              actions={headerActions(EVENT_PANEL_CARD_ID)}
+              actions={headerActions(EVENT_PANEL_CARD_ID, showSection("event").label)}
             >
               {/* CALLED, not rendered as an element, so a throw from the body is
                   inside the wrapper's catch (spec §6.1, error containment). */}
@@ -109,13 +112,13 @@ export function EventSection({
                 titleAs: "h4",
                 groupTitle: eventGroupTitle,
                 fieldCards: {
-                  keynote_requirements: fieldCard(EVENT_FIELD_CARD_IDS.keynote_requirements),
+                  keynote_requirements: fieldCard("keynote_requirements"),
                   // Wrapped under the player on a phone, so the actions' tap overlays
                   // grow away from its controls.
-                  opening_reel: fieldCard(EVENT_FIELD_CARD_IDS.opening_reel, "down"),
+                  opening_reel: fieldCard("opening_reel", "down"),
                   // Down, or a keynote of one line above it loses its own actions to
                   // these overlays, and a report on the keynote files against this card.
-                  dress_code: fieldCard(EVENT_FIELD_CARD_IDS.dress_code, "down"),
+                  dress_code: fieldCard("dress_code", "down"),
                 },
                 reelPlayer: panel.showPlayer ? <OpeningReelVideo showId={showId} /> : null,
                 rowLayout: "fluid",
