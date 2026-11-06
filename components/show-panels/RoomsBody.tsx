@@ -61,7 +61,7 @@ export type RoomsBodyProps = {
   sentinels?: "show" | "hide";
   /** false (the default, admin): all five disciplines. true: an empty one renders no row. */
   dropEmpty?: boolean;
-  /** The viewer's disciplines: labeled and sorted first. The default is none. */
+  /** The viewer's disciplines: sorted first, the run headed by one label. The default is none. */
   emphasize?: ReadonlySet<RoomScopeKey>;
   /** true (the default, admin): each room carries `data-room-nav` for the room rail. */
   navAnchors?: boolean;
@@ -117,11 +117,14 @@ function lineMarker(lines: RoomTargets | undefined, key: RoomLineKey): SearchMar
  */
 function ScopeRow({
   row: { key, label, Icon, color, value, emphasized },
+  heads,
   lines,
   scopeLayout,
   chipTone,
 }: {
   row: RoomScopeRow;
+  /** This row prints "Your scope": the first emphasized row of its room. */
+  heads: boolean;
   lines: RoomTargets | undefined;
   scopeLayout: "fixed" | "fluid";
   chipTone: "discipline" | "neutral";
@@ -145,7 +148,7 @@ function ScopeRow({
           : `grid ${tracks} items-start gap-x-2.5 border-b border-border py-2 last:border-0`
       }
     >
-      {emphasized ? (
+      {heads ? (
         <span
           {...(lines === undefined ? {} : SKIP)}
           className="col-span-full pb-1 text-xs font-medium uppercase tracking-eyebrow text-accent-on-bg"
@@ -247,6 +250,7 @@ function RoomCard({
   // A room with no scope rows ends at its header, which then has nothing to divide
   // from what follows: no rule, and no padded empty list.
   const hasScope = scope.length > 0;
+  const firstOwn = scope.findIndex((row) => row.emphasized);
   return (
     <li
       key={`${r.name}-${i}`}
@@ -340,7 +344,9 @@ function RoomCard({
       {/* Scope — unparsed reads "Not specified", unless dropped (roomScopeRows). */}
       {hasScope ? (
         <ul data-testid={`${testIdPrefix}-room-${i}-scope`} className="flex flex-col px-3.5 py-1">
-          {scope.map((row) => ScopeRow({ row, lines, scopeLayout, chipTone }))}
+          {scope.map((row, at) =>
+            ScopeRow({ row, heads: at === firstOwn, lines, scopeLayout, chipTone }),
+          )}
         </ul>
       ) : null}
     </li>

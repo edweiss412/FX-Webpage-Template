@@ -626,6 +626,29 @@ describe("emphasize", () => {
     expect(root).not.toHaveTextContent(YOUR_SCOPE);
   });
 
+  // Gate repair 9 (A P3-1, audit P3-1): a lead passes all three gates, so General Session
+  // printed the label three times and the sheet six, and it stopped distinguishing
+  // anything. Owned rows sort first, so one label heads the run.
+  test("the label prints once, on a room's first emphasized row, and each row keeps its edge", () => {
+    const three = new Set<RoomScopeKey>(["audio", "video", "lighting"]);
+    const root = body({ emphasize: three });
+    const rows = scopeRows(root).filter((row) => row.hasAttribute("data-emphasis"));
+    premise("the room carries several of the viewer's disciplines", rows.length, 1);
+    expect(within(root).getAllByText(YOUR_SCOPE)).toHaveLength(1);
+    expect(rows[0]).toHaveTextContent(YOUR_SCOPE);
+    for (const row of rows.slice(1)) {
+      expect(row, row.textContent ?? "").not.toHaveTextContent(YOUR_SCOPE);
+      expect(row, row.textContent ?? "").toHaveClass("border-l-accent-on-bg");
+    }
+  });
+
+  test("each room heads its own run", () => {
+    const three = new Set<RoomScopeKey>(["audio", "video", "lighting"]);
+    const root = body({ rooms: [room(), room({ name: "Salon B" })], emphasize: three });
+    expect(within(root).getAllByText(YOUR_SCOPE)).toHaveLength(2);
+    expect(scopeRows(root, 1)[0]).toHaveTextContent(YOUR_SCOPE);
+  });
+
   test("every room of the list is emphasized on its own", () => {
     const root = body({ rooms: [room(), room({ name: "Salon B" })], emphasize: owned });
     expect(scopeLabels(root, 0)[0]).toBe("Lighting");
