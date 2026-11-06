@@ -196,7 +196,7 @@ describe("event details: the row layout", () => {
       "@min-crew-split:grid-cols-[8rem_minmax(0,1fr)]",
     );
     expect(row(EVENT_DETAILS_LABELS.stage_size)).toHaveClass(
-      "@min-fact-pair:grid-cols-[8rem_minmax(0,1fr)]",
+      "@min-[280px]:grid-cols-[8rem_minmax(0,1fr)]",
     );
   });
 });

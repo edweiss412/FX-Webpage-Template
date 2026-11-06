@@ -133,11 +133,15 @@ const ROW_LONG =
 
 /**
  * A crew row whose value is a short fact: a scannable two-column list, down to the
- * container that can still hold it (`--container-fact-pair`), so page zoom never leaves
- * the value a track of nothing.
+ * container that can still hold it, so page zoom never leaves the value a track of
+ * nothing. 280px is the 8rem label, its 1rem gap, a 94px value and the panel's 42px of
+ * padding and border: a 320 phone's 286px sheet keeps two columns, and a 390 phone at
+ * 150% zoom (226px) stacks. A literal, not a `@theme` token: a build on a warm
+ * Turbopack cache dropped a new container token from the production CSS (measured
+ * 2026-11-06), and with it this rule.
  */
 const ROW_SHORT =
-  "grid grid-cols-1 items-baseline gap-x-4 gap-y-0.5 @min-fact-pair:grid-cols-[8rem_minmax(0,1fr)]";
+  "grid grid-cols-1 items-baseline gap-x-4 gap-y-0.5 @min-[280px]:grid-cols-[8rem_minmax(0,1fr)]";
 
 const LONG_FORM_KEYS = new Set<EventDetailKey>([
   "dress_code",

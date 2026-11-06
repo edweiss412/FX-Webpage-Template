@@ -407,7 +407,7 @@ describe("EventDetailsBody: rowLayout", () => {
     for (const key of short) {
       const { classList } = rowOf(container, key);
       expect(classList.contains("grid-cols-1"), key).toBe(true);
-      expect(classList.contains("@min-fact-pair:grid-cols-[8rem_minmax(0,1fr)]"), key).toBe(true);
+      expect(classList.contains("@min-[280px]:grid-cols-[8rem_minmax(0,1fr)]"), key).toBe(true);
       expect(classList.contains("@min-crew-split:grid-cols-[8rem_minmax(0,1fr)]"), key).toBe(false);
     }
   });
