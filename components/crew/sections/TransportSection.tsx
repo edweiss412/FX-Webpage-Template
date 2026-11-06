@@ -182,7 +182,7 @@ export function TransportSection({
                                       for every viewer except a suppressed one, whose rows would
                                       otherwise gain a blank 10.5px line above them. */}
                                   {dateLabel || isNext ? (
-                                    <p className="flex items-center gap-2 text-[10.5px] font-bold uppercase leading-none tracking-eyebrow text-text-faint">
+                                    <p className="flex items-center gap-2 text-[10.5px] font-bold uppercase leading-none tracking-eyebrow text-text-subtle">
                                       {dateLabel ? <span>{dateLabel}</span> : null}
                                       {isNext ? (
                                         <span
@@ -217,7 +217,7 @@ export function TransportSection({
                                 {conf ? (
                                   <p
                                     data-search-target={row.confLine?.id}
-                                    className="text-xs text-text-faint tabular-nums"
+                                    className="text-xs text-text-subtle tabular-nums"
                                   >
                                     {/* Same transcribe-back class as the itinerary
                                         locator below; only the code gets the slash. */}
@@ -244,7 +244,7 @@ export function TransportSection({
                       {flight.confirmation !== null ? (
                         <p
                           data-search-target={flight.confirmationLine?.id}
-                          className="px-1 text-xs text-text-faint tabular-nums"
+                          className="px-1 text-xs text-text-subtle tabular-nums"
                         >
                           {/* Only the CODE gets the slashed zero, not the label
                               beside it. DESIGN.md §2.4. */}

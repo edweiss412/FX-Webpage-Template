@@ -36,7 +36,7 @@ export function OpeningReelVideo({ showId }: OpeningReelVideoProps) {
         data-testid="opening-reel-placeholder"
         // Player chrome, not sheet data: crew search skips it (spec §2.3).
         data-search-skip=""
-        className="flex aspect-video w-full items-center justify-center rounded-sm bg-surface-sunken px-4 text-center text-sm text-text-faint"
+        className="flex aspect-video w-full items-center justify-center rounded-sm bg-surface-sunken px-4 text-center text-sm text-text-subtle"
       >
         Opening reel can&apos;t be played right now.
       </div>
