@@ -523,7 +523,7 @@ describe("source-link field-aware coverage walker (§8 / §12)", () => {
   // only this per-call-site assertion proves ScheduleSection actually PASSES
   // hitDirection="down" to the bare schedule-days header. A forgotten prop would
   // silently default schedule-days to "up", re-introducing the agenda bleed.
-  it("schedule-days and the opening reel's actions grow DOWN; every other actions cluster grows UP (production wiring)", () => {
+  it("schedule-days, the opening reel's and the dress code's actions grow DOWN; every other actions cluster grows UP (production wiring)", () => {
     const { container } = renderAllSections(fullFixture());
     const clusters = Array.from(
       container.querySelectorAll<HTMLElement>('[data-slot="card-header-actions"]'),
@@ -531,6 +531,7 @@ describe("source-link field-aware coverage walker (§8 / §12)", () => {
     expect(clusters.length, "no CardHeaderActions clusters rendered").toBeGreaterThan(8);
     let sawScheduleDown = false;
     let sawReelDown = false;
+    let sawDressDown = false;
     for (const cluster of clusters) {
       const card = cluster.closest("[data-card-id]");
       const id = card?.getAttribute("data-card-id");
@@ -543,6 +544,11 @@ describe("source-link field-aware coverage walker (§8 / §12)", () => {
         // video's controls (PR C Task 5, the browser check).
         expect(dir, "the reel's actions must grow DOWN (clear the player above)").toBe("down");
         sawReelDown = true;
+      } else if (id === "today-dress") {
+        // Beside a one-line keynote above it, an upward overlay took the keynote's
+        // controls and filed its reports here (PR C gate repair 3).
+        expect(dir, "the dress code's actions must grow DOWN (clear the keynote)").toBe("down");
+        sawDressDown = true;
       } else {
         expect(dir, `cluster in "${id}" must default to UP`).toBe("up");
       }
@@ -551,5 +557,8 @@ describe("source-link field-aware coverage walker (§8 / §12)", () => {
       true,
     );
     expect(sawReelDown, "the reel's cluster was never rendered — assertion vacuous").toBe(true);
+    expect(sawDressDown, "the dress code's cluster was never rendered — assertion vacuous").toBe(
+      true,
+    );
   });
 });
