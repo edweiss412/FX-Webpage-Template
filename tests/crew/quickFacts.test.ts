@@ -165,6 +165,33 @@ describe("selectQuickFacts", () => {
 // break collapsed ("…closed-toe shoes Show: Busine…"). A phased value now gives
 // tonight's phase line, labelled, or every phase on its own labelled line.
 describe("Dress code fact", () => {
+  // The tile clamps, so this is its only route to the full text (spec line 216,
+  // amended 2026-11-06). Every other fact keeps its own actions.
+  it("links to Event details, and no other fact links a section", () => {
+    const show = makeShowForViewer({
+      show: {
+        event_details: { dress_code: "Black pants, black polo, closed-toe shoes" },
+        venue: { name: "Grand Hall", loadingDock: "Dock B" },
+      },
+    });
+    // Every viewer who sees the tile: `event` has no entitlement gate, so none of
+    // them can be sent to a section they cannot open.
+    for (const viewer of [CREW, ADMIN, SUPPRESSED]) {
+      const facts = selectQuickFacts(["dock", "dressCode", "address"], show, viewer);
+      // PREMISE: the fixture reaches the fact under test and at least one peer.
+      expect(facts.map((f) => f.id)).toContain("dressCode");
+      expect(facts.length).toBeGreaterThan(1);
+      for (const fact of facts) {
+        const links = fact.actions.filter((a) => a.kind === "section");
+        expect(links, fact.id).toEqual(
+          fact.id === "dressCode"
+            ? [{ kind: "section", section: "event", label: "Full dress code" }]
+            : [],
+        );
+      }
+    }
+  });
+
   const SET = "2026-11-02";
   const SHOW_1 = "2026-11-03";
   const PHASED = "Set/Strike: Black pants, black tee\nShow: Business formal, dark suit";

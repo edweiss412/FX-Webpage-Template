@@ -23,6 +23,11 @@ import {
 import { COPY_FAILED_TOAST_MS, COPY_FEEDBACK_RESET_MS } from "@/lib/ui/copyFeedback";
 import { makeShowForViewer } from "@/tests/fixtures/showForViewer";
 
+vi.mock("next/navigation", () => ({
+  usePathname: () => "/show/slug/token",
+  useSearchParams: () => new URLSearchParams("gate=skip&q=drop"),
+}));
+
 const CREW: QuickFactViewer = {
   personal: true,
   datesSuppressed: false,
@@ -122,6 +127,24 @@ describe("quick facts: layout (spec §4.5, §8 invariant 3)", () => {
     const grid = screen.getByTestId("crew-quick-facts-grid");
     expect(grid).toHaveClass("grid", "grid-cols-2", "items-stretch");
     for (const tile of tiles()) expect(tile).toHaveClass("h-full");
+  });
+
+  it("quick facts: the Dress code tile links to Event details, outside search", () => {
+    render(<CrewQuickFacts facts={facts(["dressCode", "dock", "parking", "wifi"])} />);
+    const link = screen.getByRole("link", { name: "Full dress code" });
+    expect(link).toHaveAttribute("href", "/show/slug/token?s=event&gate=skip");
+    expect(link).toHaveClass("min-h-tap-min");
+    // The chip is a route, not sheet data: search must not index its text.
+    expect(link.closest("[data-search-skip]")).not.toBeNull();
+    // It sits in the tile it belongs to, and is the only section link in the block.
+    expect(tiles()[0]).toContainElement(link);
+    expect(screen.getAllByTestId("section-chip-link")).toHaveLength(1);
+  });
+
+  it("quick facts: a half tile cannot hold the dress code link, so it spans where the grid is narrow", () => {
+    const NARROW = "@max-quick-pair/facts:col-span-2";
+    render(<CrewQuickFacts facts={facts(["wifi", "dressCode", "dock", "parking"])} />);
+    expect(tiles().map((t) => t.classList.contains(NARROW))).toEqual([true, true, false, false]);
   });
 
   it("quick facts: one tile spans both columns", () => {

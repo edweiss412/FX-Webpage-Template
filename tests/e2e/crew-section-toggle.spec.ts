@@ -2293,6 +2293,40 @@ test.describe("pack list: the Pack list section, compact (PR C Task 6)", () => {
     });
   }
 
+  // The tile clamps the dress code, so this link is its route to the full text
+  // (spec line 216, amended 2026-11-06). The last words are the ones the clamp hides.
+  test("dress code: the home tile's link opens Event details with the full text in view, on the share and preview routes", async ({
+    page,
+  }) => {
+    const TAIL = "FXAV lanyard at all times on the floor";
+    const seeded = await seedShowWithCrew({
+      title: "Dress Tile Link Show",
+      dates: DATES,
+      schedulePhases: { [PINNED_DAY]: ["Show"] },
+      eventDetails: {
+        dress_code: `Black pants, black polo, black closed-toe shoes, no logos. ${TAIL}`,
+      },
+      crew: [PIA, STELLA],
+    });
+    try {
+      for (const path of [share(seeded), previewOf(seeded, PIA.name)]) {
+        await loadPath(page, path);
+        await page
+          .getByTestId("crew-quick-facts")
+          .getByRole("link", { name: "Full dress code" })
+          .click();
+        await expect(sheetDialog(page)).toHaveAttribute("data-section", "event");
+        await expect(sheetDialog(page).getByText(TAIL)).toBeInViewport();
+        const url = new URL(page.url());
+        expect(url.searchParams.get("s")).toBe("event");
+        // It stays on the route it started on: a preview never lands on the share link.
+        expect(url.pathname).toBe(path);
+      }
+    } finally {
+      await deleteSeededShow(seeded.driveFileId);
+    }
+  });
+
   test("pack list: on a Set day the section is listed with its peek, and ?s=packlist opens the sheet on initial load, in the server HTML and after hydration", async ({
     page,
   }) => {

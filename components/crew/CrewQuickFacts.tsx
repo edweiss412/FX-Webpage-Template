@@ -46,6 +46,7 @@ import {
   ShirtIcon,
   WifiIcon,
 } from "@/components/crew/icons/sectionIcons";
+import { SectionChipLink } from "@/components/crew/SectionChipLink";
 import { NewTabHint } from "@/components/shared/NewTabHint";
 import { usePrefersReducedMotion } from "@/lib/a11y/usePrefersReducedMotion";
 import type { QuickFact, QuickFactAction, QuickFactId, QuickFactLine } from "@/lib/crew/quickFacts";
@@ -96,12 +97,18 @@ function contactLinks(fact: QuickFact): ContactAction[] {
 /**
  * Tiles that span both columns while the grid is narrower than
  * `--container-quick-pair` (UI-gate re-run P3-3 / critique N3). A half-width
- * tile there cannot hold three 44px actions on one row, so a tile with all three
- * spans; so does any half-width tile that would then sit alone on its row, found
- * by walking the two-column flow. Every tile that spans anyway still does.
+ * tile there cannot hold three 44px actions on one row, or a section link's chip,
+ * so a tile with either spans; so does any half-width tile that would then sit
+ * alone on its row, found by walking the two-column flow. Every tile that spans
+ * anyway still does.
  */
 function narrowSpans(facts: readonly QuickFact[]): boolean[] {
-  const span = facts.map((fact, i) => spans(i, facts.length) || contactLinks(fact).length >= 3);
+  const span = facts.map(
+    (fact, i) =>
+      spans(i, facts.length) ||
+      contactLinks(fact).length >= 3 ||
+      fact.actions.some((a) => a.kind === "section"),
+  );
   let open = -1; // a half-width tile waiting for its row's second column
   span.forEach((full, i) => {
     if (!full) {
@@ -252,6 +259,9 @@ function Tile({ fact, onCopy }: { fact: QuickFact; onCopy: (value: string) => vo
   const directions = fact.actions.find(
     (a): a is Extract<QuickFactAction, { kind: "directions" }> => a.kind === "directions",
   );
+  const sectionLink = fact.actions.find(
+    (a): a is Extract<QuickFactAction, { kind: "section" }> => a.kind === "section",
+  );
   const name = fact.lines[0]?.text ?? fact.label;
 
   return (
@@ -314,6 +324,12 @@ function Tile({ fact, onCopy }: { fact: QuickFact; onCopy: (value: string) => vo
         >
           Directions <NewTabHint />
         </a>
+      ) : null}
+      {/* A route to the full text, not sheet data, so outside search. */}
+      {sectionLink ? (
+        <div data-search-skip="" className="mt-auto flex pt-1">
+          <SectionChipLink section={sectionLink.section}>{sectionLink.label}</SectionChipLink>
+        </div>
       ) : null}
     </div>
   );

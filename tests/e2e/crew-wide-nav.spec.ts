@@ -1928,6 +1928,41 @@ test.describe("pack list: the Pack list section, wide (PR C Task 6)", () => {
       .toBe("landed");
   }
 
+  // Spec line 216, amended 2026-11-06: at wide widths the link lands on the stacked section.
+  test("dress code: the home tile's link lands on Event details with the full text in view", async ({
+    page,
+  }) => {
+    const TAIL = "FXAV lanyard at all times on the floor";
+    const seeded = await seedShowWithCrew({
+      title: "Dress Tile Wide Show",
+      dates: {
+        travelIn: "2026-04-19",
+        set: "2026-04-20",
+        showDays: [PINNED_DAY, "2026-04-22"],
+        travelOut: "2026-04-23",
+      },
+      schedulePhases: { [PINNED_DAY]: ["Show"] },
+      eventDetails: {
+        dress_code: `Black pants, black polo, black closed-toe shoes, no logos. ${TAIL}`,
+      },
+      crew: [{ name: "Wide Dress Crew", role: "A1" }],
+    });
+    try {
+      await page.setViewportSize(WIDE);
+      await loadIn(page, `/show/${seeded.slug}/${seeded.shareToken}`, "wide");
+      await page
+        .getByTestId("crew-quick-facts")
+        .getByRole("link", { name: "Full dress code" })
+        .click();
+      await expect.poll(() => new URL(page.url()).searchParams.get("s")).toBe("event");
+      await expect(
+        page.locator('[data-testid="crew-wide-section"][data-section="event"]').getByText(TAIL),
+      ).toBeInViewport();
+    } finally {
+      await deleteSeededShow(seeded.driveFileId);
+    }
+  });
+
   test("pack list: on a Set day ?s=packlist lands on the stacked section, in its slot after Rooms", async ({
     page,
   }) => {

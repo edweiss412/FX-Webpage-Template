@@ -11,6 +11,7 @@
  * source of the order with a per-show setting; the ids stay.
  */
 import type { ContactRow, HotelReservationRow } from "@/lib/parser/types";
+import type { SectionId } from "@/lib/crew/resolveActiveSection";
 import type { ShowForViewer, Viewer } from "@/lib/data/getShowForViewer";
 import { resolveViewerContext } from "@/lib/data/viewerContext";
 import { suppressesDates } from "@/lib/crew/dateSuppression";
@@ -56,7 +57,8 @@ export type QuickFactAction =
   | { kind: "call"; href: string }
   | { kind: "text"; href: string }
   | { kind: "email"; href: string }
-  | { kind: "directions"; href: string };
+  | { kind: "directions"; href: string }
+  | { kind: "section"; section: SectionId; label: string };
 
 export type QuickFact = {
   id: QuickFactId;
@@ -200,7 +202,15 @@ function resolveFact(
       const dress = present(data.show.event_details.dress_code);
       return dress === null
         ? null
-        : { id, label: "Dress code", lines: dressCodeLines(dress, data, viewer), actions: [] };
+        : {
+            id,
+            label: "Dress code",
+            lines: dressCodeLines(dress, data, viewer),
+            // The tile clamps, and Event details has the full text. `event` has no
+            // entitlement gate, and its field hides on this same sentinel rule, so
+            // anyone who sees this tile can open the section and find the value.
+            actions: [{ kind: "section", section: "event", label: "Full dress code" }],
+          };
     }
     case "address": {
       const name = present(data.show.venue?.name);

@@ -1049,7 +1049,8 @@ export function scanCandidates(): Candidate[] {
       // with its last caller, taking its heading-icon and subheading ternaries. Neither
       // was a fault branch; 79 kept. Re-derived by running the guard.
       //
-      // Probed: 787 such ternaries under the derived roots, 79 on a
+      // 787 -> 788 on feat/crew-dress-tile-link: the Dress code tile's link adds one.
+      // Probed: 788 such ternaries under the derived roots, 79 on a
       // fault-vocabulary guard and unclassifiable. 69 of those 79 sit in
       // `"use client"` files, where the guard is interaction state -- `errorCode`,
       // `state.kind === "error"`, `switchStatus === "error"` -- and not a server-render
