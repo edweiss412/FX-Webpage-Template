@@ -56,12 +56,15 @@ type SourceLinkProps = {
    * used only by the bare `schedule-days` header to clear the agenda above.
    */
   hitDirection?: "up" | "down";
+  /** What the link acts on, where a section holds several. Absent: "this section". */
+  label?: string;
 };
 
 export function SourceLink({
   driveFileId,
   anchor,
   hitDirection = "up",
+  label,
 }: SourceLinkProps): ReactNode {
   const href = buildSheetDeepLink(driveFileId, anchor);
   // No source sheet → no affordance. Mirrors the helper's null contract.
@@ -99,7 +102,7 @@ export function SourceLink({
       href={href}
       target="_blank"
       rel="noopener noreferrer"
-      aria-label="In sheet, view this section in Google Sheets (opens in a new tab)"
+      aria-label={`In sheet, view ${label ?? "this section"} in Google Sheets (opens in a new tab)`}
       className={`inline-flex h-fit shrink-0 items-center gap-1 rounded-sm text-xs font-medium text-text transition-colors hover:text-text-strong focus-visible:text-text-strong focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring [&_svg]:size-3.5 [&_svg]:opacity-70 ${overlay}`}
     >
       <SheetIcon />

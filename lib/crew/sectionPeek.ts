@@ -2,11 +2,14 @@
  * lib/crew/sectionPeek.ts: the one-line peek under each "All sections" row.
  *
  * A short summary of what a section holds for this viewer (crew page redesign
- * spec §4.6): Venue, the venue name; Crew, "6 people"; Gear, "14 cases". It
+ * spec §4.6): Venue, the venue name; Crew, "6 people"; Pack list, "14 cases". It
  * reads only what the section itself renders for the viewer, and each gate is
  * the section's own helper called here, never a copy of its rule:
  *
- *   - Gear's pack list through `isPackListVisibleToday` (GearSection).
+ *   - The pack list through `isPackListVisibleToday` (the section's entitlement).
+ *   - Event details' fields through the section's own hide rules
+ *     (`crewEventFieldCount`), so the count is the rows it draws, and it names the
+ *     dress code and the keynote when the section shows them.
  *   - Ground-transport legs through `transportTileVisible` (TransportSection),
  *     counted with the Transport body's own leg rule under the crew's options
  *     (`transportRouteLegs`, `crewTransportLegOptions`), so the ride count is
@@ -34,6 +37,7 @@ import type { ViewerContext } from "@/lib/data/viewerContext";
 import type { CrewSectionId } from "@/lib/crew/crewSections";
 import { visibleShowDays } from "@/lib/crew/agendaDisplay";
 import { suppressesDates } from "@/lib/crew/dateSuppression";
+import { crewEventFieldCount, crewEventPeekLabels } from "@/lib/crew/eventDetailsSpecs";
 import { formatIsoDate } from "@/lib/format/date";
 import { venueDisplay } from "@/lib/venue/venueLocation";
 import { shouldHideGenericOptional } from "@/lib/visibility/emptyState";
@@ -154,8 +158,29 @@ function contactsPeek(data: ShowForViewer): string | null {
   return count === 0 ? null : plural(count, "contact", "contacts");
 }
 
+/**
+ * The section's lead facts by name, then how many more it holds. The dress code lives
+ * here and nowhere else on the page, so "18 details" gave a crew member no reason to
+ * open it (gate repair 3). With neither fact on file, the count alone.
+ */
+function eventPeek(data: ShowForViewer): string | null {
+  const count = crewEventFieldCount(data.show.event_details, data.openingReelHasVideo);
+  if (count === 0) return null;
+  const [first, ...rest] = crewEventPeekLabels(data.show.event_details);
+  if (first === undefined) return plural(count, "detail", "details");
+  const named = [first, ...rest.map((label) => label.toLowerCase())].join(", ");
+  const more = count - 1 - rest.length;
+  return more === 0 ? named : `${named}, ${more} more`;
+}
+
+/** The rooms the section renders: every one, a bare room included (PR C plan decision 6). */
+function roomsPeek(data: ShowForViewer): string | null {
+  const count = Array.isArray(data.rooms) ? data.rooms.length : 0; // absent on a partial projection
+  return count === 0 ? null : plural(count, "room", "rooms");
+}
+
 /** The pack list's case count, only on a day its gate shows it to this viewer. */
-function gearPeek(data: ShowForViewer, viewer: SectionPeekViewer): string | null {
+function packListPeek(data: ShowForViewer, viewer: SectionPeekViewer): string | null {
   const cases = data.pullSheet;
   if (!Array.isArray(cases) || cases.length === 0) return null; // absent on a partial projection
   const visible = isPackListVisibleToday({
@@ -186,6 +211,8 @@ export function sectionPeek(
       return agendaPeek(data, viewer);
     case "venue":
       return venuePeek(data);
+    case "event":
+      return eventPeek(data);
     case "hotels":
       return hotelsPeek(data, viewer);
     case "transport":
@@ -194,8 +221,10 @@ export function sectionPeek(
       return crewPeek(data);
     case "contacts":
       return contactsPeek(data);
-    case "gear":
-      return gearPeek(data, viewer);
+    case "rooms":
+      return roomsPeek(data);
+    case "packlist":
+      return packListPeek(data, viewer);
     case "billing":
       return billingPeek(data, viewer);
   }

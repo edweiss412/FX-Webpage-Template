@@ -83,6 +83,9 @@ const SSR_SURFACES = [
   "components/crew/primitives/DayCard.tsx",
   "components/crew/sections/ScheduleSection.tsx",
   "components/crew/sections/HomeSection.tsx",
+  "components/crew/sections/EventSection.tsx",
+  "components/crew/sections/PackListSection.tsx",
+  "components/crew/sections/RoomsSection.tsx",
 ];
 
 describe("§5.7 SSR surfaces stay instant (no client motion)", () => {
@@ -173,6 +176,22 @@ const CONTACTS = "components/crew/sections/ContactsSection.tsx";
 const HOTEL_CARD_BODY = "components/show-panels/HotelCardBody.tsx";
 const TRANSPORT_BODY = "components/show-panels/TransportBody.tsx";
 const MINI_AVATAR = "components/show-panels/MiniAvatar.tsx";
+// PR C plan Task 2: the shared Event details body (admin side first; the crew page
+// renders it from Task 5).
+const EVENT_DETAILS_BODY = "components/show-panels/EventDetailsBody.tsx";
+// PR C plan Task 5: the crew Event details section.
+const EVENT_SECTION = "components/crew/sections/EventSection.tsx";
+// PR C plan Task 3: the shared Rooms body (admin side first; the crew page renders it
+// from Task 7).
+const ROOMS_BODY = "components/show-panels/RoomsBody.tsx";
+// PR C plan Task 4: the shared Pack list body and its one client leaf (admin side
+// first; the crew page renders the body from Task 6 and never mounts the leaf).
+const PACK_LIST_BODY = "components/show-panels/PackListBody.tsx";
+const PACK_CASE_ITEMS = "components/show-panels/PackCaseItems.tsx";
+// PR C plan Task 6: the crew Pack list section.
+const PACK_LIST_SECTION = "components/crew/sections/PackListSection.tsx";
+// PR C plan Task 7: the crew Rooms section.
+const ROOMS_SECTION = "components/crew/sections/RoomsSection.tsx";
 // PR B plan Task 9: the crew Hotels and Transport sections that replace Travel.
 const HOTELS = "components/crew/sections/HotelsSection.tsx";
 const TRANSPORT = "components/crew/sections/TransportSection.tsx";
@@ -415,6 +434,10 @@ const ROWS: Record<number, Row> = {
         WIDE_E2E,
         "wide nav: the accent indicator is one element that moves to the active item at --duration-fast",
       ],
+      [
+        WIDE_E2E,
+        "registry groups: on a short window a jump keeps the active item inside the nav's box, down to Billing and back up",
+      ],
     ],
     unit: [
       [
@@ -427,9 +450,15 @@ const ROWS: Record<number, Row> = {
       ],
     ],
     source: () => {
-      expect(read(WIDE_NAV)).toContain(
+      const s = read(WIDE_NAV);
+      expect(s).toContain(
         "transition-transform duration-fast ease-out-quart motion-reduce:transition-none",
       );
+      // The nav's own scroll to keep the item in view is instant (PR C transition
+      // inventory): plain `scrollTop` writes, never a smooth scroll beside the bar's slide.
+      expect(s).toContain("nav.scrollTop -=");
+      expect(s).toContain("nav.scrollTop +=");
+      expect(s).not.toMatch(/scrollIntoView|scrollTo\(|scroll-smooth|behavior:/);
       expectNoFramer(WIDE_NAV);
     },
   },
@@ -559,6 +588,11 @@ const ROWS: Record<number, Row> = {
       [
         COMPACT_E2E,
         "compound: a refresh that takes Billing from a previewed lead closes the Billing sheet to home without animation and leaves no Billing value on the page",
+      ],
+      // The same row, reached by a gate that reads the day (PR C Task 6).
+      [
+        COMPACT_E2E,
+        "pack list: a refresh that moves the show's phase off a pack-list phase closes the open sheet to home without animation and leaves no case label on the page",
       ],
       // PR B Task 10: the content-driven half of the row, which an Agenda with no
       // agenda file made reachable (entitled, unlisted, still built), and the
@@ -709,6 +743,8 @@ const T = {
     "L354 the pass body per live state: the existing 66-pair transitionTreatment table, unchanged",
   sheetBody:
     "L353 the open section's body crossfades inside the sheet (CrewSectionTransition), reduced motion one commit; empty while closed (L348/L349)",
+  packToggle:
+    "instant: the items toggle grows or shrinks the case's list in place, no animation (admin only; the crew page never mounts it)",
 } as const;
 
 type Conditional = {
@@ -751,7 +787,12 @@ const CONDITIONAL_RENDERS: Record<string, { presences: number; renders: Conditio
   [TRANSITION]: { presences: 1, renders: [] },
   [WIDE_NAV]: {
     presences: 0,
-    renders: [{ match: "{indicator !== null ? (", treatment: T.indicator }],
+    renders: [
+      { match: "{indicator !== null ? (", treatment: T.indicator },
+      // A group's label and wrapper: a run with no group draws its items bare, and only a
+      // server render changes who is listed (PR C transition inventory).
+      { match: "run.group === undefined ? (", treatment: T.serverPresence },
+    ],
   },
   [ALL_SECTIONS]: {
     presences: 0,
@@ -829,7 +870,6 @@ const CONDITIONAL_RENDERS: Record<string, { presences: number; renders: Conditio
       { match: "model.noteRows.length > 0 ? (", treatment: T.serverPresence },
       { match: "{truncated ? (", treatment: T.serverPresence },
       { match: "{model.notesOverflow > 0 ? (", treatment: T.serverPresence },
-      { match: "const dressCard = model.dress ? (", treatment: T.serverPresence },
       {
         match: '{roomsFetchFailed ? <SectionTileError domain="rooms" />',
         treatment: T.serverPresence,
@@ -964,6 +1004,69 @@ const CONDITIONAL_RENDERS: Record<string, { presences: number; renders: Conditio
       { match: "{names.length > 0 ? (", treatment: T.serverPresence },
     ],
   },
+  [EVENT_DETAILS_BODY]: {
+    presences: 0,
+    renders: [
+      // The chip's state: Yes, No, or the parsed token. Two conditionals, one per line.
+      { match: '{state === "yes" ? (', treatment: T.serverPresence },
+      { match: ') : state === "no" ? (', treatment: T.serverPresence },
+      // The reel's row alone, or its block with the attention cards and the player.
+      {
+        match: "if (reelCards.length === 0 && !reelPlayer) return row;",
+        treatment: T.serverPresence,
+      },
+      { match: "{reelCards.length > 0 ? (", treatment: T.serverPresence },
+      // A row in its field card, or bare.
+      { match: "{card ? FieldCard({ card, children: row }) : row}", treatment: T.serverPresence },
+      { match: "{rows.length > 0 ? <div", treatment: T.serverPresence },
+      { match: "{chipFields.length > 0 ? (", treatment: T.serverPresence },
+      // Nothing to show: no block.
+      { match: "if (shown.length === 0) return null;", treatment: T.serverPresence },
+    ],
+  },
+  [ROOMS_BODY]: {
+    presences: 0,
+    renders: [
+      // The "Your scope" label on a room's first emphasized row, and an unparsed row's
+      // placeholder.
+      { match: "{heads ? (", treatment: T.serverPresence },
+      { match: "{value ?? ROOM_SCOPE_UNSPECIFIED}", treatment: T.serverPresence },
+      // Each header field present or omitted.
+      { match: "{floor !== null ? (", treatment: T.serverPresence },
+      { match: "{times.length > 0 ? (", treatment: T.serverPresence },
+      { match: "{setup !== null ? (", treatment: T.serverPresence },
+      { match: "{dimensions !== null ? (", treatment: T.serverPresence },
+      // A room's scope list, the room list and the overflow note.
+      { match: "{hasScope ? (", treatment: T.serverPresence },
+      { match: "{shown.length > 0 ? (", treatment: T.serverPresence },
+      { match: "{note ? (", treatment: T.serverPresence },
+    ],
+  },
+  [PACK_LIST_BODY]: {
+    presences: 0,
+    renders: [
+      // The pill's noun, and the raw snippet's row.
+      { match: '{count === 1 ? "item" : "items"}', treatment: T.serverPresence },
+      { match: "{showRawSnippet && hasContent(item.rawSnippet) ? (", treatment: T.serverPresence },
+      // A case with no items is a plain line, the disclosure's early return.
+      { match: "return (\n<li", treatment: T.serverPresence },
+      // Every item, or the leaf under an items cap.
+      {
+        match: "{itemsCap === null ? rows : <PackCaseItems",
+        treatment: T.serverPresence,
+      },
+      // What follows a list the cap cut short.
+      { match: "{cases.length > cap ? overflow : null}", treatment: T.serverPresence },
+    ],
+  },
+  [PACK_CASE_ITEMS]: {
+    presences: 0,
+    renders: [
+      { match: "{showAll ? rows : rows.slice(0, cap)}", treatment: T.packToggle },
+      { match: "{overflow > 0 ? (", treatment: T.packToggle },
+      { match: '{showAll ? "Show fewer items"', treatment: T.packToggle },
+    ],
+  },
   [TRANSPORT_BODY]: {
     presences: 0,
     renders: [
@@ -1027,6 +1130,43 @@ const CONDITIONAL_RENDERS: Record<string, { presences: number; renders: Conditio
       { match: "{flight.confirmation !== null ? (", treatment: T.serverPresence },
       { match: "{allHidden && !transportFetchFailed ? (", treatment: T.serverPresence },
       { match: "{panel !== null && hasTransport ? (", treatment: T.serverPresence },
+    ],
+  },
+  [EVENT_SECTION]: {
+    presences: 0,
+    renders: [
+      // The section's empty state, or the panel.
+      { match: 'return (\n<div data-testid="section-empty">', treatment: T.serverPresence },
+      // The proxied player, only over a playable video.
+      { match: "reelPlayer: panel.showPlayer ? <OpeningReelVideo", treatment: T.serverPresence },
+    ],
+  },
+  [ROOMS_SECTION]: {
+    presences: 0,
+    renders: [
+      // The admin's fetch-failure block, a server render.
+      {
+        match: '{roomsFetchFailed ? <SectionTileError domain="rooms" /> : null}',
+        treatment: T.serverPresence,
+      },
+      // The section's empty state.
+      {
+        match: "{!hasRooms && !hasDiagrams && !roomsFetchFailed ? (",
+        treatment: T.serverPresence,
+      },
+      // The panel, over at least one room.
+      { match: "{hasRooms ? (", treatment: T.serverPresence },
+      // The Diagrams block.
+      { match: "{hasDiagrams ? (", treatment: T.serverPresence },
+    ],
+  },
+  [PACK_LIST_SECTION]: {
+    presences: 0,
+    renders: [
+      // The section's empty state, or the panel.
+      { match: 'return (\n<div data-testid="section-empty">', treatment: T.serverPresence },
+      // The overflow stub's plural.
+      { match: '{overflowCount === 1 ? "more case" : "more cases"}', treatment: T.serverPresence },
     ],
   },
   [CONTACTS]: {

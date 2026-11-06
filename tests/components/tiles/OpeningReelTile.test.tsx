@@ -2,12 +2,12 @@
 /**
  * tests/components/tiles/OpeningReelTile.test.tsx
  *
- * Crew-redesign retarget (wp-20 step b, test 26): the AC-7.25 opening-reel
- * URL-strip + proxied-player contract, ported off the deleted OpeningReelTile
- * onto the GearSection "Opening reel" block (components/crew/sections/
- * GearSection.tsx) that now owns it.
+ * The AC-7.25 opening-reel URL-strip + proxied-player contract, on the Event
+ * details section's "Opening reel" field card (components/crew/sections/
+ * EventSection.tsx, crew page redesign PR C Task 5), its owner since it left
+ * Gear.
  *
- * The reel block reads `event_details.opening_reel` and routes it through:
+ * The reel card reads `event_details.opening_reel` and routes it through:
  *   - `stripOpeningReelText`     — removes every Drive/Docs URL substring so
  *                                  the crew DOM NEVER carries `https://` /
  *                                  `drive.google.com` / `docs.google.com`.
@@ -20,22 +20,22 @@
  *   - Mixed-value cell + video → URL-stripped text line ("YES") AND the
  *     proxied <video>. No raw URL in the DOM.
  *   - Pure-URL cell + video → only the <video>; stripped residual is empty so
- *     NO text line (the [data-testid="gear-opening-reel"] block still renders
- *     for the player, but its KeyValueRows "Status" row is absent).
+ *     NO text line (the [data-card-id="gear-opening-reel"] card still renders
+ *     for the player, its label over it, but the value line is absent).
  *   - Text-only cell ("MAYBE") + no video → text line only; no <video>.
  *   - Drift case (URL substring, no video) → URL-stripped text only; no
  *     <video>; no raw URL.
- *   - Sentinel cell ("TBD") + no video → reel block omitted entirely.
+ *   - Sentinel cell ("TBD") + no video → reel card omitted entirely.
  *
- * GearSection.test.tsx already pins the mixed-value text-only-and-player case;
- * this file keeps the FULL AC-7.25 matrix live against the new owner so the
- * URL-strip contract survives the tile deletion. Renders via testing-library
- * jsdom (matching the section test); the showId PROP drives the player src.
+ * EventSection.test.tsx pins the mixed-value text-only-and-player case; this
+ * file keeps the FULL AC-7.25 matrix live against the owner so the URL-strip
+ * contract survives any further move. Renders via testing-library jsdom
+ * (matching the section test); the showId PROP drives the player src.
  */
 import { expect, test } from "vitest";
 import { render } from "@testing-library/react";
 
-import { GearSection } from "@/components/crew/sections/GearSection";
+import { EventSection } from "@/components/crew/sections/EventSection";
 import { makeShowForViewer } from "@/tests/fixtures/showForViewer";
 import { ledgerProp } from "../crew/sections/_ledgerProp";
 
@@ -45,7 +45,7 @@ const VIEWER = { kind: "admin" } as const;
 
 function renderReel(openingReel: string | undefined, hasVideo: boolean): HTMLElement {
   return render(
-    <GearSection
+    <EventSection
       {...ledgerProp()}
       data={makeShowForViewer({
         show: {
@@ -73,11 +73,11 @@ test("AC-7.25 mixed-value cell + video → stripped text + inline <video> (no ra
   // Proxied player on the bare show id (PROP), no query/`r=` suffix.
   const video = c.querySelector(`video[src="/api/asset/reel/${SHOW_ID}"]`);
   expect(video).toBeTruthy();
-  // URL-stripped text residual ("YES") survives as the Status row.
+  // URL-stripped text residual ("YES") survives as the value line.
   expect(c.textContent ?? "").toContain("YES");
   expectNoRawUrl(html);
-  // The reel block rendered.
-  expect(c.querySelector('[data-testid="gear-opening-reel"]')).toBeTruthy();
+  // The reel card rendered.
+  expect(c.querySelector('[data-card-id="gear-opening-reel"]')).toBeTruthy();
 });
 
 test("AC-7.25 pure-URL cell + video → only <video>; no text line", () => {
@@ -85,19 +85,21 @@ test("AC-7.25 pure-URL cell + video → only <video>; no text line", () => {
   const html = c.innerHTML;
   expect(c.querySelector(`video[src="/api/asset/reel/${SHOW_ID}"]`)).toBeTruthy();
   expectNoRawUrl(html);
-  // The reel block still renders (for the player), but the stripped residual is
-  // empty so the KeyValueRows "Status" text row is absent.
-  expect(c.querySelector('[data-testid="gear-opening-reel"]')).toBeTruthy();
-  expect(c.querySelector('[data-testid="key-value-rows"]')).toBeNull();
+  // The reel card still renders (for the player), but the stripped residual is
+  // empty so no value line renders, and a value line is what carries the target.
+  const card = c.querySelector('[data-card-id="gear-opening-reel"]');
+  expect(card).toBeTruthy();
+  expect(card!.querySelector("[data-search-target]")).toBeNull();
 });
 
 test("AC-7.25 text-only cell ('MAYBE') + no video → text line only; no <video>", () => {
   const c = renderReel("MAYBE", false);
   expect(c.querySelector("video")).toBeNull();
   expect(c.textContent ?? "").toContain("MAYBE");
-  expect(c.querySelector('[data-testid="gear-opening-reel"]')).toBeTruthy();
-  // The Status text row renders for the non-empty residual.
-  expect(c.querySelector('[data-testid="key-value-rows"]')).toBeTruthy();
+  // The value line renders for the non-empty residual.
+  const line = c.querySelector('[data-card-id="gear-opening-reel"] [data-search-target]');
+  expect(line).toBeTruthy();
+  expect(line!.textContent).toContain("MAYBE");
 });
 
 test("AC-7.25 drift case (URL substring, no video) → URL-stripped text only", () => {
@@ -107,16 +109,16 @@ test("AC-7.25 drift case (URL substring, no video) → URL-stripped text only", 
   expectNoRawUrl(c.innerHTML);
 });
 
-test("sentinel cell ('TBD') + no video → reel block omitted entirely", () => {
+test("sentinel cell ('TBD') + no video → reel card omitted entirely", () => {
   const c = renderReel("TBD", false);
-  // shouldHideOpeningReel('TBD') → text hidden; no video → whole block gone.
-  expect(c.querySelector('[data-testid="gear-opening-reel"]')).toBeNull();
+  // shouldHideOpeningReel('TBD') → text hidden; no video → whole card gone.
+  expect(c.querySelector('[data-card-id="gear-opening-reel"]')).toBeNull();
   expect(c.textContent ?? "").not.toContain("TBD");
 });
 
-test("absent opening_reel + no video → reel block omitted", () => {
+test("absent opening_reel + no video → reel card omitted", () => {
   const c = renderReel(undefined, false);
-  expect(c.querySelector('[data-testid="gear-opening-reel"]')).toBeNull();
+  expect(c.querySelector('[data-card-id="gear-opening-reel"]')).toBeNull();
 });
 
 test("video src interpolates the bare show id with no `r=` or query suffix", () => {

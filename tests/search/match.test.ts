@@ -329,10 +329,16 @@ describe("order (spec §5.5)", () => {
   });
 
   it("sorts sections by their best row, ties in section order", () => {
-    // venue and gear tie at 2.0 and keep section order; schedule matches only
-    // through context (1.2) and sorts after both despite coming first.
-    const result = searchIndex(fixture, "grand ballroom");
-    expect(result.sections.map((s) => s.section)).toEqual(["venue", "gear", "schedule"]);
+    // rooms and packlist tie at 2.0 and keep section order, whatever order they
+    // were built in; schedule matches only through context (1.2) and sorts after
+    // both despite coming first in the section order.
+    const { prepared } = adHoc(
+      { section: "packlist", value: "Grand Ballroom" },
+      { section: "rooms", value: "Grand Ballroom" },
+      { section: "schedule", value: "Doors", context: ["Grand Ballroom"] },
+    );
+    const result = searchIndex(prepared, "grand ballroom");
+    expect(result.sections.map((s) => s.section)).toEqual(["rooms", "packlist", "schedule"]);
     const best = result.sections.map((s) => Number(s.rows[0]!.score.toFixed(2)));
     expect(best).toEqual([2, 2, 1.2]);
   });
@@ -340,12 +346,12 @@ describe("order (spec §5.5)", () => {
   it('uses ["today", ...CREW_SECTION_IDS] for ties, billing last', () => {
     const { prepared } = adHoc(
       { section: "billing", value: "Dock fee" },
-      { section: "gear", value: "Dock cart" },
+      { section: "rooms", value: "Dock cart" },
       { section: "today", value: "Dock open" },
       { section: "transport", value: "Dock pickup" },
     );
     const sections = searchIndex(prepared, "dock").sections.map((s) => s.section);
-    expect(sections).toEqual(["today", "transport", "gear", "billing"]);
+    expect(sections).toEqual(["today", "transport", "rooms", "billing"]);
   });
 
   it("counts every row it returns in total", () => {

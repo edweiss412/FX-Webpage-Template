@@ -267,21 +267,28 @@ describe("CREW_SECTION_IDS and the always table are read where they are used", (
   it("consumption: the membership list follows a reversed CREW_SECTION_IDS", async () => {
     const reversed = await withReversedIds();
     const { crewSectionsFor } = await import("@/lib/crew/crewSections");
-    // An agenda file, so the admin is listed every section (PR B Task 10: Agenda's content rule).
+    // An agenda file and a pack-list phase today, so the admin is listed every section
+    // (PR B Task 10: Agenda's content rule; PR C Task 6: Pack list's gate).
+    const today = new Date("2026-05-14T15:00:00Z");
     const data: ShowForViewer = makeShowForViewer({
-      show: { agenda_links: [{ label: "AGENDA", fileId: "agenda-file" }] },
+      show: {
+        agenda_links: [{ label: "AGENDA", fileId: "agenda-file" }],
+        schedule_phases: { "2026-05-14": ["Set"] },
+      },
     });
     const ids = crewSectionsFor(data, {
       viewerFlags: [],
       isAdmin: true,
       dateRestriction: { kind: "none" },
+      stageRestriction: { kind: "none" },
+      today,
     }).map((s) => s.id);
     expect(ids).toEqual(reversed);
   });
 
   it("consumption: the loading skeleton's nav and list rows follow the always table", async () => {
     vi.resetModules();
-    const probe: CrewSectionId[] = ["gear", "crew"];
+    const probe: CrewSectionId[] = ["rooms", "crew"];
     vi.doMock("@/lib/crew/crewSections", async () => {
       const actual =
         await vi.importActual<typeof import("@/lib/crew/crewSections")>("@/lib/crew/crewSections");
@@ -304,5 +311,7 @@ describe("CREW_SECTION_IDS and the always table are read where they are used", (
       ...probe.map((id) => CREW_SECTION_LABELS[id]),
     ]);
     expect(texts("crew-loading-list-row")).toEqual(probe.map((id) => CREW_SECTION_LABELS[id]));
+    // The nav column's runs follow the table too: one label per run, in table order.
+    expect(texts("crew-loading-nav-group")).toEqual(["Gear", "People"]);
   });
 });

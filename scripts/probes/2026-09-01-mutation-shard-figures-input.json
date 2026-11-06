@@ -422,8 +422,8 @@
     "totalNote": "Declared independently of the per-leg list so that dropping a leg is a mismatch rather than a smaller total. 22158 is the figure BACKLOG-archive.md records under BL-MUTATION-SOURCE-SHARD-BUDGET-BREACH; the list must reproduce it."
   },
   "thisRunDateISO": "2026-08-31",
-  "splitSourceBlobSha": "c4ef9be08c2cd18ba0b37e79d8d6af3b9672405a",
-  "splitSourceNote": "The git blob sha of tests/styles/controlOutlineResidue.ts as run 33404224554 measured it. splitSurfaceOperatorMs prices OPERATORS against THIS text; applied to a different text the per-operator milliseconds are a measurement of something else, so the probe refuses rather than repricing. Recover it with `git hash-object tests/styles/controlOutlineResidue.ts`.",
+  "splitSourceBlobSha": "9c9ca9f8577ae415b6843f357b9b6b907c745917",
+  "splitSourceNote": "The git blob sha of tests/styles/controlOutlineResidue.ts these figures stand against. Run 33404224554 measured blob c4ef9be08c2cd18ba0b37e79d8d6af3b9672405a. The pin moved on feat/crew-page-redesign-pr-c Task 4 WITHOUT a re-measure: the pack-case count pill moved to components/show-panels/PackListBody.tsx, so its census row changed one `file` string. No line moved, and enumerateSites over all operators returns the same 255 site ids on both texts, so the priced mutants are the same mutants. splitSurfaceOperatorMs prices OPERATORS against THIS text; applied to a different text the per-operator milliseconds are a measurement of something else, so the probe refuses rather than repricing. A later edit that moves a site needs a real re-measure, never another pin. Recover it with `git hash-object tests/styles/controlOutlineResidue.ts`.",
   "recalibration": {
     "runId": "33501574343",
     "runHeadSha": "d540739b586e368dc5af57abf9c8fa3e6b3e7aac",

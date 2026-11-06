@@ -611,7 +611,19 @@ export const DISPOSITION_RULES: DispositionRule[] = [
     // route-fit cases in crew-section-toggle.spec.ts load the share route through a
     // `path` variable at each width. Same disposition: a crew page. Re-derived from
     // the failure's own count (34 candidates).
-    expectedCount: 34,
+    // 35 since PR C's Task 5: the event details block in crew-page.spec.ts loads crew
+    // routes through open's `path`. Same disposition: a crew page. Re-derived from the
+    // failure's own count (35 candidates).
+    // 37 since PR C's Task 6: the pack list blocks load crew routes through a `path`
+    // variable, the compact block's `loadPath` and the wide block's `loadIn`. Same
+    // disposition: a crew page. Re-derived from the failure's own count (37 candidates).
+    // 38 since PR C's Task 7: the rooms block in crew-page.spec.ts loads crew routes
+    // through a `path` variable (`open`). Same disposition: a crew page. Re-derived from
+    // the failure's own count (38 candidates).
+    // 39 since PR C's Task 9: the registry groups block in crew-wide-nav.spec.ts loads crew
+    // routes through a `path` variable (`loadWide`). Same disposition: a crew page.
+    // Re-derived from the failure's own count (39 candidates).
+    expectedCount: 39,
     match: (c) =>
       !c.file.startsWith("tests/e2e/published-review-modal.") &&
       !/\bcrewPage\.goto\(/.test(c.matchLineText) &&
@@ -725,7 +737,19 @@ export const DISPOSITION_RULES: DispositionRule[] = [
     // 29 since Task 10: the agenda compact block builds the preview-as path for its
     // seeded viewers (`previewOf(seeded, name)` in crew-section-toggle.spec.ts).
     // Re-derived from the failure's own count (29 candidates).
-    expectedCount: 29,
+    // 30 since PR C's Task 5: the event details reel case in crew-page.spec.ts builds
+    // a crew member's preview path. Re-derived from the failure's own count (30
+    // candidates).
+    // 31 since PR C's Task 6: the pack list compact block builds the preview-as path for
+    // its seeded viewers (`previewOf(seeded, name)`). Re-derived from the failure's own
+    // count (31 candidates).
+    // 32 since PR C's Task 7: the rooms block in crew-page.spec.ts builds the preview-as
+    // path for its seeded viewers (`previewPath(name)`). Re-derived from the failure's
+    // own count (32 candidates).
+    // 33 since PR C's Task 9: the registry groups block in crew-wide-nav.spec.ts reaches the
+    // preview-as path through the same `loadWide`. Re-derived from the failure's own count
+    // (33 candidates).
+    expectedCount: 33,
     match: (c) =>
       !isTestTitle(c.matchLineText) &&
       !/^\["\/admin\/show\//.test(c.matchLineText) &&
@@ -907,7 +931,12 @@ export const DISPOSITION_RULES: DispositionRule[] = [
     // s=agenda with no content, and a date-suppressed viewer's popstate to it) step
     // Back and Forward over a crew-route entry the same way. Re-derived from the
     // failure's own count (33 candidates).
-    expectedCount: 33,
+    // 35 since PR C's Task 6: the pack list popstate case steps Back and Forward over a
+    // crew-route entry the same way. Re-derived from the failure's own count (35
+    // candidates).
+    // 37 since PR C's Task 8: the s=gear case steps Back and Forward over a crew-route
+    // entry the same way. Re-derived from the failure's own count (37 candidates).
+    expectedCount: 37,
     match: (c) =>
       [
         "admin-nav-layout-dimensions.spec.ts",

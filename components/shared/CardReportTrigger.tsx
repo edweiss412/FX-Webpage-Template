@@ -31,6 +31,7 @@ export function CardReportTrigger({
   showId,
   cardReport = DEFAULT_CARD_REPORT,
   hitDirection = "up",
+  label,
 }: {
   cardId: CardId;
   region: RegionId;
@@ -45,6 +46,8 @@ export function CardReportTrigger({
    * anchors the top (bare `schedule-days` header, to clear the agenda above).
    */
   hitDirection?: "up" | "down";
+  /** What the report is about, where a section holds several cards. Absent: "this card". */
+  label?: string;
 }): ReactNode {
   const [open, setOpen] = useState(false);
   // Defense-in-depth: a crew card always has a show, but never mount the modal
@@ -74,7 +77,7 @@ export function CardReportTrigger({
         type="button"
         data-slot="card-report-trigger"
         data-testid="card-report-trigger"
-        aria-label="Report a problem with this card"
+        aria-label={`Report a problem with ${label ?? "this card"}`}
         onClick={() => setOpen(true)}
         className={`inline-flex h-fit shrink-0 items-center text-text-faint transition-colors hover:text-text-subtle focus-visible:text-text-subtle focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring [&_svg]:size-3.5 [&_svg]:opacity-70 ${overlay}`}
       >

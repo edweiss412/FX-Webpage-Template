@@ -545,3 +545,160 @@ test.describe("crew search: a hotel-name result reveals its line in Hotels (PR B
     });
   }
 });
+
+test.describe("crew search: a dress code result reveals its line in Event details (PR C Task 5)", () => {
+  const EVENT_LABEL = showSection("event").label;
+  const DRESS_CODE = "Burgundy blazer over show blacks";
+  const QUERY = "burgundy";
+
+  let dressed: SeededShow;
+
+  test.beforeAll(async () => {
+    dressed = await seedShowWithCrew({
+      title: "Crew Search Event Show",
+      crew: [{ name: CREW_NAME, role: "A1" }],
+      eventDetails: { dress_code: DRESS_CODE } as never,
+    });
+  });
+
+  test.afterAll(async () => {
+    if (dressed !== undefined) await deleteSeededShow(dressed.driveFileId);
+  });
+
+  for (const viewport of [
+    { name: "phone", width: 390, height: 844 },
+    { name: "wide", width: 1280, height: 800 },
+  ] as const) {
+    test.describe(`at ${viewport.name} width (${viewport.width}px)`, () => {
+      test.use({ viewport: { width: viewport.width, height: viewport.height } });
+
+      test("event details: a dress code result opens the section with its line focused, in view and highlighted", async ({
+        page,
+      }) => {
+        await openAsCrew(page, dressed);
+
+        await searchBox(page).fill(QUERY);
+        const eventGroup = page.locator('[data-testid="crew-search-group"][data-section="event"]');
+        await expect(eventGroup).toBeVisible();
+        await expect(eventGroup.getByRole("heading")).toContainText(EVENT_LABEL);
+
+        const row = page
+          .getByTestId("crew-search-row")
+          .filter({ hasText: DRESS_CODE })
+          .and(page.locator('[data-entry-id^="event:today-dress"]'));
+        await expect(row).toHaveCount(1);
+        const entryId = (await row.getAttribute("data-entry-id"))!;
+        await row.getByTestId("crew-search-row-open").click();
+
+        await expect(page).toHaveURL(/[?&]s=event\b/);
+        await expect(page.getByTestId("crew-search-panel")).toHaveCount(0);
+        const line = page.getByTestId("section-event").locator(`[data-search-target="${entryId}"]`);
+        await expect(line).toHaveAttribute("data-search-reveal", "");
+        await expect(line).toBeFocused();
+        await expect(line).toBeInViewport();
+        await expectClearOfStickyChrome(line, "the dress code line");
+        await expect(line).toContainText(DRESS_CODE);
+
+        // Below 1024px the line opened inside the Event details sheet; the wide page
+        // has no sheet.
+        const sheet = page.getByRole("dialog");
+        if (viewport.width < 1024) {
+          await expect(page.getByTestId("crew-section-sheet-dialog")).toHaveAttribute(
+            "data-section",
+            "event",
+          );
+          await expect(sheet.locator(`[data-search-target="${entryId}"]`)).toHaveCount(1);
+        } else {
+          await expect(sheet).toHaveCount(0);
+        }
+      });
+    });
+  }
+});
+
+test.describe("crew search: a diagram name result reveals its line in Rooms (PR C Task 7)", () => {
+  const ROOMS_LABEL = showSection("rooms").label;
+  const DIAGRAM_NAME = "Truss hang plot";
+  const QUERY = "truss";
+
+  let drawn: SeededShow;
+
+  test.beforeAll(async () => {
+    drawn = await seedShowWithCrew({
+      title: "Crew Search Rooms Show",
+      crew: [{ name: CREW_NAME, role: "A1" }],
+      rooms: [{ kind: "gs", name: "Search Ballroom", audio: "Two lavs" }],
+      // No snapshot: a named slot the gallery holds as a placeholder, still a line.
+      diagrams: {
+        snapshot_revision_id: "22222222-2222-4222-8222-222222222222",
+        snapshot_status: "complete",
+        linkedFolder: null,
+        embeddedImages: [
+          {
+            sheetTab: "DIAGRAMS",
+            objectId: "search-plot",
+            mimeType: "image/png",
+            alt: DIAGRAM_NAME,
+            sheetsRevisionId: "rev-1",
+            embeddedFingerprint: "fp-search-plot",
+            recovery_disposition: "normal",
+            snapshotPath: null,
+          },
+        ],
+        linkedFolderItems: [],
+      },
+    });
+  });
+
+  test.afterAll(async () => {
+    if (drawn !== undefined) await deleteSeededShow(drawn.driveFileId);
+  });
+
+  for (const viewport of [
+    { name: "phone", width: 390, height: 844 },
+    { name: "wide", width: 1280, height: 800 },
+  ] as const) {
+    test.describe(`at ${viewport.name} width (${viewport.width}px)`, () => {
+      test.use({ viewport: { width: viewport.width, height: viewport.height } });
+
+      test("rooms: a diagram name result opens the section with its line focused, in view and highlighted", async ({
+        page,
+      }) => {
+        await openAsCrew(page, drawn);
+
+        await searchBox(page).fill(QUERY);
+        const roomsGroup = page.locator('[data-testid="crew-search-group"][data-section="rooms"]');
+        await expect(roomsGroup).toBeVisible();
+        await expect(roomsGroup.getByRole("heading")).toContainText(ROOMS_LABEL);
+
+        const row = page
+          .getByTestId("crew-search-row")
+          .filter({ hasText: DIAGRAM_NAME })
+          .and(page.locator('[data-entry-id^="rooms:venue-diagrams"]'));
+        await expect(row).toHaveCount(1);
+        const entryId = (await row.getAttribute("data-entry-id"))!;
+        await row.getByTestId("crew-search-row-open").click();
+
+        await expect(page).toHaveURL(/[?&]s=rooms\b/);
+        await expect(page.getByTestId("crew-search-panel")).toHaveCount(0);
+        const line = page.getByTestId("section-rooms").locator(`[data-search-target="${entryId}"]`);
+        await expect(line).toHaveAttribute("data-search-reveal", "");
+        await expect(line).toBeFocused();
+        await expect(line).toBeInViewport();
+        await expectClearOfStickyChrome(line, "the diagram's line");
+
+        // Below 1024px the line opened inside the Rooms sheet; the wide page has no sheet.
+        const sheet = page.getByRole("dialog");
+        if (viewport.width < 1024) {
+          await expect(page.getByTestId("crew-section-sheet-dialog")).toHaveAttribute(
+            "data-section",
+            "rooms",
+          );
+          await expect(sheet.locator(`[data-search-target="${entryId}"]`)).toHaveCount(1);
+        } else {
+          await expect(sheet).toHaveCount(0);
+        }
+      });
+    });
+  }
+});

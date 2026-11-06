@@ -52,10 +52,16 @@ import { readFileSync } from "node:fs";
 import { join } from "node:path";
 
 import { test, expect, type Page } from "@playwright/test";
-import { CREW_MOVED_IDS, CREW_SECTION_LABELS, type CrewSectionId } from "@/lib/crew/crewSections";
+import { CREW_SECTION_LABELS, type CrewSectionId } from "@/lib/crew/crewSections";
 import { CREW_SECTION_IDS } from "@/lib/crew/resolveActiveSection";
-import { showSection, type ShowSectionId } from "@/lib/showSections/registry";
+import {
+  SHOW_SECTION_GROUPS,
+  SHOW_SECTIONS,
+  showSection,
+  type ShowSectionId,
+} from "@/lib/showSections/registry";
 import { SCROLL_SPY_OFFSET_PX, activeSectionFor } from "@/lib/ui/scrollSpy";
+import { premise, premiseHolds } from "@/tests/_shared/premise";
 import { refreshFromServer, renderFresh } from "./helpers/crewRefresh";
 import { ADMIN_FIXTURE } from "./helpers/fixtures";
 import { updateShowLocked } from "./helpers/lockedShowCopy";
@@ -77,10 +83,11 @@ const WIDE = { width: 1280, height: 800 };
  * Every section an admin is listed on the Waldorf seed, in nav order (spec §5.1,
  * `CREW_SECTION_IDS`): all of them but Agenda, which is listed only when the show
  * has an agenda link with a file (PR B plan, decision 1), and the Waldorf
- * fixture's parsed agenda_links is empty. Its Agenda is entitled and unlisted.
+ * fixture's parsed agenda_links is empty, so its Agenda is entitled and unlisted;
+ * and but Pack list, whose gate shuts on the pinned show day (PR C plan, decision 1).
  */
 const ADMIN_SECTIONS: CrewSectionId[] = CREW_SECTION_IDS.filter(
-  (id) => (id as string) !== "agenda",
+  (id) => (id as string) !== "agenda" && (id as string) !== "packlist",
 );
 
 async function lookupRoute(): Promise<string> {
@@ -306,12 +313,12 @@ test.describe("crew wide nav (spec §5.3)", () => {
     // One frame after the click the window is already at the target: no glide.
     const landed = await page.evaluate(async () => {
       const item = document.querySelector<HTMLElement>(
-        '[data-testid="crew-wide-nav"] [data-section="gear"]',
+        '[data-testid="crew-wide-nav"] [data-section="rooms"]',
       )!;
       item.click();
       await new Promise((r) => requestAnimationFrame(() => r(null)));
       const section = document.querySelector(
-        '[data-testid="crew-wide-section"][data-section="gear"]',
+        '[data-testid="crew-wide-section"][data-section="rooms"]',
       )!;
       // Measured from the sticky header's bottom edge, as `sectionTop` does.
       const header = document.querySelector('[data-testid="page-header"]')!;
@@ -391,15 +398,64 @@ test.describe("crew wide nav (spec §5.3)", () => {
   test("wide nav: a deep link ?s=<id> scrolls to that section after hydration", async ({
     page,
   }) => {
+    await load(page, "?s=rooms");
+    // One copy of the body: the server render's sheet left without an exit slide.
+    await expect(page.getByTestId("section-rooms")).toHaveCount(1);
+    await expect
+      .poll(() => sectionTop(page, "rooms"), { timeout: 5000 })
+      .toBeLessThanOrEqual(SCROLL_SPY_OFFSET_PX);
+    expect(await sectionTop(page, "rooms")).toBeGreaterThanOrEqual(-1);
+    expect(await page.evaluate(() => window.scrollY)).toBeGreaterThan(0);
+    await expect(navItem(page, "rooms")).toHaveAttribute("aria-current", "true");
+  });
+
+  // Crew page redesign PR C Task 8: Gear retired, and its id is an alias of `rooms`.
+  test("gear alias: ?s=gear lands on Rooms after hydration, with no Gear item or section left", async ({
+    page,
+  }) => {
     await load(page, "?s=gear");
     // One copy of the body: the server render's sheet left without an exit slide.
-    await expect(page.getByTestId("section-gear")).toHaveCount(1);
+    await expect(page.getByTestId("section-rooms")).toHaveCount(1);
     await expect
-      .poll(() => sectionTop(page, "gear"), { timeout: 5000 })
+      .poll(() => sectionTop(page, "rooms"), { timeout: 5000 })
       .toBeLessThanOrEqual(SCROLL_SPY_OFFSET_PX);
-    expect(await sectionTop(page, "gear")).toBeGreaterThanOrEqual(-1);
+    expect(await sectionTop(page, "rooms")).toBeGreaterThanOrEqual(-1);
     expect(await page.evaluate(() => window.scrollY)).toBeGreaterThan(0);
-    await expect(navItem(page, "gear")).toHaveAttribute("aria-current", "true");
+    await expect(navItem(page, "rooms")).toHaveAttribute("aria-current", "true");
+    await expect(page.getByTestId("section-gear")).toHaveCount(0);
+    await expect(page.locator('[data-section="gear"]')).toHaveCount(0);
+  });
+
+  // Crew page redesign PR C Task 5: Event details is a section of its own.
+  test("event details: a deep link ?s=event lands on the stacked section after hydration", async ({
+    page,
+  }) => {
+    await load(page, "?s=event");
+    await expect(page.getByTestId("section-event")).toHaveCount(1);
+    await expect
+      .poll(() => sectionTop(page, "event"), { timeout: 5000 })
+      .toBeLessThanOrEqual(SCROLL_SPY_OFFSET_PX);
+    expect(await sectionTop(page, "event")).toBeGreaterThanOrEqual(-1);
+    await expect(navItem(page, "event")).toHaveAttribute("aria-current", "true");
+    await expect(navItem(page, "event")).toHaveText(showSection("event").label);
+  });
+
+  // Crew page redesign PR C Task 7: Rooms is a section of its own, holding Diagrams.
+  test("rooms: a deep link ?s=rooms lands on the stacked section after hydration", async ({
+    page,
+  }) => {
+    await load(page, "?s=rooms");
+    await expect(page.getByTestId("section-rooms")).toHaveCount(1);
+    await expect
+      .poll(() => sectionTop(page, "rooms"), { timeout: 5000 })
+      .toBeLessThanOrEqual(SCROLL_SPY_OFFSET_PX);
+    expect(await sectionTop(page, "rooms")).toBeGreaterThanOrEqual(-1);
+    await expect(navItem(page, "rooms")).toHaveAttribute("aria-current", "true");
+    await expect(navItem(page, "rooms")).toHaveText(showSection("rooms").label);
+    // Diagrams stack under the rooms, and the stacked Venue holds none.
+    await expect(page.getByTestId("section-rooms").getByTestId("venue-diagrams")).toHaveCount(1);
+    await expect(page.getByTestId("section-venue").getByTestId("venue-where")).toHaveCount(1);
+    await expect(page.getByTestId("section-venue").getByTestId("venue-diagrams")).toHaveCount(0);
   });
 
   test("wide nav: Back and Forward over compact-created entries scroll without moving focus", async ({
@@ -607,11 +663,11 @@ test.describe("crew wide nav (spec §5.3)", () => {
     // focus ring is ever under the header.
     const landed = await page.evaluate(async () => {
       document
-        .querySelector<HTMLElement>('[data-testid="crew-wide-nav"] [data-section="gear"]')!
+        .querySelector<HTMLElement>('[data-testid="crew-wide-nav"] [data-section="rooms"]')!
         .click();
       await new Promise((r) => requestAnimationFrame(() => r(null)));
       const heading = document.querySelector(
-        '[data-testid="crew-wide-section"][data-section="gear"] h2',
+        '[data-testid="crew-wide-section"][data-section="rooms"] h2',
       )!;
       return {
         headingTop: heading.getBoundingClientRect().top,
@@ -625,9 +681,9 @@ test.describe("crew wide nav (spec §5.3)", () => {
       Math.abs(landed.headingTop - (landed.headerBottom + m.ring)),
       JSON.stringify(landed),
     ).toBeLessThanOrEqual(TOL);
-    const heading = page.locator('[data-testid="crew-wide-section"][data-section="gear"] h2');
+    const heading = page.locator('[data-testid="crew-wide-section"][data-section="rooms"] h2');
     await expect(heading).toBeFocused();
-    await expectClearOfStickyChrome(heading, "the Gear heading after a nav jump");
+    await expectClearOfStickyChrome(heading, "the Rooms heading after a nav jump");
   });
 
   // ── Compound transitions across the breakpoint (spec §7, plan Task 12) ──────
@@ -980,8 +1036,8 @@ test.describe("crew wide nav (spec §5.3)", () => {
 /**
  * The composed home in the wide layout (crew page redesign plan Task 11, spec
  * §3.1, §3.2): the Today block (day row, pass and run of show, with the quick
- * facts beside them and the show notes and Dress code card inside the block),
- * then every section stacked, and no "All sections" card. One seeded show
+ * facts beside them and the show notes inside the block), then every section
+ * stacked, and no "All sections" card. One seeded show
  * carries a run of show, a venue with notes, a split Wi-Fi value and a dress
  * code; values are read from the seed input, never typed. Titles carry "home".
  */
@@ -1054,7 +1110,7 @@ test.describe("the composed home, wide (crew page redesign Task 11)", () => {
     await expect(root).toHaveAttribute("data-crew-mode", "wide");
   }
 
-  test("home: the wide Today block puts the quick facts beside the run of show, the notes and Dress code card inside it, then every section", async ({
+  test("home: the wide Today block puts the quick facts beside the run of show, the notes inside it, then every section", async ({
     page,
   }) => {
     await loadWide(page, `/show/${seeded.slug}/${seeded.shareToken}`);
@@ -1074,12 +1130,10 @@ test.describe("the composed home, wide (crew page redesign Task 11)", () => {
         run: box('[data-testid="today-run-of-show"]'),
         facts: box('[data-testid="crew-quick-facts"]'),
         notes: box('[data-testid="today-notes"]'),
-        dress: box('[data-testid="today-dress"]'),
         firstSection: box('[data-testid="crew-wide-section"]'),
         inside: {
           facts: inBlock('[data-testid="crew-quick-facts"]'),
           notes: inBlock('[data-testid="today-notes"]'),
-          dress: inBlock('[data-testid="today-dress"]'),
           run: inBlock('[data-testid="today-run-of-show"]'),
         },
       };
@@ -1091,22 +1145,20 @@ test.describe("the composed home, wide (crew page redesign Task 11)", () => {
       "run",
       "facts",
       "notes",
-      "dress",
       "firstSection",
     ] as const) {
       expect(r[key], `${key} renders`).not.toBeNull();
       expect(r[key]!.h, `${key} has height`).toBeGreaterThan(0);
     }
-    expect(r.inside).toEqual({ facts: true, notes: true, dress: true, run: true });
+    expect(r.inside).toEqual({ facts: true, notes: true, run: true });
     const TOL = 0.5;
     // Beside: the quick facts sit to the right of the run-of-show column and
     // share its vertical span.
     expect(r.facts!.left, JSON.stringify(r)).toBeGreaterThanOrEqual(r.run!.right - TOL);
     expect(r.facts!.top).toBeLessThan(r.run!.bottom);
     expect(r.facts!.left).toBeGreaterThanOrEqual(r.pass!.right - TOL);
-    // The notes then the Dress code card under the quick facts, in that column.
+    // The notes under the quick facts, in that column.
     expect(r.notes!.top).toBeGreaterThanOrEqual(r.facts!.bottom - TOL);
-    expect(r.dress!.top).toBeGreaterThanOrEqual(r.notes!.bottom - TOL);
     expect(r.notes!.left).toBeGreaterThanOrEqual(r.run!.right - TOL);
     // The left column reads day row, pass, run of show.
     expect(r.pass!.top).toBeGreaterThanOrEqual(r.dayRow!.bottom - TOL);
@@ -1116,6 +1168,21 @@ test.describe("the composed home, wide (crew page redesign Task 11)", () => {
     await expect(page.getByTestId("crew-all-sections")).toHaveCount(0);
     await expect(page.getByTestId("today-run-of-show")).toContainText(RUN_ROWS[0]!);
     await expect(page.getByTestId("today-notes")).toContainText(VENUE.notes);
+  });
+
+  // Spec line 316. Scoped to the home's own root: on the wide page the same card
+  // id sits in the stacked Event details section, so a page-wide query cannot tell.
+  test("event details: the Dress code card sits in the stacked section and the Today block holds none", async ({
+    page,
+  }) => {
+    await loadWide(page, `/show/${seeded.slug}/${seeded.shareToken}`);
+    const dress = '[data-card-id="today-dress"]';
+    await expect(page.getByTestId("section-today").locator(dress)).toHaveCount(0);
+    await expect(page.getByTestId("crew-today-block").locator(dress)).toHaveCount(0);
+    // POSITIVE CONTROL: the seeded value is on the page, in its new home.
+    await expect(page.getByTestId("section-event").locator(dress)).toContainText(
+      EVENT_DETAILS.dress_code,
+    );
   });
 
   test("home: on the preview route the crew header sticks under the preview banner, and the nav, a section jump and the scroll padding clear both", async ({
@@ -1541,21 +1608,28 @@ test.describe("hotels and transport: the travel alias, wide (PR B Task 9)", () =
     await expect.poll(() => page.evaluate(() => window.scrollY)).toBeGreaterThan(0);
   });
 
-  test("hotels and transport: every PR A section id lands on its section, or at the top on Today, in wide", async ({
+  test("gear alias: every historical section id lands on its section, or at the top on Today, in wide", async ({
     page,
   }) => {
     // The historical union at lib/crew/resolveActiveSection.ts:1 as of 7e927e927,
-    // each with the nav item it lands on now.
-    const PR_A_IDS: ReadonlyArray<readonly [string, string]> = [
+    // then the ids PR B added, each with the nav item it lands on now. This show has
+    // no agenda file, so its Agenda is unlisted, has no stacked section, and lands at
+    // the top.
+    const HISTORICAL_IDS: ReadonlyArray<readonly [string, string]> = [
       ["today", "today"],
       ["schedule", "schedule"],
       ["venue", "venue"],
       ["travel", "hotels"],
       ["crew", "crew"],
-      ["gear", "gear"],
+      ["gear", "rooms"],
       ["budget", "billing"],
+      ["billing", "billing"],
+      ["contacts", "contacts"],
+      ["hotels", "hotels"],
+      ["transport", "transport"],
+      ["agenda", "today"],
     ];
-    for (const [s, lands] of PR_A_IDS) {
+    for (const [s, lands] of HISTORICAL_IDS) {
       await loadWide(page, `${share()}?s=${s}`);
       if (lands === "today") {
         await expect(navItem(page, lands), s).toHaveAttribute("aria-current", "true", {
@@ -1570,7 +1644,7 @@ test.describe("hotels and transport: the travel alias, wide (PR B Task 9)", () =
       ).toHaveCount(1);
       // Landed: the section's top sits at its scroll margin below the viewport top
       // (scrollWide's target), unless the page ran out of room first. A short
-      // section near the end (Gear on this show) cannot reach the top, and the
+      // section near the end (Rooms on this show) cannot reach the top, and the
       // scroll-spy then names the last section in view, so the nav's current item
       // is not the landing's evidence here; where the section is.
       await expect
@@ -1660,7 +1734,7 @@ test.describe("agenda: the Agenda section, wide (PR B Task 10)", () => {
     await signInAs(page, ADMIN_FIXTURE);
   });
 
-  function seedAgendaShow(title: string) {
+  function seedAgendaShow(title: string, schedulePhases?: Record<string, ["Set"]>) {
     return seedShowWithCrew({
       title,
       dates: {
@@ -1670,6 +1744,7 @@ test.describe("agenda: the Agenda section, wide (PR B Task 10)", () => {
         travelOut: "2026-04-23",
       },
       agendaLinks: AGENDA_LINKS as never,
+      ...(schedulePhases === undefined ? {} : { schedulePhases }),
       crew: [{ name: "Wide Agenda Crew", role: "A1" }],
     });
   }
@@ -1687,18 +1762,17 @@ test.describe("agenda: the Agenda section, wide (PR B Task 10)", () => {
   const stackedAgenda = (page: Page) =>
     page.locator('[data-testid="crew-wide-section"][data-section="agenda"]');
 
-  test("agenda: the wide nav lists Today then the viewer's members in CREW_SECTION_IDS order, each moved id with its registry label, and stacks them in that order", async ({
+  test("agenda: the wide nav lists Today then the viewer's members in CREW_SECTION_IDS order, each with its registry label, and stacks them in that order", async ({
     page,
   }) => {
-    const seeded = await seedAgendaShow("Agenda Wide Order Show");
+    // A pack-list phase on the pinned day (PR C Task 6: Pack list's gate).
+    const seeded = await seedAgendaShow("Agenda Wide Order Show", { "2026-04-21": ["Set"] });
     try {
       await page.setViewportSize(WIDE);
       await loadIn(page, `/show/${seeded.slug}/${seeded.shareToken}`, "wide");
-      // An admin on a show with an agenda file is a member of every crew section.
-      const moved: readonly string[] = CREW_MOVED_IDS;
-      const expected = CREW_SECTION_IDS.map((id) =>
-        moved.includes(id) ? showSection(id as ShowSectionId).label : CREW_SECTION_LABELS[id],
-      );
+      // An admin on a show with an agenda file, on a pack-list day, is a member of every
+      // crew section.
+      const expected = CREW_SECTION_IDS.map((id) => showSection(id as ShowSectionId).label);
       const items = page.getByTestId("crew-wide-nav").locator("[data-section]");
       const sections = await items.evaluateAll((els) =>
         els.map((e) => e.getAttribute("data-section")),
@@ -1763,6 +1837,538 @@ test.describe("agenda: the Agenda section, wide (PR B Task 10)", () => {
       await expect(stackedAgenda(page)).toHaveCount(0);
       await expect(navItem(page, "agenda")).toHaveCount(0);
       await expect(navItem(page, "today")).toHaveAttribute("aria-current", "true");
+    } finally {
+      await deleteSeededShow(seeded.driveFileId);
+    }
+  });
+});
+
+/**
+ * PR C plan Task 6: Pack list, wide. Its gate is the compact block's (see that
+ * block in crew-section-toggle.spec.ts): here the page lands on the stacked section
+ * on a member day, has neither nav item nor stacked section on a Show day, and an
+ * open sheet crossing into wide lands on the section it held. A plain admin on the
+ * share route; each case seeds its own show, the phase its own input.
+ */
+test.describe("pack list: the Pack list section, wide (PR C Task 6)", () => {
+  test.setTimeout(180_000);
+
+  const BASE_HEADERS = {
+    "X-Screenshot-Frozen-Now": SHOW_DAY_N_INSTANT,
+    Authorization: `Bearer ${TEST_AUTH_SECRET}`,
+  };
+  const COMPACT = { width: 390, height: 640 };
+  /** The pinned clock's day in the show's timezone. */
+  const PINNED_DAY = "2026-04-21";
+  const CASE_LABEL = "Wide zephyr rack";
+  const RAW_SNIPPET = "2 | Audio | Stage | Wide stage box | TRUE";
+
+  test.beforeEach(async ({ page }) => {
+    await page.setExtraHTTPHeaders(BASE_HEADERS);
+    await page.clock.setFixedTime(new Date(SHOW_DAY_N_INSTANT));
+    await signOut(page);
+    await signInAs(page, ADMIN_FIXTURE);
+  });
+
+  function seedPackShow(title: string, phase: "Set" | "Show") {
+    return seedShowWithCrew({
+      title,
+      dates: {
+        travelIn: "2026-04-19",
+        set: "2026-04-20",
+        showDays: [PINNED_DAY, "2026-04-22"],
+        travelOut: "2026-04-23",
+      },
+      schedulePhases: { [PINNED_DAY]: [phase] },
+      pullSheet: [
+        {
+          caseLabel: CASE_LABEL,
+          items: [
+            { qty: 2, cat: "Audio", subCat: null, item: "Wide stage box", rawSnippet: RAW_SNIPPET },
+          ],
+        },
+      ],
+      crew: [{ name: "Wide Pack Crew", role: "A1" }],
+    });
+  }
+
+  async function loadIn(page: Page, path: string, mode: "wide" | "compact") {
+    const res = await page.goto(path, { waitUntil: "domcontentloaded" });
+    expect(res?.status(), `${path} must render`).toBe(200);
+    const root = page.getByTestId("crew-shell-sections");
+    await expect(root).toHaveAttribute("data-crew-controller-ready", "true", { timeout: 30_000 });
+    await expect(root).toHaveAttribute("data-crew-mode", mode);
+  }
+
+  const navItem = (page: Page, id: string) =>
+    page.getByTestId("crew-wide-nav").locator(`[data-section="${id}"]`);
+  const stackedPack = (page: Page) =>
+    page.locator('[data-testid="crew-wide-section"][data-section="packlist"]');
+
+  /**
+   * Landed: the section's top sits at its scroll margin, unless the page ran out of room
+   * first. A short section near the end cannot reach the top, and the scroll-spy then
+   * names the last section in view, so where the section is, not the nav's current item,
+   * is the landing's evidence.
+   */
+  async function expectLandedOnPack(page: Page): Promise<void> {
+    await expect
+      .poll(() =>
+        stackedPack(page).evaluate((el) => {
+          const top = el.getBoundingClientRect().top;
+          const margin = parseFloat(getComputedStyle(el).scrollMarginTop || "0");
+          const atEnd =
+            window.scrollY + window.innerHeight >= document.documentElement.scrollHeight - 1;
+          return Math.abs(top - margin) <= 1 ||
+            (atEnd && top >= margin - 1 && top < window.innerHeight)
+            ? "landed"
+            : `top ${top}, margin ${margin}, scrollY ${window.scrollY}`;
+        }),
+      )
+      .toBe("landed");
+  }
+
+  test("pack list: on a Set day ?s=packlist lands on the stacked section, in its slot after Rooms", async ({
+    page,
+  }) => {
+    const seeded = await seedPackShow("Pack Wide Set Show", "Set");
+    try {
+      await page.setViewportSize(WIDE);
+      await loadIn(page, `/show/${seeded.slug}/${seeded.shareToken}?s=packlist`, "wide");
+      await expect(stackedPack(page)).toContainText(CASE_LABEL);
+      await expect(navItem(page, "packlist")).toHaveText(showSection("packlist").label);
+      await expectLandedOnPack(page);
+      const stacked = await page
+        .getByTestId("crew-wide-section")
+        .evaluateAll((els) => els.map((e) => e.getAttribute("data-section")));
+      expect(stacked.indexOf("packlist")).toBe(stacked.indexOf("rooms") + 1);
+    } finally {
+      await deleteSeededShow(seeded.driveFileId);
+    }
+  });
+
+  test("pack list: on a Show day the nav has no item, no section stacks, and ?s=packlist lands at the top on Today", async ({
+    page,
+  }) => {
+    const seeded = await seedPackShow("Pack Wide Show Show", "Show");
+    try {
+      await page.setViewportSize(WIDE);
+      await loadIn(page, `/show/${seeded.slug}/${seeded.shareToken}?s=packlist`, "wide");
+      // PREMISE: the nav is built, so a missing item is the gate's doing.
+      await expect(navItem(page, "venue")).toBeVisible();
+      await expect(navItem(page, "packlist")).toHaveCount(0);
+      await expect(stackedPack(page)).toHaveCount(0);
+      await expect(navItem(page, "today")).toHaveAttribute("aria-current", "true");
+      await expect.poll(() => page.evaluate(() => window.scrollY)).toBe(0);
+    } finally {
+      await deleteSeededShow(seeded.driveFileId);
+    }
+  });
+
+  test("pack list: an open sheet crossing into wide lands on the stacked section, keeping s", async ({
+    page,
+  }) => {
+    const seeded = await seedPackShow("Pack Wide Crossing Show", "Set");
+    try {
+      await page.setViewportSize(COMPACT);
+      await loadIn(page, `/show/${seeded.slug}/${seeded.shareToken}`, "compact");
+      await page.getByTestId("crew-all-sections").locator('[data-section="packlist"]').click();
+      await expect(page.getByRole("dialog")).toHaveAttribute("data-section", "packlist");
+      await expect(page.getByRole("dialog")).toContainText(CASE_LABEL);
+
+      await page.setViewportSize(WIDE);
+      await expect(page.getByTestId("crew-shell-sections")).toHaveAttribute(
+        "data-crew-mode",
+        "wide",
+      );
+
+      await expect(page.getByTestId("crew-section-sheet")).toHaveCount(0);
+      await expect(stackedPack(page)).toContainText(CASE_LABEL);
+      await expectLandedOnPack(page);
+      expect(new URL(page.url()).searchParams.get("s")).toBe("packlist");
+    } finally {
+      await deleteSeededShow(seeded.driveFileId);
+    }
+  });
+
+  test("pack list: the numbered list and its raw rows hold the stacked section at 1280", async ({
+    page,
+  }) => {
+    const seeded = await seedPackShow("Pack Wide Layout Show", "Set");
+    try {
+      await page.setViewportSize(WIDE);
+      await loadIn(page, `/show/${seeded.slug}/${seeded.shareToken}?s=packlist`, "wide");
+      const panel = stackedPack(page).locator('[data-card-id="gear-pack-list"]');
+      await panel.locator("summary").first().click();
+      const m = await panel.evaluate((root) => {
+        const li = root.querySelector("details[open] ul > li")!;
+        const snippet = li.querySelector('[data-testid$="pack-item-raw-snippet"]')!;
+        const range = document.createRange();
+        range.selectNodeContents(li.firstChild!);
+        const text = range.getBoundingClientRect();
+        const raw = snippet.getBoundingClientRect();
+        const summary = root.querySelector("summary")!.getBoundingClientRect();
+        return {
+          summaryHeight: summary.height,
+          summaryWidth: summary.width,
+          panelWidth: root.getBoundingClientRect().width,
+          textBottom: text.bottom,
+          textLeft: text.left,
+          rawTop: raw.top,
+          rawLeft: raw.left,
+        };
+      });
+      expect(m.summaryHeight).toBeGreaterThanOrEqual(44 - 0.5);
+      expect(m.rawTop).toBeGreaterThanOrEqual(m.textBottom - 0.5);
+      expect(Math.abs(m.rawLeft - m.textLeft)).toBeLessThanOrEqual(0.5);
+      // The row spans the card's content box, so the count sits at its far edge.
+      expect(m.summaryWidth).toBeGreaterThan(m.panelWidth / 2);
+    } finally {
+      await deleteSeededShow(seeded.driveFileId);
+    }
+  });
+});
+
+/**
+ * PR C plan Task 9: the nav shows the registry's groups (spec line 239, AC-10), as runs
+ * of a group in entry order (plan decision 11). Everything expected here is derived from
+ * `SHOW_SECTIONS`, never typed, so a group or a label that moved in the registry moves
+ * the expectation with it. A seeded show of its own: Waldorf has no agenda file and shuts
+ * Pack list on the pinned day, so only a seeded admin is a member of every section.
+ */
+test.describe("registry groups: the wide nav's group headings (PR C Task 9)", () => {
+  test.setTimeout(180_000);
+
+  /** The pinned clock's day in the show's timezone. */
+  const PINNED_DAY = "2026-04-21";
+  const CREW_MEMBER = "Wide Groups Crew";
+
+  test.beforeEach(async ({ page }) => {
+    await page.setExtraHTTPHeaders({
+      "X-Screenshot-Frozen-Now": SHOW_DAY_N_INSTANT,
+      Authorization: `Bearer ${TEST_AUTH_SECRET}`,
+    });
+    await page.clock.setFixedTime(new Date(SHOW_DAY_N_INSTANT));
+    await page.setViewportSize(WIDE);
+    await signOut(page);
+    await signInAs(page, ADMIN_FIXTURE);
+  });
+
+  /** An agenda file, and the pinned day's phase, which is what Pack list's gate reads. */
+  function seedGroupsShow(title: string, phase: "Set" | "Show") {
+    return seedShowWithCrew({
+      title,
+      dates: {
+        travelIn: "2026-04-19",
+        set: "2026-04-20",
+        showDays: [PINNED_DAY, "2026-04-22"],
+        travelOut: "2026-04-23",
+      },
+      agendaLinks: [
+        {
+          label: "AGENDA",
+          fileId: "registryGroupsWideE2E01",
+          extracted: {
+            confidence: "high",
+            corrections: 0,
+            extractorVersion: 2,
+            days: [
+              {
+                dayLabel: "Tuesday, April 21, 2026",
+                date: null,
+                sessions: [
+                  {
+                    time: "9:00 AM",
+                    title: "Groups rehearsal",
+                    room: "Ballroom B",
+                    tracks: [],
+                    drift: null,
+                  },
+                ],
+              },
+            ],
+          },
+        },
+      ] as never,
+      schedulePhases: { [PINNED_DAY]: [phase] },
+      crew: [{ name: CREW_MEMBER, role: "A1" }],
+    });
+  }
+
+  async function loadWide(page: Page, path: string) {
+    const res = await page.goto(path, { waitUntil: "domcontentloaded" });
+    expect(res?.status(), `${path} must render`).toBe(200);
+    const root = page.getByTestId("crew-shell-sections");
+    await expect(root).toHaveAttribute("data-crew-controller-ready", "true", { timeout: 30_000 });
+    await expect(root).toHaveAttribute("data-crew-mode", "wide");
+  }
+
+  // Gate repair 7 (B P2-3, A P3-4): a full nav ran 817px in a 704px box at 1280x800, so
+  // Pack list and Billing sat below the fold on a Set day, with no scrollbar on a Mac.
+  test("registry groups: a full nav shows every item at rest at 1280x800, each 44px tall", async ({
+    page,
+  }) => {
+    const seeded = await seedGroupsShow("Registry Groups Fit Show", "Set");
+    try {
+      await page.setViewportSize({ width: 1280, height: 800 });
+      await loadWide(page, `/show/${seeded.slug}/${seeded.shareToken}`);
+      const m = await navEl(page).evaluate((nav) => {
+        const box = nav.getBoundingClientRect();
+        return {
+          client: nav.clientHeight,
+          scroll: nav.scrollHeight,
+          items: [...nav.querySelectorAll("a[data-section]")].map((a) => {
+            const r = a.getBoundingClientRect();
+            return {
+              id: a.getAttribute("data-section"),
+              height: r.height,
+              below: r.bottom > box.bottom,
+            };
+          }),
+        };
+      });
+      const at = JSON.stringify(m);
+      // PREMISE: a full nav, so an overflow would have been the old 113px.
+      premise("every section is listed", m.items.length, 11);
+      expect(m.scroll, at).toBeLessThanOrEqual(m.client);
+      for (const item of m.items) {
+        expect(item.height, item.id ?? at).toBeGreaterThanOrEqual(44);
+        expect(item.below, item.id ?? at).toBe(false);
+      }
+    } finally {
+      await deleteSeededShow(seeded.driveFileId);
+    }
+  });
+
+  const navEl = (page: Page) => page.getByTestId("crew-wide-nav");
+  const navItem = (page: Page, id: string) => navEl(page).locator(`[data-section="${id}"]`);
+
+  type Run = { heading: string | null; items: string[] };
+
+  /** The nav as a reader meets it, top to bottom: each heading with the items under it. */
+  function readRuns(page: Page): Promise<Run[]> {
+    return navEl(page).evaluate((nav) => {
+      const label = (a: Element) => a.textContent ?? "";
+      const runs: Run[] = [];
+      for (const child of nav.children) {
+        if (child.matches("a[data-section]")) {
+          runs.push({ heading: null, items: [label(child)] });
+        } else if (child.getAttribute("role") === "group") {
+          const id = child.getAttribute("aria-labelledby") ?? "";
+          runs.push({
+            heading: document.getElementById(id)?.textContent ?? null,
+            items: [...child.querySelectorAll("a[data-section]")].map(label),
+          });
+        }
+      }
+      return runs;
+    });
+  }
+
+  test("registry groups: an admin with every member reads Today, then each registry group in order, each followed by exactly its sections", async ({
+    page,
+  }) => {
+    const seeded = await seedGroupsShow("Registry Groups Full Show", "Set");
+    try {
+      await loadWide(page, `/show/${seeded.slug}/${seeded.shareToken}`);
+      expect(await readRuns(page)).toEqual([
+        { heading: null, items: ["Today"] },
+        ...SHOW_SECTION_GROUPS.map((group) => ({
+          heading: group,
+          items: SHOW_SECTIONS.filter((s) => s.group === group).map((s) => s.label),
+        })),
+      ]);
+      // Painted, not only in the DOM: an element a reader cannot see still has text.
+      for (const label of await navEl(page).getByTestId("crew-wide-nav-group").all()) {
+        await expect(label).toBeVisible();
+      }
+      // Each run is a labelled group to assistive tech, with its items and only them.
+      for (const group of SHOW_SECTION_GROUPS) {
+        const run = navEl(page).getByRole("group", { name: group, exact: true });
+        await expect(run.getByRole("link"), group).toHaveText(
+          SHOW_SECTIONS.filter((s) => s.group === group).map((s) => s.label),
+        );
+      }
+      // A heading is a plain label, so the page outline does not move (decision 11).
+      await expect(navEl(page).getByRole("heading")).toHaveCount(0);
+    } finally {
+      await deleteSeededShow(seeded.driveFileId);
+    }
+  });
+
+  test("registry groups: a non-lead on a Show day has no Money heading, and Gear lists Rooms alone", async ({
+    page,
+  }) => {
+    const seeded = await seedGroupsShow("Registry Groups Non-Lead Show", "Show");
+    try {
+      const member = seeded.crew.find((c) => c.name === CREW_MEMBER);
+      if (!member) throw new Error(`no seeded crew member ${CREW_MEMBER}`);
+      await loadWide(page, `/admin/show/${seeded.slug}/preview/${member.id}`);
+      const runs = await readRuns(page);
+      // Positive control: this viewer's nav has headings to be absent from.
+      expect(runs.map((r) => r.heading)).toContain(showSection("rooms").group);
+      const money = showSection("billing").group;
+      premiseHolds(
+        "Billing is the only section in its group",
+        SHOW_SECTIONS.filter((s) => s.group === money).length === 1,
+      );
+      expect(runs.map((r) => r.heading)).not.toContain(money);
+      expect(runs.find((r) => r.heading === showSection("rooms").group)?.items).toEqual([
+        showSection("rooms").label,
+      ]);
+    } finally {
+      await deleteSeededShow(seeded.driveFileId);
+    }
+  });
+
+  test("registry groups: no number sits beside a label, and every item's accessible name is its label alone", async ({
+    page,
+  }) => {
+    const seeded = await seedGroupsShow("Registry Groups Copy Show", "Set");
+    try {
+      await loadWide(page, `/show/${seeded.slug}/${seeded.shareToken}`);
+      const labels = ["Today", ...SHOW_SECTIONS.map((s) => s.label)];
+      await expect(navEl(page).getByRole("link")).toHaveCount(labels.length);
+      for (const label of labels) {
+        await expect(navEl(page).getByRole("link", { name: label, exact: true })).toHaveCount(1);
+      }
+      // Spec line 421. The read sees every label and heading, so its silence is evidence.
+      const text = (await navEl(page).textContent()) ?? "";
+      for (const line of [...labels, ...SHOW_SECTION_GROUPS]) expect(text).toContain(line);
+      expect(text).not.toMatch(/\d/);
+    } finally {
+      await deleteSeededShow(seeded.driveFileId);
+    }
+  });
+
+  test("registry groups: dimensional: the nav holds spec §8 item 5 with group headings, every item at the tap floor, and the accent bar on the active item under its heading", async ({
+    page,
+  }) => {
+    const TOL = 0.5;
+    const seeded = await seedGroupsShow("Registry Groups Dimension Show", "Set");
+    try {
+      // Crew opens the People run, so a heading sits straight above the active item.
+      await loadWide(page, `/show/${seeded.slug}/${seeded.shareToken}?s=crew`);
+      await expect(navItem(page, "crew")).toHaveAttribute("aria-current", "true");
+
+      const readDims = () =>
+        page.evaluate(() => {
+          const box = (el: Element) => {
+            const r = el.getBoundingClientRect();
+            return {
+              top: r.top,
+              bottom: r.bottom,
+              left: r.left,
+              right: r.right,
+              w: r.width,
+              h: r.height,
+            };
+          };
+          const nav = document.querySelector('[data-testid="crew-wide-nav"]')!;
+          const header = document.querySelector('[data-testid="page-header"]')!;
+          const main = document.querySelector('[data-testid="page-container"]')!;
+          const row = main.parentElement!;
+          const rs = getComputedStyle(row);
+          const ns = getComputedStyle(nav);
+          const active = nav.querySelector('[aria-current="true"]')!;
+          const run = active.parentElement!;
+          return {
+            innerHeight: window.innerHeight,
+            nav: {
+              ...box(nav),
+              position: ns.position,
+              overflowY: ns.overflowY,
+              shrink: ns.flexShrink,
+            },
+            header: box(header),
+            main: { ...box(main), minWidth: getComputedStyle(main).minWidth },
+            rowGap: Number.parseFloat(rs.columnGap),
+            rowRight: row.getBoundingClientRect().right - Number.parseFloat(rs.paddingRight),
+            items: [...nav.querySelectorAll("a[data-section]")].map(box),
+            runs: [...nav.querySelectorAll('[role="group"]')].map(box),
+            active: box(active),
+            bar: box(document.querySelector('[data-testid="crew-wide-nav-indicator"]')!),
+            heading: box(run.firstElementChild!),
+            activeIsFirstInRun: run.querySelector("a[data-section]") === active,
+          };
+        });
+
+      // The bar slides at --duration-fast from its first placement: wait until it lands.
+      await expect
+        .poll(async () => {
+          const m = await readDims();
+          return Math.abs(m.bar.top - m.active.top - (m.active.bottom - m.bar.bottom));
+        })
+        .toBeLessThanOrEqual(TOL);
+
+      const m = await readDims();
+      const at = JSON.stringify(m);
+      // Spec §8 item 5, read through the 2026-10-31 amendment.
+      expect(Math.abs(m.nav.w - 240), at).toBeLessThanOrEqual(TOL);
+      expect(m.nav.shrink, at).toBe("0");
+      expect(m.nav.position, at).toBe("sticky");
+      expect(m.nav.overflowY, at).toBe("auto");
+      expect(Math.abs(m.nav.top - m.header.bottom), at).toBeLessThanOrEqual(TOL);
+      expect(Math.abs(m.nav.bottom - m.innerHeight), at).toBeLessThanOrEqual(TOL);
+      expect(Math.abs(m.main.left - (m.nav.right + m.rowGap)), at).toBeLessThanOrEqual(TOL);
+      expect(Math.abs(m.main.right - m.rowRight), at).toBeLessThanOrEqual(TOL);
+      // `min-w-0`, so a wide child never pushes the column past the row.
+      expect(m.main.minWidth, at).toBe("0px");
+
+      // A wrapper changes no item's box: each keeps the tap floor and Today's left edge
+      // and width, and every run spans the column the items sit in.
+      premise("nav items", m.items.length, SHOW_SECTIONS.length);
+      const [today] = m.items;
+      for (const item of m.items) {
+        expect(item.h, at).toBeGreaterThanOrEqual(44 - TOL);
+        expect(Math.abs(item.left - today!.left), at).toBeLessThanOrEqual(TOL);
+        expect(Math.abs(item.w - today!.w), at).toBeLessThanOrEqual(TOL);
+      }
+      premise("nav runs", m.runs.length, 0);
+      for (const run of m.runs) {
+        expect(Math.abs(run.right - today!.right), at).toBeLessThanOrEqual(TOL);
+      }
+
+      // The bar sits on the active item, inside its height, and clear of the heading.
+      premiseHolds("the active item opens its run", m.activeIsFirstInRun);
+      expect(m.heading.h, at).toBeGreaterThan(0);
+      expect(m.heading.bottom, at).toBeLessThanOrEqual(m.active.top + TOL);
+      expect(Math.abs(m.bar.top - (m.active.top + 10)), at).toBeLessThanOrEqual(TOL);
+      expect(Math.abs(m.bar.bottom - (m.active.bottom - 10)), at).toBeLessThanOrEqual(TOL);
+      expect(m.bar.top, at).toBeGreaterThan(m.heading.bottom);
+    } finally {
+      await deleteSeededShow(seeded.driveFileId);
+    }
+  });
+
+  test("registry groups: on a short window a jump keeps the active item inside the nav's box, down to Billing and back up", async ({
+    page,
+  }) => {
+    const seeded = await seedGroupsShow("Registry Groups Short Window Show", "Set");
+    try {
+      await page.setViewportSize({ width: 1024, height: 640 });
+      await loadWide(page, `/show/${seeded.slug}/${seeded.shareToken}`);
+      const overflow = await navEl(page).evaluate((nav) => nav.scrollHeight - nav.clientHeight);
+      premise("the nav's overflow past its box, in px", overflow, 0);
+
+      // A DOM click, because a Playwright click scrolls its target into view first, which
+      // would do the nav's job for it. Then the item's place in the box is the evidence.
+      const insideNav = (id: string) =>
+        navItem(page, id).evaluate((item) => {
+          const nav = item.closest('[data-testid="crew-wide-nav"]')!.getBoundingClientRect();
+          const r = item.getBoundingClientRect();
+          return r.top >= nav.top - 0.5 && r.bottom <= nav.bottom + 0.5;
+        });
+      expect(await insideNav("billing"), "the premise: Billing starts below the fold").toBe(false);
+
+      await navItem(page, "billing").evaluate((item) => (item as HTMLElement).click());
+      await expect(navItem(page, "billing")).toHaveAttribute("aria-current", "true");
+      await expect.poll(() => insideNav("billing")).toBe(true);
+      expect(await insideNav("today"), "the premise: Today left the box").toBe(false);
+
+      await navItem(page, "today").evaluate((item) => (item as HTMLElement).click());
+      await expect(navItem(page, "today")).toHaveAttribute("aria-current", "true");
+      await expect.poll(() => insideNav("today")).toBe(true);
     } finally {
       await deleteSeededShow(seeded.driveFileId);
     }

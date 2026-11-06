@@ -8,11 +8,11 @@ afterEach(cleanup);
 const DRIVE = "drive-1";
 
 it("renders the SourceLink <a> with the EXACT passed-in anchor (not a CARD_REGION_MAP-derived one)", () => {
-  // gear-scope passes a dynamic gear_scope anchor even though its region is `rooms`.
+  // The Rooms panel passes a dynamic gear_scope anchor even though its region is `rooms`.
   const gearScope: SourceAnchor = { title: "GEAR", gid: 7, a1: "A1:D9" };
   const { container } = render(
     <CardHeaderActions
-      cardId="gear-scope-audio"
+      cardId="gear-room-details"
       driveFileId={DRIVE}
       anchor={gearScope}
       showId="s1"

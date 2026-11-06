@@ -1007,7 +1007,49 @@ export function scanCandidates(): Candidate[] {
       // actions beside the identity from the crew threshold (row 20). None is a
       // fault branch. Re-derived by running the guard.
       //
-      // Probed: 799 such ternaries under the derived roots, 79 on a
+      // 799 -> 798 on feat/crew-page-redesign-pr-c Task 2: EventDetailsBreakdown's group
+      // list moved into the shared Event details body
+      // (components/show-panels/EventDetailsBody.tsx). Its empty state stays in the
+      // admin. The rows block, the chip grid and the chip's yes and no arms moved, each
+      // still counted once; the row map's reel and dress ternaries became a dispatch
+      // whose arms are calls, which the arm does not count, and the reel's attention
+      // cards one ternary inside it. None is a fault branch; 79 kept. Re-derived by
+      // running the guard.
+      //
+      // 798 -> 801 on feat/crew-page-redesign-pr-c Task 3: RoomsBreakdown's room list moved
+      // into the shared Rooms body (components/show-panels/RoomsBody.tsx). Its empty state
+      // stays in the admin. The floor, times, setup, dimensions and note ternaries moved,
+      // each still counted once. Three are new: the room list present or not, a room's
+      // scope list present or not, and the "Your scope" label on an emphasized row. None
+      // is a fault branch; 79 kept. Re-derived by running the guard.
+      // 801 -> 796 on feat/crew-page-redesign-pr-c Task 5: the Tech specs, keynote and
+      // opening reel cards left Gear, five ternaries (three card gates, the reel's text
+      // and player), and the Dress code card left the home, one. Their rows moved into
+      // the shared Event details body, which already counted them. EventSection adds
+      // one, the player in its slot. None is a fault branch; 79 kept. Re-derived by
+      // running the guard.
+      // 796 -> 793 on feat/crew-page-redesign-pr-c Task 6: the pack list left Gear, three
+      // ternaries (the card's gate, the raw snippet and the overflow stub). Their rows
+      // are the shared Pack list body's, which already counted them, and PackListSection
+      // decides its empty state with an early return. None is a fault branch; 79 kept.
+      // Re-derived by running the guard.
+      // 793 -> 789 on feat/crew-page-redesign-pr-c Task 7: Gear's six went with its cards
+      // (the fetch failure, the empty state, the scope grid, the eyebrow, the room details
+      // and their overflow line) and Venue's two with its split (the Diagrams block and
+      // the split's branch), and RoomsSection's four came in (the fetch failure, the empty
+      // state, the panel and the Diagrams block). None is a new fault branch; 79 kept.
+      // Re-derived by running the guard.
+      // 789 -> 788 on feat/crew-page-redesign-pr-c Task 8: SectionCard's optional eyebrow
+      // left with its last caller, and Gear's empty state was an early render, no ternary.
+      // None was a fault branch; 79 kept. Re-derived by running the guard.
+      // 788 -> 789 on feat/crew-page-redesign-pr-c Task 9: CrewLoadingSkeleton draws a nav
+      // run bare or in its group's wrapper. Not a fault branch; 79 kept. CrewWideNav's twin
+      // holds no JSX in its true arm, so it is not counted. Re-derived by running the guard.
+      // 789 -> 787 on feat/crew-page-redesign-pr-c's gate repair 4: the Section atom left
+      // with its last caller, taking its heading-icon and subheading ternaries. Neither
+      // was a fault branch; 79 kept. Re-derived by running the guard.
+      //
+      // Probed: 787 such ternaries under the derived roots, 79 on a
       // fault-vocabulary guard and unclassifiable. 69 of those 79 sit in
       // `"use client"` files, where the guard is interaction state -- `errorCode`,
       // `state.kind === "error"`, `switchStatus === "error"` -- and not a server-render

@@ -11,7 +11,7 @@
  * Why <dt>/<dd>: spec calls these "key/value pairs"; HTML's <dl> is the
  * semantic match (description list). Screen readers announce the label
  * before the value, which is the read pattern this atom expresses.
- * Tiles wrap a sequence of <KeyValue> in a <dl> — see Section atom.
+ * Callers wrap a sequence of <KeyValue> in a <dl>.
  *
  * Empty-state behavior (§8.3 — required-field missing inside a rendered
  * tile):

@@ -50,7 +50,9 @@ import { BillingSection } from "@/components/crew/sections/BillingSection";
 import { ContactsSection } from "@/components/crew/sections/ContactsSection";
 import { HotelsSection } from "@/components/crew/sections/HotelsSection";
 import { CrewSection } from "@/components/crew/sections/CrewSection";
-import { GearSection } from "@/components/crew/sections/GearSection";
+import { EventSection } from "@/components/crew/sections/EventSection";
+import { RoomsSection } from "@/components/crew/sections/RoomsSection";
+import { PackListSection } from "@/components/crew/sections/PackListSection";
 import { HomeSection } from "@/components/crew/sections/HomeSection";
 import { ScheduleSection } from "@/components/crew/sections/ScheduleSection";
 import { VenueSection } from "@/components/crew/sections/VenueSection";
@@ -276,6 +278,17 @@ export async function CrewShell({
     throw err;
   }
 
+  // Render-time "today" reads through the request-scoped clock so screenshot
+  // capture can pin it (M11 Phase C). Sections consume `today` in Phase 3. The
+  // client components that tick (the pass, the day row) read the shared crew
+  // clock, which this `today` seeds through the controller (`initialNow`), so
+  // their server render and hydration agree. The Header status pill (Task 14)
+  // also derives from this request-scoped `today`, a coarse, server-rendered
+  // badge (the crew clock owns the live tick). Read before the entitled set: the
+  // Pack list gate reads the day (PR C plan decision 1).
+  const today = await nowDate();
+  const sectionsViewer = { ...ctx, today };
+
   // The entitled set: the home plus every section this viewer may see
   // (`crewSectionEntitled`, the one predicate per gate, which `crewSectionsFor`
   // reads too). `?s=` resolves against it, aliases first, and the shell builds a
@@ -283,20 +296,11 @@ export async function CrewShell({
   // and b), so a direct URL opens exactly what a body exists for.
   const entitled: ReadonlySet<SectionId> = new Set<SectionId>([
     "today",
-    ...CREW_SECTION_IDS.filter((id) => crewSectionEntitled(id, data, ctx)),
+    ...CREW_SECTION_IDS.filter((id) => crewSectionEntitled(id, data, sectionsViewer)),
   ]);
   const activeSection = resolveActiveSection(rawSection, entitled);
   // The Billing search builder's own gate: the same entitlement.
   const billingVisible = entitled.has("billing");
-
-  // Render-time "today" reads through the request-scoped clock so screenshot
-  // capture can pin it (M11 Phase C). Sections consume `today` in Phase 3. The
-  // client components that tick (the pass, the day row) read the shared crew
-  // clock, which this `today` seeds through the controller (`initialNow`), so
-  // their server render and hydration agree. The Header status pill (Task 14)
-  // also derives from this request-scoped `today`, a coarse, server-rendered
-  // badge (the crew clock owns the live tick).
-  const today = await nowDate();
 
   // The pass's props (crew page redesign spec §4.3), built ONCE on the server
   // and handed to two client carriers: the pass itself, under the day row, and
@@ -366,7 +370,7 @@ export async function CrewShell({
   // ── Section bodies (client-section-toggle) ──
   // Render the REAL section component for EVERY entitled section, each on the
   // uniform contract `({ data, viewer, today, showId })` (R10-HIGH-1: `showId`
-  // is the CrewShell prop, threaded uniformly so GearSection can mount
+  // is the CrewShell prop, threaded uniformly so EventSection can mount
   // `<OpeningReelVideo showId={showId}>`). `today` is the request-scoped
   // `await nowDate()` Date, threaded so the section's timezone today-pin matches
   // the frozen screenshot clock (R8-HIGH-1). The pass is not a section body: the
@@ -413,9 +417,9 @@ export async function CrewShell({
   const renderOne = (id: SectionId): JSX.Element => {
     switch (id) {
       case "today":
-        // The composed home's server body (quick facts, show notes, the Dress
-        // code card, the admin fetch-failure blocks), placed by the controller
-        // after the day row, the pass and the run card (plan Task 11).
+        // The composed home's server body (quick facts, show notes, the admin
+        // fetch-failure blocks), placed by the controller after the day row, the
+        // pass and the run card (plan Task 11).
         return (
           <HomeSection
             data={data}
@@ -423,7 +427,6 @@ export async function CrewShell({
             today={today}
             showId={showId}
             ledger={tileLedger}
-            cardReport={cardReport}
           />
         );
       case "schedule":
@@ -451,6 +454,17 @@ export async function CrewShell({
       case "venue":
         return (
           <VenueSection
+            data={data}
+            viewer={viewer}
+            today={today}
+            showId={showId}
+            ledger={tileLedger}
+            cardReport={cardReport}
+          />
+        );
+      case "event":
+        return (
+          <EventSection
             data={data}
             viewer={viewer}
             today={today}
@@ -503,9 +517,20 @@ export async function CrewShell({
             cardReport={cardReport}
           />
         );
-      case "gear":
+      case "rooms":
         return (
-          <GearSection
+          <RoomsSection
+            data={data}
+            viewer={viewer}
+            today={today}
+            showId={showId}
+            ledger={tileLedger}
+            cardReport={cardReport}
+          />
+        );
+      case "packlist":
+        return (
+          <PackListSection
             data={data}
             viewer={viewer}
             today={today}
@@ -531,12 +556,12 @@ export async function CrewShell({
   // The "All sections" card and the wide nav read ONE membership, with each
   // section's peek built here on the server through that section's own gates
   // (spec §4.6), so the client never derives a peek from data it should not see.
-  const sections = crewSectionEntries(data, { ...ctx, today });
+  const sections = crewSectionEntries(data, sectionsViewer);
 
   // A body for every entitled id (`billing` iff financialsVisible), listed or
   // not. The Billing body is BUILT only when entitled, so a non-lead never
   // receives a Billing body in the payload (no-Budget-flash invariant §4.17 /
-  // financials gate §4.1).
+  // financials gate §4.1), and a day the Pack list gate shuts carries no case.
   const sectionNodes = Object.fromEntries(
     [...entitled].map((id) => [id, renderOne(id)]),
   ) as Partial<Record<SectionId, JSX.Element>>;

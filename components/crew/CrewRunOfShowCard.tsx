@@ -41,7 +41,7 @@ import { AnimatePresence, motion, useIsPresent, type Variants } from "framer-mot
 
 import { SectionChipLink } from "@/components/crew/SectionChipLink";
 import { useDaySelection } from "@/components/crew/daySelection";
-import { CalendarIcon, ClockIcon } from "@/components/crew/icons/sectionIcons";
+import { ClockIcon } from "@/components/crew/icons/sectionIcons";
 import { CardHeaderActions } from "@/components/crew/primitives/CardHeaderActions";
 import { RunOfShowList } from "@/components/crew/primitives/RunOfShowList";
 import { SectionCard } from "@/components/crew/primitives/SectionCard";
@@ -55,9 +55,13 @@ import {
   type RunCardDay,
   type RunCardProps,
 } from "@/lib/crew/runOfShowCard";
+import { showSection } from "@/lib/showSections/registry";
 import { formatIsoForTimezone } from "@/lib/time/rightNow";
 
 /** The crossfade, `--duration-normal` on `--ease-out-quart` (spec §7), as the pass runs it. */
+/** The chip opens Schedule, so it draws the glyph the nav and the admin rail draw for it. */
+const ScheduleIcon = showSection("schedule").icon;
+
 const CROSSFADE_SECONDS = 0.22;
 const EASE_OUT_QUART: [number, number, number, number] = [0.25, 1, 0.5, 1];
 
@@ -185,7 +189,7 @@ export function CrewRunOfShowCard({ timezone, days, header }: RunCardProps) {
               data, so outside search. */}
           {day.more ? (
             <div data-search-skip="" className="flex">
-              <SectionChipLink section="schedule" icon={<CalendarIcon />}>
+              <SectionChipLink section="schedule" icon={<ScheduleIcon aria-hidden="true" />}>
                 Full schedule
               </SectionChipLink>
             </div>

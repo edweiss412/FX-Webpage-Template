@@ -453,7 +453,7 @@ describe("forced-colors state collapse (Arm 1)", () => {
 
   // The census size, pinned once so the case title cannot drift from the assertion
   // (it read 41 over an assertion of 42 on main and 45 here, whole-diff review R4-F5).
-  const COLLAPSE_ROWS = 47;
+  const COLLAPSE_ROWS = 48;
   it(`holds exactly ${COLLAPSE_ROWS} collapse rows, each disposed once`, () => {
     // The anti-vacuity literal. A subset assertion passes while the census grows
     // silently, and the family sum is what stops a new site landing in no family.
@@ -471,6 +471,8 @@ describe("forced-colors state collapse (Arm 1)", () => {
     // 45 -> 47 on feat/crew-page-redesign-pr-b's invariant-8 gate repairs (row 17): the
     // roster's and the contacts' drawn action squares each carry the admin's arm and the
     // crew's (`actionTone`), two not-a-state rows.
+    // 47 -> 48 on feat/crew-page-redesign-pr-c's gate repair 8: the report modal's prompt
+    // carries the admin's arm and the crew's (`promptTone`), a not-a-state row.
     expect(COLLAPSE_CENSUS).toHaveLength(COLLAPSE_ROWS);
     expect(new Set(COLLAPSE_CENSUS.map((r) => r.site)).size).toBe(COLLAPSE_ROWS);
     const repaired = COLLAPSE_CENSUS.filter((r) => r.disposition === "repaired");
@@ -704,7 +706,10 @@ describe("forced-colors state collapse (Arm 1)", () => {
       // body, components/show-panels/CrewBody.tsx, where the call, text and email
       // actions map through one anchor whose glyph is a table-read `<Icon>` (one row),
       // aria-hidden decoration inside a control the census disposes. Nothing else moved.
-    ).toBe(135);
+      // 135 -> 134 on feat/crew-page-redesign-pr-c Task 6, re-derived by running
+      // findUndecidable on the tree: the crew pack summary's `<ChevronRight>` left
+      // the Gear section for the shared body, whose chevron is already a row.
+    ).toBe(134);
     expect(
       undecidable.every((row) => /:\d+ </.test(row) || row.includes("single-path-state-variant")),
       "every cannot-decide row names a site",

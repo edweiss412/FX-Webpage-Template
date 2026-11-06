@@ -150,7 +150,7 @@ export function FactRows({ rows }: FactRowsProps) {
               {row.sub !== undefined ? (
                 <span
                   data-slot="fact-row-sub"
-                  className="block min-w-0 wrap-break-word text-xs text-text-faint"
+                  className="block min-w-0 wrap-break-word text-xs text-text-subtle"
                 >
                   {row.sub}
                 </span>

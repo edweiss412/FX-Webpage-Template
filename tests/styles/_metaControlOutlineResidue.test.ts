@@ -1544,6 +1544,8 @@ describe("a defect planted in the theme, not in the module (AC-16)", () => {
       "components/admin/nav/AdminNav.tsx:222",
       "components/admin/showpage/AttentionMenu.tsx:304",
       "components/admin/telemetry/EventFilters.tsx:97",
+      // 191 -> 196 on feat/crew-show-search (Schedule search entries); the same overflow `<summary>` divider.
+      "components/crew/primitives/KeyTimesStrip.tsx:196",
       // Moved on the merge of origin/main (6441d5e4c). Located on the merged tree, not
       // bumped: 2436 is the `PackCountPill` <span> carrying `border-border`.
       // Then 2436 -> 2441 with the announce-log import block; located again, 2441 is the
@@ -1592,9 +1594,12 @@ describe("a defect planted in the theme, not in the module (AC-16)", () => {
       // 2488 -> 2441 on feat/crew-page-redesign-pr-b Task 6 (CrewBreakdown's member list became one CrewBody call, its rows and their call and email anchors moved to components/show-panels/CrewBody.tsx, and one import landed, all above it); located by its own element (5-line context match).
       // 2441 -> 2360 on feat/crew-page-redesign-pr-b Task 7 (contentRows moved to components/show-panels/FieldRowList.tsx and contactBlocks with ContactsBreakdown's list and its call and email anchors to components/show-panels/ContactsBody.tsx, one import landed and the unused Avatar import left, all above it); located by its own element (5-line context match).
       // 2360 -> 2133 on feat/crew-page-redesign-pr-b Task 8 (MiniAvatar moved to components/show-panels/MiniAvatar.tsx, nightsBetween to components/show-panels/HotelCardBody.tsx, and TransportBody with its cells and contact anchors to components/show-panels/TransportBody.tsx, three lucide and four helper imports left and two imports landed, all above it); located by its own element (5-line context match).
-      "components/admin/wizard/step3ReviewSections.tsx:2133",
-      // 191 -> 196 on feat/crew-show-search (Schedule search entries); the same overflow `<summary>` divider.
-      "components/crew/primitives/KeyTimesStrip.tsx:196",
+      // 2133 -> 1951 on feat/crew-page-redesign-pr-c Task 2 (EVENT_DETAIL_GROUPS moved to lib/crew/eventDetailsSpecs.ts, its boolean helpers and EventDetailsBreakdown's group list to components/show-panels/EventDetailsBody.tsx, five imports left, one landed); located by its own element (5-line context match).
+      // 1951 -> 1733 on feat/crew-page-redesign-pr-c Task 3 (the Rooms breakdown's room list moved to components/show-panels/RoomsBody.tsx and its scope rules to components/show-panels/roomScope.ts, five lucide imports left and three imports landed); located by its own element (5-line context match).
+      // step3ReviewSections.tsx:1733 -> PackListBody.tsx:92 on feat/crew-page-redesign-pr-c Task 4 (the pack list's case list moved to components/show-panels/PackListBody.tsx, the pill with it); located by its own element, the same PackCountPill <span>.
+      // 92 -> 76 on feat/crew-page-redesign-pr-c Task 6 (packItemLabel moved to components/show-panels/packItemLabel.ts, so the search builders can read it without the client leaf); located by its own element, the same PackCountPill <span>.
+      // 76 -> 92 on PR C's gate repair 2 (the item tone table and prop sit above it).
+      "components/show-panels/PackListBody.tsx:92",
     ]);
 
     const stale = validateCensus(RESIDUE_CENSUS, under, blind, ledger).filter((p) =>

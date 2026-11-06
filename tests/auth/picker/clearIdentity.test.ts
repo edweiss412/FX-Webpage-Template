@@ -218,6 +218,26 @@ describe("clearIdentity", () => {
   });
 });
 
+describe("clearIdentityAndSkip — gear alias (PR C Task 8)", () => {
+  test("gear alias: an old s=gear is carried as s=rooms, with gate=skip", async () => {
+    existingCookie = encodePickerCookie(
+      { v: 1, selections: { [SHOW_ID]: { id: CREW_ID, e: 1, t: 100 } } },
+      KEY,
+    );
+    const form = fd({ slug: SLUG, shareToken: TOKEN, showId: SHOW_ID });
+    form.set("s", "gear");
+    let digest = "";
+    try {
+      await clearIdentityAndSkip(form);
+    } catch (err) {
+      digest = (err as { digest?: string }).digest ?? "";
+    }
+    expect(digest.startsWith("NEXT_REDIRECT")).toBe(true);
+    expect(digest).toContain(`/show/${SLUG}/${TOKEN}?s=rooms&gate=skip`);
+    expect(digest).not.toContain("s=gear");
+  });
+});
+
 describe("clearIdentity telemetry — PICKER_IDENTITY_CLEARED", () => {
   test("emits when an existing entry is cleared", async () => {
     existingCookie = encodePickerCookie(

@@ -33,7 +33,6 @@ import {
 import { SECTION_ICON } from "@/components/crew/sectionIcon";
 import { VenueBody } from "@/components/show-panels/VenueBody";
 import * as venueBodyModule from "@/components/show-panels/VenueBody";
-import { CREW_MOVED_IDS } from "@/lib/crew/crewSections";
 import { createTileRenderLedger } from "@/lib/crew/tileRenderLedger";
 import type { ShowForViewer, Viewer } from "@/lib/data/getShowForViewer";
 import { resolveViewerContext } from "@/lib/data/viewerContext";
@@ -222,8 +221,7 @@ describe("VenueSection (crew)", () => {
     expect(screen.getByTestId("coi-status")).toHaveTextContent("Received");
   });
 
-  test("venue is a moved section: its glyph is the registry's (decision 3)", () => {
-    expect(CREW_MOVED_IDS).toContain("venue");
+  test("venue's glyph is the registry's (decision 3)", () => {
     expect(SECTION_ICON.venue).toBe(showSection("venue").icon);
   });
 });

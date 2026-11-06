@@ -18,7 +18,7 @@ import { HotelsSection } from "@/components/crew/sections/HotelsSection";
 import { TransportSection } from "@/components/crew/sections/TransportSection";
 import { VenueSection } from "@/components/crew/sections/VenueSection";
 import { ContactsSection } from "@/components/crew/sections/ContactsSection";
-import { GearSection } from "@/components/crew/sections/GearSection";
+import { RoomsSection } from "@/components/crew/sections/RoomsSection";
 import { ScheduleSection } from "@/components/crew/sections/ScheduleSection";
 import { BillingSection } from "@/components/crew/sections/BillingSection";
 import { makeShowForViewer } from "@/tests/fixtures/showForViewer";
@@ -100,16 +100,16 @@ test("rooms fetch error: admin sees degraded block, crew sees omission, no upser
   const data = makeShowForViewer(err("rooms"));
 
   const admin = render(
-    <GearSection {...ledgerProp()} data={data} viewer={ADMIN} today={TODAY} showId={SHOW_ID} />,
+    <RoomsSection {...ledgerProp()} data={data} viewer={ADMIN} today={TODAY} showId={SHOW_ID} />,
   );
   const block = admin.container.querySelector('[data-testid="section-tile-error-rooms"]');
   expect(block).not.toBeNull();
   assertHumanReadable(block!.textContent ?? "");
-  // No genuine scope card rendered alongside the degraded block.
-  expect(admin.container.querySelector('[data-testid^="gear-scope-"]')).toBeNull();
+  // No genuine room card rendered alongside the degraded block.
+  expect(admin.container.querySelector('[data-card-id="gear-room-details"]')).toBeNull();
 
   const crew = render(
-    <GearSection {...ledgerProp()} data={data} viewer={CREW} today={TODAY} showId={SHOW_ID} />,
+    <RoomsSection {...ledgerProp()} data={data} viewer={CREW} today={TODAY} showId={SHOW_ID} />,
   );
   expect(crew.container.querySelector('[data-testid="section-tile-error-rooms"]')).toBeNull();
 
@@ -288,10 +288,10 @@ test("admin can distinguish fetch-error (degraded block) from genuine absence (s
   const absent = makeShowForViewer({ rooms: [], tileErrors: {} }); // empty, no error
 
   const erroredAdmin = render(
-    <GearSection {...ledgerProp()} data={errored} viewer={ADMIN} today={TODAY} showId={SHOW_ID} />,
+    <RoomsSection {...ledgerProp()} data={errored} viewer={ADMIN} today={TODAY} showId={SHOW_ID} />,
   );
   const absentAdmin = render(
-    <GearSection {...ledgerProp()} data={absent} viewer={ADMIN} today={TODAY} showId={SHOW_ID} />,
+    <RoomsSection {...ledgerProp()} data={absent} viewer={ADMIN} today={TODAY} showId={SHOW_ID} />,
   );
 
   // Error-state: the degraded block IS present.

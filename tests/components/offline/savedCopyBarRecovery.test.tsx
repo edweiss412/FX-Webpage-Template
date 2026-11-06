@@ -770,8 +770,8 @@ describe("SavedCopyBar: the section in the URL (spec 4.7.4)", () => {
     expect(replace).not.toHaveBeenCalled();
     expect(window.location.search).toBe("?s=today&gate=skip");
 
-    wrapper.setAttribute("data-active-section", "gear");
+    wrapper.setAttribute("data-active-section", "rooms");
     renderBar();
-    expect(replace.mock.calls).toEqual([[null, "", `${PATH}?s=gear&gate=skip`]]);
+    expect(replace.mock.calls).toEqual([[null, "", `${PATH}?s=rooms&gate=skip`]]);
   });
 });

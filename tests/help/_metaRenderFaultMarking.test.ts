@@ -656,7 +656,41 @@ describe("the scanner's population is pinned against resolver drift", () => {
     // Same contacts and transportation `tile-errors` rows, still marked. Nothing joined
     // or left: membership is still 34, and mapping those TWO rows back reproduces
     // 4c65a019... byte-for-byte (recomputed from scanCandidates()).
-    expect(digest).toBe("64e901050b3a4671806a61c99ae854287e4bafc661d8e100ac494ca4f23580f2");
+    // Regenerated for feat/crew-page-redesign-pr-c Task 5, to the same bar. EXACTLY FOUR
+    // inputs changed, line numbers, in the two files of this set the task edits:
+    //   components/crew/sections/GearSection.tsx 175 -> 142 (-33: the keynote, reel and
+    //   Tech specs derivations left for Event details)
+    //   components/crew/sections/HomeSection.tsx 198/199/200 -> 172/173/174 (-26: the
+    //   Dress code card, its imports and the prop left for Event details)
+    // Same rooms, hotel and contacts `tile-errors` rows, still marked. EventSection adds
+    // no candidate (no fetch-failure block). Nothing joined or left: membership is still
+    // 34, and mapping those FOUR rows back reproduces 64e90105... byte-for-byte
+    // (recomputed from scanCandidates()).
+    // Regenerated for feat/crew-page-redesign-pr-c Task 6, to the same bar. EXACTLY ONE
+    // input changed, a line number, in the one file of this set the task edits:
+    //   components/crew/sections/GearSection.tsx 142 -> 127 (-15: the pack list's
+    //   imports, derivation and comment left for its own section)
+    // Same rooms `tile-errors` row, still marked. PackListSection adds no candidate (no
+    // fetch-failure block). Nothing joined or left: membership is still 34, and mapping
+    // that ONE row back reproduces 964312b2... byte-for-byte (recomputed from
+    // scanCandidates()).
+    // Regenerated for feat/crew-page-redesign-pr-c Task 7, to the same bar. EXACTLY TWO
+    // inputs changed:
+    //   components/crew/sections/GearSection.tsx:127 -> RoomsSection.tsx:84 (the same
+    //   rooms `tile-errors` row, moved with the cards it guards)
+    //   components/crew/sections/VenueSection.tsx 338 -> 158 (-180: the split, the
+    //   Diagrams block and its derivations left)
+    // Same guard, still marked. Nothing joined or left: membership is still 34, and
+    // mapping those TWO rows back reproduces 529074b8... byte-for-byte (recomputed from
+    // scanCandidates()).
+    // Regenerated for feat/crew-page-redesign-pr-c's gate repair 5, to the same bar. EXACTLY
+    // ONE input changed, a line number, in the one file of this set the repair edits:
+    //   components/crew/sections/RoomsSection.tsx 84 -> 94 (+10: the gallery's declared
+    //   sizes above it)
+    // Same rooms `tile-errors` row, still marked. Nothing joined or left: membership is
+    // still 34, and mapping that ONE row back reproduces f6a41bec... byte-for-byte
+    // (recomputed from scanCandidates()).
+    expect(digest).toBe("b4a293463ac88a2ce76e087a909bab4faa75281c30f50888257717cf8351604d");
   });
 });
 

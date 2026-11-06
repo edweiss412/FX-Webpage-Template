@@ -11,11 +11,12 @@
  * Exported here: `DockIcon` (loading dock), `CarIcon` (parking/ground),
  * `WifiIcon` (crew Wi-Fi) — the three Venue fact-row mini-icons — and
  * `PlaneIcon` (flight legs / Travel section). Task 8.5 adds the seven crew
- * section glyphs: `HomeIcon` (Today), `CalendarIcon` (Schedule), `MapPinIcon`
- * (Venue), `PlaneIcon` (Travel — reused), `BoxIcon` (Gear).
- * A section moved onto a shared body draws its registry glyph instead
- * (components/crew/sectionIcon.ts), so the Billing receipt left with Budget and
- * the Crew pair of people with the roster's move (PR B Task 6).
+ * section glyphs: `HomeIcon` (Today), `MapPinIcon` (Venue), `PlaneIcon` (Travel —
+ * reused).
+ * Every section draws its registry glyph instead since PR C Task 9
+ * (components/crew/sectionIcon.ts), so the Billing receipt left with Budget, the
+ * Crew pair of people with the roster's move (PR B Task 6), and the Gear box with
+ * the section (PR C Task 8). `HomeIcon` still draws the home.
  * Additional glyphs can join as surfaces adopt them.
  */
 import type { SVGProps } from "react";
@@ -91,31 +92,12 @@ export function HomeIcon({ className }: GlyphProps) {
   );
 }
 
-/** Schedule — a wall calendar (the Schedule section's icon). */
-export function CalendarIcon({ className }: GlyphProps) {
-  return (
-    <svg {...baseProps} className={className} aria-hidden="true">
-      <rect x="3" y="4.5" width="18" height="16" rx="2.5" />
-      <path d="M3 9h18M8 2.5v4M16 2.5v4" />
-    </svg>
-  );
-}
-
 /** Venue — a map pin (the Venue section's icon). */
 export function MapPinIcon({ className }: GlyphProps) {
   return (
     <svg {...baseProps} className={className} aria-hidden="true">
       <path d="M20 10c0 6-8 12-8 12s-8-6-8-12a8 8 0 0 1 16 0z" />
       <circle cx="12" cy="10" r="2.6" />
-    </svg>
-  );
-}
-
-/** Gear — a shipping box / case (the Gear section's icon). */
-export function BoxIcon({ className }: GlyphProps) {
-  return (
-    <svg {...baseProps} className={className} aria-hidden="true">
-      <path d="M21 8 12 3 3 8l9 5 9-5zM3 8v8l9 5 9-5V8M12 13v8" />
     </svg>
   );
 }
@@ -162,7 +144,7 @@ export function NoteIcon({ className }: GlyphProps) {
   );
 }
 
-/** Map — a folded map (mock `map`). Venue "Site diagrams" card. */
+/** Map — a folded map (mock `map`). The Rooms section's Diagrams card. */
 export function MapIcon({ className }: GlyphProps) {
   return (
     <svg {...baseProps} className={className} aria-hidden="true">
@@ -178,16 +160,6 @@ export function InfoIcon({ className }: GlyphProps) {
     <svg {...baseProps} className={className} aria-hidden="true">
       <circle cx="12" cy="12" r="9" />
       <path d="M12 11v5M12 8h.01" />
-    </svg>
-  );
-}
-
-/** Monitor — a screen on a stand (mock `monitor`). Gear "Opening reel" card. */
-export function MonitorIcon({ className }: GlyphProps) {
-  return (
-    <svg {...baseProps} className={className} aria-hidden="true">
-      <rect x="2.5" y="4" width="19" height="13" rx="2" />
-      <path d="M8 21h8M12 17v4" />
     </svg>
   );
 }

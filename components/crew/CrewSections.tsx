@@ -6,9 +6,8 @@
  *
  * Two layouts from ONE set of server-rendered bodies (`sectionNodes`):
  *   - compact, below 1024px: the home (the Today block: day row, pass, run of
- *     show, then the home body of quick facts, show notes and the Dress code
- *     card; then the "All sections" card) with any section in a bottom sheet
- *     (`CrewSectionSheet`);
+ *     show, then the home body of quick facts and show notes; then the "All
+ *     sections" card) with any section in a bottom sheet (`CrewSectionSheet`);
  *   - wide, 1024px and up: a left nav ("Today" then the sections) beside one
  *     column, the Today block first (the home body beside the day row, pass
  *     and run of show) and every section stacked under it.
@@ -134,6 +133,7 @@ import type { DayRowProps, PassProps } from "@/lib/crew/passModel";
 import { canonicalSectionParam, type SectionId } from "@/lib/crew/resolveActiveSection";
 import type { RunCardProps } from "@/lib/crew/runOfShowCard";
 import { buildHomeHref, buildSectionHref } from "@/lib/crew/sectionHref";
+import { showSection } from "@/lib/showSections/registry";
 import { cn } from "@/lib/ui/cn";
 import { forHistory } from "@/lib/ui/historyState";
 import {
@@ -303,9 +303,8 @@ function focusBodyIfFocusFell(body: HTMLElement | null): void {
  * column ended there while the quick facts and the show notes ran on beside
  * it: a blank quadrant next to the page's most important card. Here the block
  * is a two-column grid instead, the home body's root `display: contents` so its
- * cards are grid items: the quick facts sit beside the pass, and the show notes,
- * the Dress code card and an admin fetch-failure block each span both columns
- * under that row. Moving the notes under the pass alone only moved the hole
+ * cards are grid items: the quick facts sit beside the pass, and the show notes
+ * and an admin fetch-failure block each span both columns under that row. Moving the notes under the pass alone only moved the hole
  * under the quick facts (measured at 1280: a 533px column of air beside the
  * notes); spanning leaves no column of air at all. Dense flow keeps the pass and
  * the quick facts on the first row whatever renders after them. Only while the
@@ -904,7 +903,8 @@ export function CrewSections({
   const navItems: CrewWideNavItem[] = useMemo(
     () => [
       { id: "today", label: CREW_TODAY_LABEL },
-      ...sections.map(({ id, label }) => ({ id, label })),
+      // `today` has no registry record, so only a section takes a group.
+      ...sections.map(({ id, label }) => ({ id, label, group: showSection(id).group })),
     ],
     [sections],
   );
@@ -961,9 +961,9 @@ export function CrewSections({
                   tabIndex={-1}
                   // Compact: one column, the home body under the run card.
                   // Wide: two columns, the day row, pass and run card beside the
-                  // home body (quick facts, show notes, Dress code card), each
-                  // `flex-1` so a column that renders nothing (`empty:hidden`)
-                  // leaves the other the full width; with no run of show, the
+                  // home body (quick facts, show notes), each `flex-1` so a column
+                  // that renders nothing (`empty:hidden`) leaves the other the full
+                  // width; with no run of show, the
                   // packed grid of `TODAY_PACKED` instead. Not a size container:
                   // the home body reads no container query, and containment would
                   // make this block the containing block of the fixed copy toast.

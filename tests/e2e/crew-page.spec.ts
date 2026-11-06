@@ -63,17 +63,13 @@
  *    is in the section the fact comes from.
  */
 import { test, expect, devices } from "@playwright/test";
+import { showSection } from "@/lib/showSections/registry";
 import { ADMIN_FIXTURE } from "./helpers/fixtures";
 import { signInAs, signOut } from "./helpers/signInAs";
 import { deleteSeededShow, seedShowWithCrew } from "./helpers/seedShowWithCrew";
 import { admin } from "./helpers/supabaseAdmin";
 import { TEST_AUTH_SECRET } from "./helpers/testAuthConfig";
-import { renderFresh } from "./helpers/crewRefresh";
-import {
-  CREW_SPLIT_PX,
-  expectColumnsFollowSplit,
-  splitContainerOf,
-} from "./helpers/crewSplitContainer";
+import { expectColumnsFollowSplit, splitContainerOf } from "./helpers/crewSplitContainer";
 import { premise, premiseHolds } from "../_shared/premise";
 
 const SEED_DRIVE_FILE_ID = "seed-fixture:2026-04-asset-mgmt-cfo-coo-waldorf";
@@ -330,75 +326,6 @@ test.describe("crew redesign layout invariants (§4.9 / test 12)", () => {
   let slug = "";
   let shareToken = "";
 
-  // ── inv3 fixture: the live Waldorf seed has ONE room with NO audio/video/
-  // lighting values, so GearSection renders ZERO scope cards and the equal-height
-  // invariant cannot be exercised. To make inv3 a REAL (non-skipped) assertion we
-  // temporarily populate TWO disciplines (audio + video) with DIFFERENT-LENGTH
-  // values on the seed room so the two scope cards have unequal natural content —
-  // exactly the case the items-stretch row must equalize. Restored in afterAll.
-  // Single-writer by construction: crew-page resolves under mobile-safari ALONE
-  // (it is absent from the desktop-chromium testMatch), so only one project ever
-  // mutates these rows. It used to be single-writer because every test
-  // early-returned off testInfo.project.name; those 22 gates were removed when the
-  // spec was wired, since a desktop execution that returns immediately is a
-  // passing no-op the executed-count oracle would have credited as coverage.
-  let gearRoomId: string | null = null;
-  let gearRoomOriginal: { audio: string | null; video: string | null } | null = null;
-
-  test.beforeAll(async ({}) => {
-    const seeded = await lookupSeededShow();
-    // not-subject-to-meta: test-local fixture setup (see lookupSeededShow).
-    const { data: room, error: roomError } = await admin
-      .from("rooms")
-      .select("id, audio, video")
-      .eq("show_id", seeded.showId)
-      .limit(1)
-      .maybeSingle();
-    if (roomError) {
-      throw new Error(`inv3 setup: rooms lookup FAILED: ${roomError.message}`);
-    }
-    if (!room?.id) {
-      throw new Error(`inv3 setup: no room on the Waldorf seed (run \`pnpm db:seed\`)`);
-    }
-    gearRoomId = room.id as string;
-    gearRoomOriginal = {
-      audio: (room.audio as string | null) ?? null,
-      video: (room.video as string | null) ?? null,
-    };
-    const { error: overrideError } = await admin
-      .from("rooms")
-      // Intentionally different lengths (1-line audio vs 3-line video) so the
-      // cards' natural heights differ — the stretch row must still equalize them.
-      .update({
-        audio: "2x QSC K12 mains",
-        video: "2x 7000-lumen laser projectors; 1x switcher; 1x confidence monitor",
-      })
-      .eq("id", gearRoomId);
-    if (overrideError) {
-      throw new Error(`inv3 setup: room A/V override FAILED: ${overrideError.message}`);
-    }
-  });
-
-  test.afterAll(async ({}) => {
-    if (!gearRoomId || !gearRoomOriginal) return;
-    // The RESTORE is the loud one by construction. A returned error does not
-    // throw, so an unchecked (or merely console.error'd) restore leaks the
-    // overridden room A/V into every later suite sharing this seed while THIS
-    // suite — and the dispatch bar — stay green. Silence is the failure mode,
-    // so it throws. Same repair as the run_of_show restore in
-    // right-now-transitions.spec.ts (plan review R4 F2); swept here as a peer.
-    const { error: restoreError } = await admin
-      .from("rooms")
-      .update({ audio: gearRoomOriginal.audio, video: gearRoomOriginal.video })
-      .eq("id", gearRoomId);
-    if (restoreError) {
-      throw new Error(
-        `inv3 teardown: room A/V RESTORE FAILED for room ${gearRoomId} — the seed is left ` +
-          `overridden; re-run \`pnpm db:seed\`: ${restoreError.message}`,
-      );
-    }
-  });
-
   test.beforeEach(async ({ page }) => {
     const seeded = await lookupSeededShow();
     slug = seeded.slug;
@@ -571,84 +498,9 @@ test.describe("crew redesign layout invariants (§4.9 / test 12)", () => {
     }
   });
 
-  // ── Invariant 3 — Gear scope cards `thirds` grid (mock) ──
-  // Per the design mock the A/V/L scope cards are a responsive `thirds` grid,
-  // keyed to the body's CONTAINER (DESIGN.md §6): 3 equal columns side-by-side
-  // in the wide column (1024px), a single full-width column stacked in the
-  // section sheet (760px, the 480px panel; and 390px). CSS grid tracks default
-  // to `align-items:stretch`, so same-row cards in the split share an equal
-  // height (±0.5px) — a card with fewer room-value rows (Audio has 1 value,
-  // Video has 3) is stretched to match. The inv3 fixture (beforeAll) populates
-  // exactly two disciplines with different-length values so ≥2 cards render
-  // and the equal-height case is exercised.
-  test("inv3: Gear scope cards — 3 cols side-by-side + equal-height in the wide column, single column stacked in the sheet", async ({
-    page,
-  }) => {
-    // Per-discipline cards only — the `gear-scopes-row` wrapper does NOT match the
-    // `gear-scope-` prefix (it has no hyphen at position 10), so this collects just
-    // the A/V/L cards (the same prefix the jsdom scope tests use).
-    for (const leg of SPLIT_LEGS) {
-      await page.setViewportSize({ width: leg.width, height: 1000 });
-      await gotoSection(page, "gear");
-      const cards = page.locator('[data-testid^="gear-scope-"]');
-      const n = await cards.count();
-      if (n < 2) {
-        test.skip(true, `gear scope cards: only ${n} rendered on the seed; the grid needs ≥2`);
-        return;
-      }
-      const split = await splitContainerOf(page.getByTestId("gear-scopes-row"));
-      expect(split.testid, `@${leg.width}px gear-scopes-row's size container`).toBe(leg.container);
-      expect(
-        split.split,
-        `@${leg.width}px ${leg.container} is ${split.width}px against the ${CREW_SPLIT_PX}px split threshold`,
-      ).toBe(leg.split);
-      const rects: Rect[] = [];
-      for (let i = 0; i < n; i++) rects.push(await rectOf(cards.nth(i)));
-      for (const r of rects) {
-        expect(r.height, "each gear scope card must have non-zero height").toBeGreaterThan(1);
-      }
-      if (leg.split) {
-        // Side-by-side: in DOM order each card's left is strictly right of the
-        // prior card's left, and they share the same top (one grid row of ≤3).
-        for (let i = 1; i < rects.length; i++) {
-          expect(
-            rects[i]!.left,
-            `@${leg.width}px gear scope card ${i} must sit to the right of card ${i - 1} (3-col grid); left=${rects[i]!.left} priorLeft=${rects[i - 1]!.left}`,
-          ).toBeGreaterThan(rects[i - 1]!.left + 1);
-          expect(
-            Math.abs(rects[i]!.top - rects[0]!.top),
-            `@${leg.width}px gear scope cards share the same row top; ${rects[i]!.top} vs ${rects[0]!.top}`,
-          ).toBeLessThanOrEqual(TOL);
-        }
-        // Equal-height (grid align-items:stretch). Derived from the measured
-        // first card, never hardcoded.
-        const h0 = rects[0]!.height;
-        for (let i = 0; i < rects.length; i++) {
-          expect(
-            Math.abs(rects[i]!.height - h0),
-            `@${leg.width}px gear scope card ${i} must equal sibling heights (grid stretch); ${rects[i]!.height} vs ${h0}`,
-          ).toBeLessThanOrEqual(TOL);
-        }
-      } else {
-        // Stacked: a single full-width column, top-to-bottom (each next card's
-        // top ≥ the prior card's bottom; shared left edge). No equal-height
-        // constraint.
-        const left0 = rects[0]!.left;
-        for (const r of rects) {
-          expect(
-            Math.abs(r.left - left0),
-            `@${leg.width}px gear scope cards stack in one column (shared left edge); ${r.left} vs ${left0}`,
-          ).toBeLessThanOrEqual(TOL);
-        }
-        for (let i = 1; i < rects.length; i++) {
-          expect(
-            rects[i]!.top,
-            `@${leg.width}px gear scope card ${i} must stack below card ${i - 1} (single column); top=${rects[i]!.top} priorBottom=${rects[i - 1]!.bottom}`,
-          ).toBeGreaterThanOrEqual(rects[i - 1]!.bottom - TOL);
-        }
-      }
-    }
-  });
+  // ── Invariant 3 moved: the Gear scope cards' `thirds` grid retired with the cards
+  // (spec line 309, PR C Task 7). Its failure mode, a scope value widening the page,
+  // carries over to the room cards, on a seeded show: the "rooms" describe below.
 
   // ── Invariant 4 moved: the pass's minimum height through a crossfade ──
   // The hero's rest-state before/after check lived here. The pass replaced the hero
@@ -743,8 +595,8 @@ test.describe("crew redesign layout invariants (§4.9 / test 12)", () => {
     }
   });
 
-  // ── Invariant 7 — Two-column `split-wide` sections (schedule / venue) ──
-  // Per the design mock these two sections are two columns when there is room
+  // ── Invariant 7 — the two-column `split-wide` section (schedule) ──
+  // Per the design mock this section is two columns when there is room
   // and a single stacked column when there is not, and "room" is the body's
   // CONTAINER (DESIGN.md §6): split in the wide column (1024px), stacked in the
   // section sheet at 760px (the 480px panel) and at 390px. Mirrors the Crew inv2
@@ -753,14 +605,14 @@ test.describe("crew redesign layout invariants (§4.9 / test 12)", () => {
   // column is NOT stretched to the taller left; 2026-06-21 owner amendment);
   // stacked, col 2 top ≥ col 1 bottom on a shared left edge.
   //
-  // Venue renders the split only when BOTH columns have content (Schedule
-  // always renders two: day cards + times/heads-up). When the seed yields a single
-  // column the pair assertion is skipped (colCount < 2), exactly as inv2
-  // does — the invariant is "IF two columns, they behave as split-wide," never
+  // Schedule always renders two columns (day cards + times/heads-up). When the seed
+  // yields a single column the pair assertion is skipped (colCount < 2), exactly as
+  // inv2 does — the invariant is "IF two columns, they behave as split-wide," never
   // "two columns MUST exist." Travel left this list in crew page redesign PR B
   // Task 9: its two columns became the Hotels and Transport sections, whose cards
-  // stack in one column at every width (the case after this loop).
-  for (const section of ["schedule", "venue"] as const) {
+  // stack in one column at every width (the case after this loop). Venue left it in
+  // PR C Task 7: its second column, Diagrams, moved to Rooms.
+  for (const section of ["schedule"] as const) {
     test(`inv7: ${section} is split-wide 2-col in the wide column / stacked in the sheet`, async ({
       page,
     }) => {
@@ -854,7 +706,7 @@ test.describe("crew redesign layout invariants (§4.9 / test 12)", () => {
   // mobile viewport:
   //
   //   (a) NO horizontal overflow — `documentElement.scrollWidth <= clientWidth`
-  //       AND no Today quick-card / Gear scope-card right edge exceeds the
+  //       AND no home quick-fact / Rooms room-card right edge exceeds the
   //       viewport width. The 3-card equal-height row (kept per inv1/inv3) must
   //       SHRINK its content (min-w-0 + break-words on long hotel/venue strings;
   //       PersonRow buttons wrap) so nothing clips off the right edge at 390px.
@@ -891,25 +743,26 @@ test.describe("crew redesign layout invariants (§4.9 / test 12)", () => {
       ).toBeLessThanOrEqual(viewport.width + TOL);
     }
 
-    // (a) Per-card: the same for the Gear A/V/L scope cards.
-    await gotoSection(page, "gear");
-    const scopeCards = page.locator('[data-testid^="gear-scope-"]');
-    const scopeN = await scopeCards.count();
-    for (let i = 0; i < scopeN; i++) {
-      const r = await rectOf(scopeCards.nth(i));
+    // (a) Per-card: the same for the Rooms room cards.
+    await gotoSection(page, "rooms");
+    const roomCards = page.locator('[data-card-id="gear-room-details"] > ul > li');
+    const roomN = await roomCards.count();
+    expect(roomN, "the seed renders at least one room card").toBeGreaterThan(0);
+    for (let i = 0; i < roomN; i++) {
+      const r = await rectOf(roomCards.nth(i));
       expect(
         r.right,
-        `@390px gear scope card ${i} right edge must not exceed viewport width; right=${r.right} vp=${viewport.width}`,
+        `@390px room card ${i} right edge must not exceed viewport width; right=${r.right} vp=${viewport.width}`,
       ).toBeLessThanOrEqual(viewport.width + TOL);
     }
-    const gearOverflow = await page.evaluate(() => ({
+    const roomsOverflow = await page.evaluate(() => ({
       scrollWidth: document.documentElement.scrollWidth,
       clientWidth: document.documentElement.clientWidth,
     }));
     expect(
-      gearOverflow.scrollWidth,
-      `@390px the Gear section must have NO horizontal overflow; scrollWidth=${gearOverflow.scrollWidth} clientWidth=${gearOverflow.clientWidth}`,
-    ).toBeLessThanOrEqual(gearOverflow.clientWidth + TOL);
+      roomsOverflow.scrollWidth,
+      `@390px the Rooms section must have NO horizontal overflow; scrollWidth=${roomsOverflow.scrollWidth} clientWidth=${roomsOverflow.clientWidth}`,
+    ).toBeLessThanOrEqual(roomsOverflow.clientWidth + TOL);
 
     // (b) Bottom-bar clearance: the LAST rendered block inside the Today section
     // must end ABOVE the fixed mobile tab-bar's top edge — content not occluded.
@@ -2416,7 +2269,7 @@ test.describe("the composed home (crew page redesign Task 11)", () => {
     }, mode);
   }
 
-  test("home: compact order: header, day row, pass, run of show, quick facts, show notes, Dress code card, All sections", async ({
+  test("home: compact order: header, day row, pass, run of show, quick facts, show notes, All sections", async ({
     page,
   }) => {
     await pinBothClocks(page, SHOW_DAY_1);
@@ -2428,7 +2281,6 @@ test.describe("the composed home (crew page redesign Task 11)", () => {
       "today-run-of-show",
       "crew-quick-facts",
       "today-notes",
-      "today-dress",
       "crew-all-sections",
     ];
     const rects = await page.evaluate((ids) => {
@@ -2449,10 +2301,9 @@ test.describe("the composed home (crew page redesign Task 11)", () => {
         `${ORDER[i]} sits below ${ORDER[i - 1]} (${JSON.stringify(rects)})`,
       ).toBeGreaterThanOrEqual(rects[i - 1]!.bottom - 0.5);
     }
-    // The run card and the notes carry the seeded rows; the dress card the seeded text.
+    // The run card and the notes carry the seeded rows.
     await expect(page.getByTestId("today-run-of-show")).toContainText(RUN_ROWS[SHOW_DAY_1]![0]!);
     await expect(page.getByTestId("today-notes")).toContainText(VENUE.notes);
-    await expect(page.getByTestId("today-dress")).toContainText(EVENT_DETAILS.dress_code);
     // Compact: no section sheet is open on the home, and the wide nav is not shown.
     await expect(page.getByRole("dialog")).toHaveCount(0);
     await expect(page.getByTestId("crew-wide-nav")).toHaveCount(0);
@@ -3535,15 +3386,20 @@ test.describe("quick facts and card titles on the seeded show (moved from crew-l
   // "ROOM DETAI…" in the sheets at 320, "CREW S…" in the 1024 wide column. The
   // title is the card's name and its search group, so it wraps instead. Every
   // card title the seeded show renders: each section's sheet at 320 and 390, and
-  // every stacked section at 1024 and 1280.
-  test("card titles: no SectionCard title is cut, in a sheet at 320 and 390 or in the wide column at 1024 and 1280", async ({
+  // every stacked section at 1024 and 1280. A panel card's title rides the same
+  // header row, so the walk reads it too.
+  test("card titles: no card title is cut, in a sheet at 320 and 390 or in the wide column at 1024 and 1280", async ({
     page,
   }) => {
     const readTitles = (scope: string) =>
       page.evaluate((sel) => {
         const root = document.querySelector(sel);
         if (root === null) return [];
-        return [...root.querySelectorAll<HTMLElement>('[data-slot="section-card-title"]')]
+        return [
+          ...root.querySelectorAll<HTMLElement>(
+            '[data-slot="section-card-title"], [data-slot="panel-card-header"] h3',
+          ),
+        ]
           .filter((el) => el.getClientRects().length > 0)
           .map((el) => ({
             text: el.textContent,
@@ -3555,76 +3411,32 @@ test.describe("quick facts and card titles on the seeded show (moved from crew-l
     const cut = (titles: Awaited<ReturnType<typeof readTitles>>) =>
       titles.filter((t) => t.scrollWidth > t.clientWidth + TOL_TIGHT || t.overflow === "ellipsis");
 
-    // The Gear scope cards need a room with audio and video values, which the
-    // shared seed may not carry; set them here and put them back after. An
-    // admin owns every discipline, so both cards carry the "Your scope" eyebrow,
-    // which in the header's action slot beside "In sheet" and the report button
-    // squeezed their titles to 2px at 320 and to none in the 1024 thirds
-    // (CI-parity run at b66631b3e).
-    const seeded = await lookupSeededShow();
-    // not-subject-to-meta: test-local fixture setup (see lookupSeededShow).
-    const { data: room, error: roomError } = await admin
-      .from("rooms")
-      .select("id, audio, video")
-      .eq("show_id", seeded.showId)
-      .limit(1)
-      .maybeSingle();
-    if (roomError) throw new Error(`card titles setup: rooms lookup FAILED: ${roomError.message}`);
-    if (!room?.id) throw new Error("card titles setup: no room on the Waldorf seed");
-    const original = { audio: room.audio ?? null, video: room.video ?? null };
-    const { error: setError } = await admin
-      .from("rooms")
-      .update({ audio: "2x QSC K12 mains", video: "2x 7000-lumen laser projectors" })
-      .eq("id", room.id);
-    if (setError)
-      throw new Error(`card titles setup: room A/V override FAILED: ${setError.message}`);
-    // A direct write does not bust the show's cache on a production build
-    // (tests/e2e/helpers/crewRefresh.ts): every render below reads fresh data.
-    const headers = {
-      "X-Screenshot-Frozen-Now": SHOW_DAY_N_INSTANT,
-      Authorization: `Bearer ${TEST_AUTH_SECRET}`,
-    };
-    await renderFresh(page, headers);
-    try {
-      let seen = 0;
-      const gearAt320: string[] = [];
-      for (const width of [320, 390]) {
-        await page.setViewportSize({ width, height: 844 });
-        // Travel's cards live in Hotels and Transport from PR B Task 9.
-        for (const section of ["schedule", "venue", "hotels", "transport", "crew", "gear"]) {
-          await gotoSection(page, section);
-          const titles = await readTitles('[data-testid="crew-section-sheet-body"]');
-          seen += titles.length;
-          if (width === 320 && section === "gear")
-            gearAt320.push(...titles.map((t) => t.text ?? ""));
-          expect(cut(titles), `${width}px ${section}: ${JSON.stringify(titles)}`).toEqual([]);
-        }
-      }
-      // PREMISE: the scope cards rendered, so their titles were among those read.
-      expect(gearAt320.map((t) => t.toLowerCase())).toEqual(
-        expect.arrayContaining(["audio", "video"]),
-      );
-      for (const width of [1024, 1280]) {
-        await page.setViewportSize({ width, height: 900 });
-        await gotoSection(page, "today");
-        const titles = await readTitles('[data-testid="crew-wide-stack"]');
+    let seen = 0;
+    const roomsAt320: string[] = [];
+    for (const width of [320, 390]) {
+      await page.setViewportSize({ width, height: 844 });
+      // Travel's cards live in Hotels and Transport from PR B Task 9, and Gear's in
+      // Rooms from PR C Task 7.
+      for (const section of ["schedule", "venue", "hotels", "transport", "crew", "rooms"]) {
+        await gotoSection(page, section);
+        const titles = await readTitles('[data-testid="crew-section-sheet-body"]');
         seen += titles.length;
-        expect(cut(titles), `${width}px: ${JSON.stringify(titles)}`).toEqual([]);
+        if (width === 320 && section === "rooms")
+          roomsAt320.push(...titles.map((t) => t.text ?? ""));
+        expect(cut(titles), `${width}px ${section}: ${JSON.stringify(titles)}`).toEqual([]);
       }
-      // PREMISE: the walk read real titles, the ones that were cut among them.
-      expect(seen).toBeGreaterThan(20);
-    } finally {
-      // Loud: a restore that fails leaves the override in every later suite.
-      const { error: restoreError } = await admin.from("rooms").update(original).eq("id", room.id);
-      if (restoreError) {
-        throw new Error(
-          `card titles teardown: room A/V RESTORE FAILED for room ${room.id as string}; ` +
-            `re-run \`pnpm db:seed\`: ${restoreError.message}`,
-        );
-      }
-      // One more fresh render, so the cache holds the restored rooms, not the override.
-      await gotoSection(page, "gear");
     }
+    // PREMISE: the Rooms panel rendered, so its title was among those read.
+    expect(roomsAt320).toEqual(expect.arrayContaining([showSection("rooms").label]));
+    for (const width of [1024, 1280]) {
+      await page.setViewportSize({ width, height: 900 });
+      await gotoSection(page, "today");
+      const titles = await readTitles('[data-testid="crew-wide-stack"]');
+      seen += titles.length;
+      expect(cut(titles), `${width}px: ${JSON.stringify(titles)}`).toEqual([]);
+    }
+    // PREMISE: the walk read real titles, the ones that were cut among them.
+    expect(seen).toBeGreaterThan(20);
   });
 });
 
@@ -4234,4 +4046,784 @@ test.describe("crew: the roster's role line keeps its position code (PR B Task 6
       expect(r.rowText, `no glyph stands in for an icon at ${r.width}px`).not.toMatch(/[☎✉]/);
     }
   });
+});
+
+/**
+ * Event details on a seeded show (crew page redesign PR C Task 5; spec §6.2 `event`
+ * row at line 302, line 316, AC-1). The seed carries a dress code, a reel cell with
+ * a Drive URL, a keynote and Venue's two fields. Compact, on the mobile-safari
+ * project; a plain admin on the share route, a crew viewer on the preview route
+ * (harness rule "Viewer per case"). Every title carries "event details".
+ */
+test.describe("event details: the section on a seeded show (PR C Task 5)", () => {
+  test.setTimeout(180_000);
+
+  const SHOW_DAY = "2026-04-21";
+  const PINNED = `${SHOW_DAY}T12:00:00.000Z`;
+  const REEL_URL = "https://drive.google.com/file/d/prcEventReelFile/view";
+  const EVENT = {
+    stage_size: "Event Stage 8 x 24",
+    keynote_requirements: "Event keynote needs a confidence monitor",
+    opening_reel: `YES - ${REEL_URL}`,
+    dress_code: "Event show blacks and closed-toe shoes",
+    internet: "SSID: EventHallCrew code: EVENTPASS26",
+    power: "Event power 100-amp 3 phase",
+  };
+  const CREW_NAME = "Event Details Crew";
+  let seeded: Awaited<ReturnType<typeof seedShowWithCrew>>;
+  const sharePath = (search = "") => `/show/${seeded.slug}/${seeded.shareToken}${search}`;
+
+  test.beforeAll(async () => {
+    seeded = await seedShowWithCrew({
+      title: "Event Details Show",
+      dates: {
+        travelIn: "2026-04-19",
+        set: "2026-04-20",
+        showDays: [SHOW_DAY, "2026-04-22"],
+        travelOut: "2026-04-23",
+      },
+      venue: { name: "Event Details Hall", address: "12 Stage Door Way" } as never,
+      eventDetails: EVENT as never,
+      crew: [{ name: CREW_NAME, role: "A1" }],
+    });
+  });
+
+  test.afterAll(async () => {
+    if (seeded) await deleteSeededShow(seeded.driveFileId);
+  });
+
+  test.beforeEach(async ({ page }) => {
+    await page.clock.setFixedTime(new Date(PINNED));
+    await signOut(page);
+    await signInAs(page, ADMIN_FIXTURE);
+    await page.setExtraHTTPHeaders({
+      "X-Screenshot-Frozen-Now": PINNED,
+      Authorization: `Bearer ${TEST_AUTH_SECRET}`,
+    });
+  });
+
+  async function open(page: import("@playwright/test").Page, path: string): Promise<void> {
+    const res = await page.goto(path, { waitUntil: "domcontentloaded" });
+    expect(res?.status(), `${path} must render`).toBe(200);
+    await expect(page.getByTestId("crew-shell-sections")).toHaveAttribute(
+      "data-crew-controller-ready",
+      "true",
+      { timeout: 30_000 },
+    );
+  }
+
+  test("event details: the dress code renders inside the sheet and the home holds no card, while the pass cell and the quick fact still show", async ({
+    page,
+  }) => {
+    await open(page, sharePath());
+    const dress = '[data-card-id="today-dress"]';
+    await expect(page.getByTestId("section-today")).toBeVisible();
+    await expect(page.getByTestId("section-today").locator(dress)).toHaveCount(0);
+    // The pass cell and the quick fact keep their own derivations (spec line 316).
+    await expect(page.getByTestId("crew-pass").locator('[data-fact="dressCode"] dd')).toContainText(
+      EVENT.dress_code,
+    );
+    await expect(
+      page.locator('[data-testid="crew-quick-fact"][data-fact="dressCode"]'),
+    ).toContainText(EVENT.dress_code);
+
+    await page.getByTestId("crew-all-sections").locator('[data-section="event"]').click();
+    const sheet = page.getByTestId("crew-section-sheet-dialog");
+    await expect(sheet).toHaveAttribute("data-section", "event");
+    const card = sheet.getByTestId("section-event").locator(dress);
+    await expect(card).toContainText(EVENT.dress_code);
+    await expect(card.locator('[data-slot="section-card-action"]')).toHaveCount(1);
+    await expect(
+      sheet.getByRole("heading", { level: 4, name: "Dress code & key moments" }),
+    ).toBeVisible();
+    await expect(sheet.getByTestId("section-event")).not.toContainText("Wardrobe");
+  });
+
+  test("event details: the reel strip holds in the section's DOM and in a crew viewer's payload", async ({
+    page,
+  }) => {
+    // not-subject-to-meta: test-local fixture read, the positive control below.
+    const { data: row, error } = await admin
+      .from("shows")
+      .select("event_details")
+      .eq("drive_file_id", seeded.driveFileId)
+      .single();
+    if (error) throw new Error(`event details: show lookup FAILED: ${error.message}`);
+    // POSITIVE CONTROL: the stored cell carries the URL these searches look for.
+    premiseHolds(
+      "the seeded opening_reel cell carries a Drive URL",
+      String((row?.event_details as { opening_reel?: string })?.opening_reel).includes(REEL_URL),
+    );
+
+    const crewId = seeded.crew.find((c) => c.name === CREW_NAME)!.id;
+    const path = `/admin/show/${seeded.slug}/preview/${crewId}?s=event`;
+    await open(page, path);
+    const section = page.getByTestId("section-event");
+    await expect(section.locator('[data-card-id="gear-opening-reel"]')).toContainText("YES");
+    // The cards' "In sheet" links are the one sanctioned docs.google.com href (the
+    // show's own sheet, never the cell), so they leave the copy this search reads.
+    const dom = await section.evaluate((el) => {
+      const copy = el.cloneNode(true) as HTMLElement;
+      for (const link of copy.querySelectorAll('a[data-slot="source-link"]')) link.remove();
+      return copy.innerHTML;
+    });
+    for (const leak of ["https://", "drive.google.com", "docs.google.com"]) {
+      expect(dom, leak).not.toContain(leak);
+    }
+
+    // The payload: the server HTML, its flight data and the search index included.
+    const res = await page.request.get(path);
+    expect(res.status()).toBe(200);
+    const payload = await res.text();
+    // POSITIVE CONTROL: this is the viewer's page, with the reel's stripped text in it.
+    premiseHolds("the payload holds the section", payload.includes('data-testid="section-event"'));
+    expect(payload).not.toContain(REEL_URL);
+    expect(payload).not.toContain("prcEventReelFile");
+  });
+
+  // The browser check on the field card's wrap (PR C Task 2's note): `flex-wrap`
+  // decides on the row's basis alone, so a basis under the row's real need keeps the
+  // actions beside it on a wider phone and leaves the value a narrower column than
+  // the same row has wrapped on a narrower one (107px at 430 against 170px at 390).
+  test("event details: a field card's actions wrap under its row rather than narrow the value column", async ({
+    page,
+  }) => {
+    const MIN_VALUE_WIDTH = 200;
+    const TOL = 0.5;
+    const layouts = new Set<string>();
+    for (const width of [320, 390, 430, 600, 768]) {
+      await page.setViewportSize({ width, height: 844 });
+      await open(page, sharePath("?s=event"));
+      const cards = await page.getByTestId("section-event").evaluate((root) =>
+        ["gear-keynote", "gear-opening-reel", "today-dress"].map((id) => {
+          const box = (el: Element | null | undefined) => {
+            if (!el) return null;
+            const { top, bottom, left, right, width: w } = el.getBoundingClientRect();
+            return { top, bottom, left, right, width: w };
+          };
+          const card = root.querySelector(`[data-card-id="${id}"]`)!;
+          return {
+            id,
+            card: box(card)!,
+            row: box(card.firstElementChild)!,
+            actions: box(card.querySelector('[data-slot="section-card-action"]'))!,
+            value: box(card.querySelector(".grid")?.children[1])!,
+            next: box(card.nextElementSibling),
+          };
+        }),
+      );
+      for (const c of cards) {
+        const at = `${c.id} at ${width}px: ${JSON.stringify(c)}`;
+        const wrapped = c.actions.top >= c.row.bottom - TOL;
+        layouts.add(wrapped ? "wrapped" : "beside");
+        expect(c.actions.right, at).toBeLessThanOrEqual(c.card.right + TOL);
+        if (!wrapped) {
+          expect(c.value.width, at).toBeGreaterThanOrEqual(MIN_VALUE_WIDTH);
+          continue;
+        }
+        // Wrapped, the actions read as their own row's: well nearer it than the next.
+        expect(Math.abs(c.actions.right - c.card.right), at).toBeLessThanOrEqual(TOL);
+        if (c.next !== null) {
+          expect((c.actions.top - c.row.bottom) * 2, at).toBeLessThanOrEqual(
+            c.next.top - c.actions.bottom + TOL,
+          );
+        }
+      }
+    }
+    // PREMISE: the widths reach both layouts, so neither branch above is vacuous.
+    premise("the widths reach both the wrapped and the beside layout", layouts.size, 1);
+  });
+
+  /** The label, the value and their row, for each field this case reads. */
+  async function rowsAt(page: import("@playwright/test").Page, width: number) {
+    await page.setViewportSize({ width, height: 844 });
+    await open(page, sharePath("?s=event"));
+    return page.getByTestId("section-event").evaluate((root) => {
+      const box = (el: Element) => {
+        const { top, bottom, left, right, width: w } = el.getBoundingClientRect();
+        return { top, bottom, left, right, width: w };
+      };
+      const row = (text: string) => {
+        const label = [...root.querySelectorAll("span")].find((s) => s.textContent === text)!;
+        return {
+          row: box(label.parentElement!),
+          label: box(label),
+          value: box(label.nextElementSibling!),
+        };
+      };
+      return { keynote: row("Keynote"), dress: row("Dress code"), stage: row("Stage size") };
+    });
+  }
+
+  // Gate repair 1 (A P1-2, audit P1-1, B P1-1): an 8rem label left the dress code 74px of
+  // text at 320, 53 line boxes. The label column bought nothing once the value ran past
+  // a few lines, so long-form rows stack below the crew split.
+  for (const width of [320, 390, 430, 768]) {
+    test(`event details: at ${width}px a long-form value sits under its label at the row's full width`, async ({
+      page,
+    }) => {
+      const TOL = 0.5;
+      const rows = await rowsAt(page, width);
+      for (const [name, r] of [
+        ["keynote", rows.keynote],
+        ["dress", rows.dress],
+      ] as const) {
+        const at = `${name} at ${width}px: ${JSON.stringify(r)}`;
+        expect(r.value.top, at).toBeGreaterThanOrEqual(r.label.bottom - TOL);
+        expect(Math.abs(r.value.width - r.row.width), at).toBeLessThanOrEqual(TOL);
+      }
+    });
+  }
+
+  for (const width of [1024, 1280]) {
+    test(`event details: at ${width}px a long-form row keeps the label track beside its value`, async ({
+      page,
+    }) => {
+      const TOL = 0.5;
+      const LABEL_TRACK = 128;
+      const rows = await rowsAt(page, width);
+      for (const r of [rows.keynote, rows.dress]) {
+        const at = `at ${width}px: ${JSON.stringify(r)}`;
+        expect(r.value.left, at).toBeGreaterThanOrEqual(r.row.left + LABEL_TRACK - TOL);
+        expect(r.value.top, at).toBeLessThan(r.label.bottom);
+      }
+    });
+  }
+
+  // 195 and 260 are a 390 phone under 200% and 150% page zoom: a fixed track left the
+  // value 0px and 40px there. A short fact stacks before that, and stays two columns on
+  // a real phone, 320 included.
+  test("event details: a short fact holds two columns on a phone and stacks under page zoom, never a starved value", async ({
+    page,
+  }) => {
+    const TOL = 0.5;
+    for (const width of [320, 390]) {
+      const { stage } = await rowsAt(page, width);
+      const at = `stage at ${width}px: ${JSON.stringify(stage)}`;
+      expect(stage.value.left, at).toBeGreaterThanOrEqual(stage.label.right);
+      expect(stage.value.top, at).toBeLessThan(stage.label.bottom);
+    }
+    for (const width of [195, 260]) {
+      const { stage } = await rowsAt(page, width);
+      const at = `stage at ${width}px: ${JSON.stringify(stage)}`;
+      expect(stage.value.top, at).toBeGreaterThanOrEqual(stage.label.bottom - TOL);
+      expect(Math.abs(stage.value.width - stage.row.width), at).toBeLessThanOrEqual(TOL);
+    }
+  });
+
+  // Gate repair 3 (A P1-1): the dress code left the home for this section, and it came
+  // last, 1372px down a 2153px sheet at 390, past a video and every stage spec.
+  test("event details: the dress code group leads the section, above the stage specs", async ({
+    page,
+  }) => {
+    await open(page, sharePath("?s=event"));
+    const section = page.getByTestId("section-event");
+    const top = (el: Element) => el.getBoundingClientRect().top;
+    const dress = await section.locator('[data-card-id="today-dress"]').evaluate(top);
+    const stage = await section.getByText("Stage size", { exact: true }).evaluate(top);
+    expect(dress).toBeLessThan(stage);
+    await expect(section.getByRole("heading", { level: 4 }).first()).toHaveText(
+      "Dress code & key moments",
+    );
+  });
+
+  // Gate repair 3 (audit P2-4, B's first P3): with a one-line keynote above it, the dress
+  // card's upward overlay took 100% of the keynote's flag, so a report on the keynote
+  // filed against the dress code. 540 and 600 are the sheet widths where the actions sit
+  // beside the row, 1024 and 1280 the wide column.
+  test("event details: every point of a field card's controls belongs to that card, with a one-line keynote", async ({
+    page,
+  }) => {
+    const oneLine = await seedShowWithCrew({
+      title: "Event Overlay Show",
+      dates: {
+        travelIn: "2026-04-19",
+        set: "2026-04-20",
+        showDays: [SHOW_DAY, "2026-04-22"],
+        travelOut: "2026-04-23",
+      },
+      venue: { name: "Event Overlay Hall", address: "12 Stage Door Way" } as never,
+      eventDetails: {
+        stage_size: "8 x 24",
+        keynote_requirements: "Lav and clicker",
+        dress_code: "Show blacks",
+        opening_reel: "YES",
+        fonts: "Brand Sans",
+        notes: "Doors at eight",
+      } as never,
+      crew: [{ name: CREW_NAME, role: "A1" }],
+    });
+    try {
+      for (const width of [540, 600, 1024, 1280]) {
+        await page.setViewportSize({ width, height: 900 });
+        await open(page, `/show/${oneLine.slug}/${oneLine.shareToken}?s=event`);
+        const readings = await page.getByTestId("section-event").evaluate((root) => {
+          const STEP = 2;
+          const ids = ["gear-tech-specs", "gear-keynote", "gear-opening-reel", "today-dress"];
+          return ids.map((id) => {
+            const card = root.querySelector(`[data-card-id="${id}"]`)!;
+            const controls = [
+              ...card.querySelectorAll(
+                '[data-slot="source-link"], [data-slot="card-report-trigger"]',
+              ),
+            ].filter((el) => el.closest("[data-card-id]") === card);
+            const strays: string[] = [];
+            let points = 0;
+            for (const control of controls) {
+              control.scrollIntoView({ block: "center" });
+              const box = control.getBoundingClientRect();
+              for (let x = box.left + 1; x < box.right; x += STEP) {
+                for (let y = box.top + 1; y < box.bottom; y += STEP) {
+                  points += 1;
+                  const hit = document.elementFromPoint(x, y);
+                  const owner = hit?.closest("[data-card-id]")?.getAttribute("data-card-id");
+                  if (owner !== id) strays.push(`${x},${y} answered ${owner ?? "nothing"}`);
+                }
+              }
+            }
+            return { id, controls: controls.length, points, strays: strays.slice(0, 3) };
+          });
+        });
+        for (const r of readings) {
+          const at = `${r.id} at ${width}px`;
+          expect(r.controls, `PREMISE: the link and the flag render, ${at}`).toBe(2);
+          premise(`the controls are sampled, ${at}`, r.points, 10);
+          expect(r.strays, at).toEqual([]);
+        }
+      }
+    } finally {
+      await deleteSeededShow(oneLine.driveFileId);
+    }
+  });
+
+  test("event details: a seeded internet and power render in Venue and not here", async ({
+    page,
+  }) => {
+    await open(page, sharePath("?s=venue"));
+    const venue = page.getByTestId("section-venue");
+    await expect(venue).toContainText(EVENT.power);
+    await expect(venue).toContainText("EventHallCrew");
+
+    await open(page, sharePath("?s=event"));
+    const section = page.getByTestId("section-event");
+    // POSITIVE CONTROL: the section rendered its own fields.
+    await expect(section).toContainText(EVENT.stage_size);
+    await expect(section).not.toContainText(EVENT.power);
+    await expect(section).not.toContainText("EventHallCrew");
+  });
+});
+
+/**
+ * The Rooms section on a seeded show (crew page redesign PR C Task 7, spec line 309).
+ * The Waldorf seed's one room holds no discipline, so this seeds its own: a general
+ * session with all five, one of them a long unbroken model string, and a breakout
+ * holding only Audio, so for an A1 the emphasized row is also the room's last. Compact
+ * and wide, on the mobile-safari project; each viewer on the preview route (harness
+ * rule "Viewer per case"). Every title carries "rooms".
+ */
+test.describe("rooms: the section on a seeded show (PR C Task 7)", () => {
+  test.setTimeout(180_000);
+
+  const SHOW_DAY = "2026-04-21";
+  const PINNED = `${SHOW_DAY}T12:00:00.000Z`;
+  const TOL = 0.5;
+  const UNBROKEN = "LEDPROFILEFIXTUREWITHAMODELSTRINGTHATHASNOBREAKOPPORTUNITYANYWHEREINIT9000";
+  const GS = {
+    kind: "gs",
+    name: "Rooms Ballroom",
+    floor: "5th Floor",
+    dimensions: "74' x 31'",
+    setup: "9 clusters of 6",
+    setTime: "4/20 @ 8:00 AM",
+    showTime: "4/21 @ 7:30 AM",
+    strikeTime: "4/22 @ 12:00 PM",
+    audio: "(1) QU32 (2) QSC K12 mains",
+    video: "(2) 7000-lumen laser projectors; (1) switcher; (1) confidence monitor",
+    lighting: UNBROKEN,
+    scenic: "(2) Grey Spandex",
+    other: "(1) Truss Podium",
+  } as const;
+  const BREAKOUT = { kind: "breakout", name: "Salon 1", audio: "(1) Handheld mic" } as const;
+  const A1 = "Rooms Audio Crew";
+  const V1 = "Rooms Video Crew";
+  const PLAIN = "Rooms Plain Crew";
+  let seeded: Awaited<ReturnType<typeof seedShowWithCrew>>;
+
+  const previewPath = (name: string) => {
+    const member = seeded.crew.find((c) => c.name === name)!;
+    return `/admin/show/${seeded.slug}/preview/${member.id}?s=rooms`;
+  };
+
+  test.beforeAll(async () => {
+    seeded = await seedShowWithCrew({
+      title: "Rooms Section Show",
+      dates: {
+        travelIn: "2026-04-19",
+        set: "2026-04-20",
+        showDays: [SHOW_DAY, "2026-04-22"],
+        travelOut: "2026-04-23",
+      },
+      venue: { name: "Rooms Hall", address: "12 Stage Door Way" } as never,
+      rooms: [GS, BREAKOUT],
+      crew: [
+        { name: A1, role: "A1", roleFlags: ["A1"] },
+        { name: V1, role: "V1", roleFlags: ["V1"] },
+        { name: PLAIN, role: "Driver", roleFlags: [] },
+      ],
+    });
+  });
+
+  test.afterAll(async () => {
+    if (seeded) await deleteSeededShow(seeded.driveFileId);
+  });
+
+  test.beforeEach(async ({ page }) => {
+    await page.clock.setFixedTime(new Date(PINNED));
+    await signOut(page);
+    await signInAs(page, ADMIN_FIXTURE);
+    await page.setExtraHTTPHeaders({
+      "X-Screenshot-Frozen-Now": PINNED,
+      Authorization: `Bearer ${TEST_AUTH_SECRET}`,
+    });
+  });
+
+  async function open(page: import("@playwright/test").Page, path: string): Promise<void> {
+    const res = await page.goto(path, { waitUntil: "domcontentloaded" });
+    expect(res?.status(), `${path} must render`).toBe(200);
+    await expect(page.getByTestId("crew-shell-sections")).toHaveAttribute(
+      "data-crew-controller-ready",
+      "true",
+      { timeout: 30_000 },
+    );
+    await expect(page.getByTestId("section-rooms")).toBeVisible();
+  }
+
+  /** Room `i`'s discipline rows, keys in DOM order. */
+  async function rowsOf(page: import("@playwright/test").Page, i: number) {
+    const rows = page.getByTestId(`crew-panel-room-${i}-scope`).locator(":scope > li");
+    await expect(rows.first()).toBeVisible();
+    return rows.evaluateAll((els) =>
+      els.map((el) => ({
+        key: el.querySelector('[data-testid="room-scope-key"]')?.textContent ?? "",
+        emphasis: el.getAttribute("data-emphasis"),
+        text: el.textContent ?? "",
+      })),
+    );
+  }
+
+  for (const [viewer, own] of [
+    [A1, "Audio"],
+    [V1, "Video"],
+  ] as const) {
+    test(`rooms: a preview of the ${own} crew member sees Your scope inside the ${own} row itself, on that row alone, and first`, async ({
+      page,
+    }) => {
+      await page.setViewportSize({ width: 390, height: 844 });
+      await open(page, previewPath(viewer));
+      const rows = await rowsOf(page, 0);
+      premise("the room carries at least two disciplines", rows.length, 1);
+      expect(rows[0]!.key).toBe(own);
+      expect(rows[0]!.emphasis).toBe("you");
+      expect(rows[0]!.text).toContain("Your scope");
+      for (const row of rows.slice(1)) {
+        expect(row.emphasis, row.key).toBeNull();
+        expect(row.text, row.key).not.toContain("Your scope");
+      }
+    });
+  }
+
+  test("rooms: a preview of a viewer with no discipline flags sees no label, the same rows, and the sheet's order", async ({
+    page,
+  }) => {
+    await page.setViewportSize({ width: 390, height: 844 });
+    await open(page, previewPath(A1));
+    const owned = await rowsOf(page, 0);
+    premise("the room carries at least two disciplines", owned.length, 1);
+
+    await open(page, previewPath(PLAIN));
+    const plain = await rowsOf(page, 0);
+    expect(plain.map((row) => row.key)).toEqual(["Audio", "Video", "Lighting", "Scenic", "Other"]);
+    expect(plain.map((row) => row.key).sort()).toEqual(owned.map((row) => row.key).sort());
+    expect(plain.every((row) => row.emphasis === null)).toBe(true);
+    await expect(page.getByTestId("section-rooms")).not.toContainText("Your scope");
+  });
+
+  // Gate repair 6 (A P2-2, audit P2-5): the admin's five hues came to the crew page by
+  // inheritance, against DESIGN §1's "no competing accent hue". The glyphs stay distinct.
+  test("rooms: every discipline chip paints the one neutral tone, and the glyphs stay distinct", async ({
+    page,
+  }) => {
+    await page.setViewportSize({ width: 390, height: 844 });
+    await open(page, previewPath(PLAIN));
+    const chips = await page.getByTestId("crew-panel-room-0-scope").evaluate((list) =>
+      [...list.querySelectorAll('[data-testid="room-scope-key"]')].map((key) => {
+        const chip = key.previousElementSibling!;
+        return {
+          color: getComputedStyle(chip).color,
+          glyph: chip.querySelector("svg")!.getAttribute("class") ?? "",
+        };
+      }),
+    );
+    premise("the room renders every discipline", chips.length, 4);
+    expect(new Set(chips.map((c) => c.color)).size).toBe(1);
+    expect(new Set(chips.map((c) => c.glyph)).size).toBe(chips.length);
+  });
+
+  /** Each discipline row of room 0: its box, chip, key and value. */
+  async function scopeGeometry(page: import("@playwright/test").Page, width: number) {
+    await page.setViewportSize({ width, height: 844 });
+    await open(page, previewPath(A1));
+    return page.getByTestId("crew-panel-room-0-scope").evaluate((list) => {
+      const box = (el: Element) => {
+        const { top, bottom, left, right, width: w } = el.getBoundingClientRect();
+        return { top, bottom, left, right, width: w };
+      };
+      return [...list.querySelectorAll(":scope > li")].map((li) => {
+        const key = li.querySelector('[data-testid="room-scope-key"]')!;
+        return {
+          name: key.textContent,
+          row: box(li),
+          chip: box(key.previousElementSibling!),
+          key: box(key),
+          value: box(key.nextElementSibling!),
+        };
+      });
+    });
+  }
+
+  // Gate repair 1 (A P2-1, B P1-1): the chip and key tracks took 124px, leaving a gear
+  // list 160px at 390, 90px at 320 and nothing at 200% page zoom.
+  for (const width of [195, 260, 320, 390, 430, 768]) {
+    test(`rooms: at ${width}px chip and key share a line and the gear list takes the row beneath them`, async ({
+      page,
+    }) => {
+      const TOL = 0.5;
+      const rows = await scopeGeometry(page, width);
+      premise("the room renders several disciplines", rows.length, 1);
+      for (const r of rows) {
+        const at = `${r.name} at ${width}px: ${JSON.stringify(r)}`;
+        expect(r.key.left, at).toBeGreaterThanOrEqual(r.chip.right);
+        expect(r.key.top, at).toBeLessThan(r.chip.bottom);
+        expect(r.value.top, at).toBeGreaterThanOrEqual(r.chip.bottom - TOL);
+        expect(Math.abs(r.value.left - r.chip.left), at).toBeLessThanOrEqual(TOL);
+        expect(r.value.right, at).toBeLessThanOrEqual(r.row.right + TOL);
+        expect(r.value.width, at).toBeGreaterThan(0);
+      }
+    });
+  }
+
+  // 1280, not 1024: the layout reads the section's container, and the preview route's
+  // column at 1024 is 624px, under the split. The share route's is 688px; the same
+  // variant is pinned there by the event details case at 1024.
+  test("rooms: at 1280px a discipline keeps its three tracks", async ({ page }) => {
+    const rows = await scopeGeometry(page, 1280);
+    premise("the room renders several disciplines", rows.length, 1);
+    for (const r of rows) {
+      const at = `${r.name}: ${JSON.stringify(r)}`;
+      expect(r.value.left, at).toBeGreaterThanOrEqual(r.key.right);
+      expect(r.value.top, at).toBeLessThan(r.key.bottom);
+    }
+  });
+
+  // Gate repair 4 (A P2-4, audit P1-2 and P2-2, B P2-2): moved out of Venue's narrow
+  // column, the thumbnails reach 198px, so the old block's 240px cap hid 167px of a
+  // six-slot gallery at 1280 behind a scroller with no scrollbar on a Mac, and its
+  // heading sat at 3.35:1. Six unavailable slots draw the same tiles with no assets.
+  test("rooms: the diagrams gallery shows every slot with no scroller of its own, under a heading that clears AA", async ({
+    page,
+  }) => {
+    const slot = (i: number) => ({
+      sheetTab: "DIAGRAMS",
+      objectId: `obj-${i}`,
+      mimeType: "image/png",
+      alt: `Plot ${i}`,
+      sheetsRevisionId: "rev-1",
+      embeddedFingerprint: `fp-${i}`,
+      recovery_disposition: "normal",
+      snapshotPath: null,
+    });
+    const gallery = await seedShowWithCrew({
+      title: "Rooms Gallery Show",
+      dates: {
+        travelIn: "2026-04-19",
+        set: "2026-04-20",
+        showDays: [SHOW_DAY, "2026-04-22"],
+        travelOut: "2026-04-23",
+      },
+      venue: { name: "Rooms Gallery Hall", address: "12 Stage Door Way" } as never,
+      rooms: [BREAKOUT],
+      diagrams: {
+        snapshot_revision_id: "11111111-1111-4111-8111-111111111111",
+        snapshot_status: "complete",
+        linkedFolder: null,
+        embeddedImages: [0, 1, 2, 3, 4, 5].map(slot),
+        linkedFolderItems: [],
+      },
+      crew: [{ name: PLAIN, role: "Driver", roleFlags: [] }],
+    });
+    try {
+      for (const width of [390, 1024, 1280]) {
+        await page.setViewportSize({ width, height: 900 });
+        await open(page, `/show/${gallery.slug}/${gallery.shareToken}?s=rooms`);
+        const m = await page.getByTestId("diagrams-tile").evaluate((tile) => {
+          const channels = (css: string) =>
+            css
+              .match(/[\d.]+/g)!
+              .slice(0, 3)
+              .map(Number);
+          const luminance = (css: string) => {
+            const [r, g, b] = channels(css).map((c) => {
+              const v = c / 255;
+              return v <= 0.03928 ? v / 12.92 : ((v + 0.055) / 1.055) ** 2.4;
+            });
+            return 0.2126 * r! + 0.7152 * g! + 0.0722 * b!;
+          };
+          const heading = tile.querySelector("h3")!;
+          const card = tile.querySelector('[data-testid="section-card"]') ?? tile;
+          const [hi, lo] = [
+            luminance(getComputedStyle(heading).color),
+            luminance(getComputedStyle(card).backgroundColor),
+          ].sort((p, q) => q - p);
+          const slots = [...tile.querySelectorAll('[data-testid^="diagram-slot-"]')];
+          const scrollers = [...tile.querySelectorAll("*")].filter((el) => {
+            const { overflowY } = getComputedStyle(el);
+            return (
+              (overflowY === "auto" || overflowY === "scroll") &&
+              el.scrollHeight > el.clientHeight + 1
+            );
+          });
+          return {
+            contrast: (hi! + 0.05) / (lo! + 0.05),
+            slots: slots.length,
+            grid:
+              slots.at(-1)!.getBoundingClientRect().bottom - slots[0]!.getBoundingClientRect().top,
+            lastBottom: slots.at(-1)!.getBoundingClientRect().bottom,
+            tileBottom: tile.getBoundingClientRect().bottom,
+            scrollers: scrollers.length,
+          };
+        });
+        const at = `at ${width}px: ${JSON.stringify(m)}`;
+        expect(m.slots, `PREMISE: six slots render ${at}`).toBe(6);
+        // PREMISE: at the wide widths the slots are taller than the cap they sat under.
+        if (width >= 1024) premise(`the grid outgrows 240px ${at}`, m.grid, 240);
+        expect(m.scrollers, at).toBe(0);
+        expect(m.lastBottom, at).toBeLessThanOrEqual(m.tileBottom);
+        expect(m.contrast, at).toBeGreaterThan(4.5);
+      }
+    } finally {
+      await deleteSeededShow(gallery.driveFileId);
+    }
+  });
+
+  for (const width of [320, 390]) {
+    test(`rooms: at ${width}px no room card or scope value widens the page`, async ({ page }) => {
+      await page.setViewportSize({ width, height: 844 });
+      await open(page, previewPath(PLAIN));
+      const value = page.getByTestId("section-rooms").getByText(UNBROKEN);
+      // PREMISE: the value that would widen the page rendered.
+      await expect(value).toBeVisible();
+
+      const measured = await page.evaluate(() => {
+        const cards = [
+          ...document.querySelectorAll('[data-card-id="gear-room-details"] > ul > li'),
+        ].map((card) => card.getBoundingClientRect().right);
+        const rows = [...document.querySelectorAll('[data-testid$="-scope"] > li')].map((row) => {
+          const card = row.closest('[data-card-id="gear-room-details"] > ul > li')!;
+          return row.getBoundingClientRect().right - card.getBoundingClientRect().right;
+        });
+        const body = document.querySelector('[data-testid="crew-section-sheet-body"]')!;
+        return {
+          cards,
+          rows,
+          sheet: { scroll: body.scrollWidth, client: body.clientWidth },
+          page: {
+            scroll: document.documentElement.scrollWidth,
+            client: document.documentElement.clientWidth,
+          },
+        };
+      });
+      premise("two room cards rendered", measured.cards.length, 1);
+      for (const right of measured.cards) {
+        expect(right, `a room card's right edge at ${width}px`).toBeLessThanOrEqual(width + TOL);
+      }
+      for (const over of measured.rows) {
+        expect(over, "a discipline row stays inside its card").toBeLessThanOrEqual(TOL);
+      }
+      expect(measured.sheet.scroll).toBeLessThanOrEqual(measured.sheet.client + TOL);
+      expect(measured.page.scroll).toBeLessThanOrEqual(measured.page.client + TOL);
+    });
+  }
+
+  for (const width of [320, 390, 430, 768, 1280]) {
+    test(`rooms: at ${width}px the accent edge runs the emphasized row's height, on a room's last row too, its chip in line`, async ({
+      page,
+    }) => {
+      await page.setViewportSize({ width, height: 900 });
+      await open(page, previewPath(A1));
+
+      const measured = await page.evaluate(() => {
+        const read = (i: number) => {
+          const list = document.querySelector(`[data-testid="crew-panel-room-${i}-scope"]`)!;
+          const card = list.closest("li")!;
+          return {
+            card: card.getBoundingClientRect().toJSON() as DOMRect,
+            rows: [...list.children].map((row) => {
+              const cs = getComputedStyle(row);
+              const key = row.querySelector('[data-testid="room-scope-key"]')!;
+              return {
+                emphasized: row.getAttribute("data-emphasis") === "you",
+                last: row === list.lastElementChild,
+                rect: row.getBoundingClientRect().toJSON() as DOMRect,
+                chipLeft: key.previousElementSibling!.getBoundingClientRect().left,
+                borderLeft: Number.parseFloat(cs.borderLeftWidth),
+                borderBottom: Number.parseFloat(cs.borderBottomWidth),
+                edgeColor: cs.borderLeftColor,
+              };
+            }),
+          };
+        };
+        const probe = document.createElement("span");
+        probe.className = "text-accent-on-bg";
+        document.body.append(probe);
+        const accent = getComputedStyle(probe).color;
+        probe.remove();
+        return { rooms: [read(0), read(1)], accent };
+      });
+
+      const [gs, breakout] = measured.rooms;
+      const marked = gs!.rows.find((row) => row.emphasized)!;
+      const plain = gs!.rows.find((row) => !row.emphasized)!;
+      const lastMarked = breakout!.rows[0]!;
+      // PREMISE: the breakout's one row is both the viewer's own and the room's last.
+      premiseHolds(
+        "the breakout's only row is emphasized and last",
+        breakout!.rows.length === 1 && lastMarked.emphasized && lastMarked.last,
+      );
+      premiseHolds("the first room's marked row is not its last", !marked.last);
+
+      for (const [name, row, card] of [
+        ["a marked row", marked, gs!.card],
+        ["a room's last row", lastMarked, breakout!.card],
+      ] as const) {
+        expect(row.borderLeft, `${name} draws its 1px edge`).toBe(1);
+        expect(row.edgeColor, `${name} draws the edge in the accent`).toBe(measured.accent);
+        expect(row.rect.left, `${name}'s edge is inside its card`).toBeGreaterThan(card.left);
+        expect(row.rect.right, `${name} stays inside its card`).toBeLessThanOrEqual(
+          card.right + TOL,
+        );
+        expect(row.rect.bottom, `${name} is not clipped by its card`).toBeLessThanOrEqual(
+          card.bottom + TOL,
+        );
+      }
+      // The room's last row loses its divider and keeps its edge, the unmarked row's
+      // divider stays, and the pull-out keeps every chip in one line.
+      expect(lastMarked.borderBottom).toBe(0);
+      expect(marked.borderBottom).toBe(1);
+      expect(Math.abs(marked.chipLeft - plain.chipLeft)).toBeLessThanOrEqual(TOL);
+      expect(plain.rect.left).toBeGreaterThan(marked.rect.left);
+      expect(
+        Math.abs(lastMarked.chipLeft - breakout!.card.left - (plain.chipLeft - gs!.card.left)),
+      ).toBeLessThanOrEqual(TOL);
+    });
+  }
 });

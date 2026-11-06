@@ -137,8 +137,9 @@ export type SectionSignatureInput = {
 /**
  * Every string leaf, normalized the way EVERY card body normalizes it before it
  * paints: `String(v ?? "").trim()`, with empty collapsing to `null`
- * (`components/admin/wizard/step3ReviewSections.tsx:256`, and `hasContent` at
- * `:223` which is the same predicate spelled as a guard).
+ * (`components/admin/wizard/step3ReviewSections.tsx:256`, and `hasContent` in
+ * `components/show-panels/fieldRows.ts`, which is the same predicate spelled as a
+ * guard).
  *
  * WHY THIS IS A NORMALIZER AND NOT A LIST OF FIELDS. Round-3 review probed the
  * shipped renderers and found that changing `"x"` to `" x "` on ANY of ~40 fields
@@ -304,7 +305,7 @@ function renderedEventDetails(d: PublishedSectionData): unknown {
   const keys = EVENT_DETAIL_GROUPS.flatMap((g) => g.keys as readonly string[]);
   // BL-FRESHNESS-PROJECTION-NARROWING: the body coerces every value with
   // `String(...).trim()` and puts `opening_reel` through `stripOpeningReelText`
-  // first (`step3ReviewSections.tsx:2224-2231`), which erases embedded
+  // first (`eventDetailGroups`, `lib/crew/eventDetailsSpecs.ts:75-92`), which erases embedded
   // Drive/Docs URLs. Two raw values differing only inside a stripped URL paint
   // the same characters, so hashing the raw text over-cues.
   //
@@ -380,7 +381,7 @@ function renderedPullSheet(d: PublishedSectionData): unknown {
         items
           .slice(0, PACK_LIST_ITEMS_CAP)
           // BL-FRESHNESS-PROJECTION-NARROWING: the item paints as
-          // `packItemLabel(item)` and nothing else (`step3ReviewSections.tsx:2383`),
+          // `packItemLabel(item)` and nothing else (`components/show-panels/PackListBody.tsx`),
           // which erases `TBD`/`N/A`/`TBA` from `cat`/`subCat` through
           // `shouldHideGenericOptional`. One sentinel edited into another is a
           // byte-identical row. Calling the shipped label rather than the four
@@ -623,7 +624,7 @@ const OWN_FIELDS: Record<Exclude<SectionId, "report">, (d: PublishedSectionData)
   // (`step3ReviewSections.tsx:4260`), so a room PAST the cap gaining or losing
   // scope moves a painted number that the capped projection cannot see. Calling
   // the shipped predicate keeps `N/A`-style empty scope values collapsing the
-  // same way on both sides (`isEmptyScopeValue`, `:237`).
+  // same way on both sides (`isEmptyScopeValue`, `components/show-panels/roomScope.ts`).
   rooms: (d) => [
     pickAll(d.rooms, ROOM_KEYS, ROOMS_CAP),
     d.rooms.filter(roomHasScope).length,

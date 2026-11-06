@@ -410,12 +410,12 @@ test.describe("font binding", () => {
  * font the design commits to.
  *
  * REACHABILITY, established by navigation rather than assumed: the group is
- * rendered by `EventDetailsBreakdown` (`components/admin/wizard/step3ReviewSections.tsx:4155`),
+ * rendered by `EventDetailsBody`, called by `EventDetailsBreakdown` (`components/admin/wizard/step3ReviewSections.tsx:4849`),
  * which reaches a live route through `step3Sections()` in `ShowReviewSurface`
  * (`components/admin/review/ShowReviewSurface.tsx:259`), mounted by
  * `PublishedReviewModal` (`components/admin/showpage/PublishedReviewModal.tsx:957`),
  * which `/admin?show=<slug>` opens from the query param. Empty groups are
- * filtered out before render (`components/admin/wizard/step3ReviewSections.tsx:2216-2221`),
+ * filtered out before render (`eventDetailGroups`, `lib/crew/eventDetailsSpecs.ts:75-92`),
  * so `event_details` has to carry at least one of that group's three keys —
  * `seedShowWithCrew` does not set the column, so this seeds it directly.
  */

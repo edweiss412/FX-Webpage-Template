@@ -16,13 +16,13 @@
  *     the Transport card (PR B Task 9; it was Travel's "Getting there").
  *   - hotel address / confirmation / notes → HotelsSection (PR B Task 9).
  *   - venue notes / loadingDock / googleLink (+URL guard) → VenueSection.
- *   - dress code → HomeSection "Dress code".
+ *   - dress code → EventSection "Dress code".
  *   - contact phone/email/notes (dead-link guard) → ContactsSection →
  *     ContactsBody (crew page redesign PR B Task 7).
  *   - crew member phone/email (dead-link guard) → CrewSection → CrewBody.
- *   - room audio/video/lighting scope → GearSection scope cards.
+ *   - room audio/video/lighting scope → RoomsSection discipline rows.
  *   - financials po/proposal/invoice/invoice_notes → BillingSection.
- *   - pack-list item cat/subCat taxonomy → GearSection pack list.
+ *   - pack-list item cat/subCat taxonomy → PackListSection.
  *
  * SENTINELS mirror lib/visibility/emptyState.ts:GENERIC_OPTIONAL_HIDE
  * (case-insensitive after trim). Each class gets a sentinel test (value
@@ -35,8 +35,10 @@ import { cleanup, render } from "@testing-library/react";
 
 import { ContactsSection } from "@/components/crew/sections/ContactsSection";
 import { CrewSection } from "@/components/crew/sections/CrewSection";
-import { GearSection } from "@/components/crew/sections/GearSection";
+import { EventSection } from "@/components/crew/sections/EventSection";
+import { RoomsSection } from "@/components/crew/sections/RoomsSection";
 import { HotelsSection } from "@/components/crew/sections/HotelsSection";
+import { PackListSection } from "@/components/crew/sections/PackListSection";
 import { TransportSection } from "@/components/crew/sections/TransportSection";
 import { VenueSection } from "@/components/crew/sections/VenueSection";
 import { BillingSection } from "@/components/crew/sections/BillingSection";
@@ -165,13 +167,13 @@ describe("§8.3 sentinel-hiding — Show notes aggregation (HomeSection, the hom
 });
 
 // ─────────────────────────────────────────────────────────────────────
-// Dress code → HomeSection
+// Dress code → EventSection, its field card
 // ─────────────────────────────────────────────────────────────────────
 
-describe("§8.3 sentinel-hiding — Dress code (HomeSection, the home body)", () => {
+describe("§8.3 sentinel-hiding — Dress code (EventSection, its field card)", () => {
   function renderDress(dress: string) {
     return render(
-      <HomeSection
+      <EventSection
         {...ledgerProp()}
         data={makeShowForViewer({ show: { event_details: { dress_code: dress } } })}
         viewer={ADMIN}
@@ -184,7 +186,7 @@ describe("§8.3 sentinel-hiding — Dress code (HomeSection, the home body)", ()
   for (const sentinel of SENTINELS) {
     test(`dress_code = "${sentinel}" → no Dress code block`, () => {
       const c = renderDress(sentinel);
-      expect(c.querySelector('[data-testid="today-dress"]')).toBeNull();
+      expect(c.querySelector('[data-card-id="today-dress"]')).toBeNull();
       if (sentinel.trim().length > 0) {
         expect(html(c)).not.toContain(sentinel);
       }
@@ -193,16 +195,15 @@ describe("§8.3 sentinel-hiding — Dress code (HomeSection, the home body)", ()
 
   test("non-sentinel dress_code renders (anti-tautology)", () => {
     const c = renderDress("Business casual");
-    expect(c.querySelector('[data-testid="today-dress"]')).toBeTruthy();
+    expect(c.querySelector('[data-card-id="today-dress"]')).toBeTruthy();
     expect(c.textContent ?? "").toContain("Business casual");
   });
 
   test("single-key sentinel dress_code with no other candidate → block omitted", () => {
     // A sentinel `dress_code` alone reflows out (the predicate is wired on the
-    // resolved value). This is the part of the dress contract HomeSection DOES
-    // satisfy.
+    // resolved value).
     const c = render(
-      <HomeSection
+      <EventSection
         {...ledgerProp()}
         data={makeShowForViewer({ show: { event_details: { dress_code: "N/A" } } })}
         viewer={ADMIN}
@@ -210,7 +211,7 @@ describe("§8.3 sentinel-hiding — Dress code (HomeSection, the home body)", ()
         showId={SHOW_ID}
       />,
     ).container;
-    expect(c.querySelector('[data-testid="today-dress"]')).toBeNull();
+    expect(c.querySelector('[data-card-id="today-dress"]')).toBeNull();
     expect(html(c)).not.toContain("N/A");
   });
 
@@ -222,12 +223,12 @@ describe("§8.3 sentinel-hiding — Dress code (HomeSection, the home body)", ()
     // (including the `dress_code:"N/A"` + `attire:"Black tie"` → "Black tie"
     // case in both orders) is pinned by the parser test:
     //   tests/parser/blocks/event.test.ts → "dress-code canonicalization (M4-D1)".
-    // HomeSection reads `event_details.dress_code` only, so this component
+    // EventSection reads `event_details.dress_code` only, so this component
     // test exercises the POST-parser shape: a single canonical `dress_code`
     // holding the resolved real value renders, and the value-level sentinel
     // guard still applies (covered by the single-key sentinel test above).
     const c = render(
-      <HomeSection
+      <EventSection
         {...ledgerProp()}
         data={makeShowForViewer({
           show: { event_details: { dress_code: "Black tie" } },
@@ -237,7 +238,7 @@ describe("§8.3 sentinel-hiding — Dress code (HomeSection, the home body)", ()
         showId={SHOW_ID}
       />,
     ).container;
-    expect(c.querySelector('[data-testid="today-dress"]')).toBeTruthy();
+    expect(c.querySelector('[data-card-id="today-dress"]')).toBeTruthy();
     expect(c.textContent ?? "").toContain("Black tie");
   });
 });
@@ -585,15 +586,15 @@ describe("§8.3 actionable-link guard — Crew roster (CrewSection → CrewBody)
 });
 
 // ─────────────────────────────────────────────────────────────────────
-// Room scope strings → GearSection scope cards
+// Room scope strings → RoomsSection discipline rows
 // ─────────────────────────────────────────────────────────────────────
 
-describe("§8.3 sentinel-hiding — Scope cards (GearSection)", () => {
+describe("§8.3 sentinel-hiding — Discipline rows (RoomsSection)", () => {
   const FLAGS: RoleFlag[] = ["LEAD", "L1"];
 
-  function gear(rooms: Array<Record<string, unknown>>) {
+  function roomsOf(rooms: Array<Record<string, unknown>>) {
     return render(
-      <GearSection
+      <RoomsSection
         {...ledgerProp()}
         data={makeShowForViewer({
           rooms: rooms as never,
@@ -619,28 +620,30 @@ describe("§8.3 sentinel-hiding — Scope cards (GearSection)", () => {
 
   for (const discipline of ["audio", "video", "lighting"] as const) {
     for (const sentinel of SENTINELS) {
-      test(`every room.${discipline} = "${sentinel}" → ${discipline} card omitted`, () => {
-        const c = gear([{ id: "r1", kind: "gs", name: "GS", [discipline]: sentinel }]);
-        expect(c.querySelector(`[data-testid="gear-scope-${discipline}"]`)).toBeNull();
+      test(`every room.${discipline} = "${sentinel}" → ${discipline} row omitted`, () => {
+        const c = roomsOf([{ id: "r1", kind: "gs", name: "GS", [discipline]: sentinel }]);
+        // The room's card rendered, so the omission is the discipline's.
+        expect(c.querySelector('[data-testid="crew-panel-room-0-header"]')).not.toBeNull();
+        expect(c.querySelector('[data-testid="room-scope-key"]')).toBeNull();
         if (sentinel.trim().length > 0) expect(html(c)).not.toContain(sentinel);
       });
     }
   }
 
   test("mixed rooms — only non-sentinel scope rows render", () => {
-    const c = gear([
+    const c = roomsOf([
       { id: "r1", kind: "gs", name: "GS", audio: "TBD" },
       { id: "r2", kind: "breakout", name: "Ballroom", audio: "L-Acoustics K1" },
       { id: "r3", kind: "additional", name: "Green Room", audio: "N/A" },
     ]);
-    expect(c.querySelector('[data-testid="gear-scope-audio"]')).toBeTruthy();
+    expect(c.querySelectorAll('[data-testid="room-scope-key"]')).toHaveLength(1);
     expect(c.textContent ?? "").toContain("L-Acoustics K1");
     expect(html(c)).not.toContain("TBD");
     expect(html(c)).not.toContain("N/A");
   });
 
   test("non-sentinel scope renders (anti-tautology)", () => {
-    const c = gear([{ id: "r1", kind: "gs", name: "GS", lighting: "MAC Aura XB wash" }]);
+    const c = roomsOf([{ id: "r1", kind: "gs", name: "GS", lighting: "MAC Aura XB wash" }]);
     expect(c.textContent ?? "").toContain("MAC Aura XB wash");
   });
 });
@@ -704,19 +707,15 @@ describe("§8.3 sentinel-hiding — Financials (BillingSection)", () => {
 });
 
 // ─────────────────────────────────────────────────────────────────────
-// Pack-list item taxonomy → GearSection pack list
+// Pack-list item taxonomy → PackListSection
 // ─────────────────────────────────────────────────────────────────────
 
-describe("§8.3 sentinel-hiding — Pack-list taxonomy (GearSection)", () => {
-  const TODAY_ISO = "2026-04-21";
-  const PACK_TODAY = new Date("2026-04-21T16:00:00Z");
-
+describe("§8.3 sentinel-hiding — Pack-list taxonomy (PackListSection)", () => {
   function pack(item: { cat?: string | null; subCat?: string | null; item?: string }) {
     return render(
-      <GearSection
+      <PackListSection
         {...ledgerProp()}
         data={makeShowForViewer({
-          show: { schedule_phases: { [TODAY_ISO]: ["Set"] } },
           pullSheet: [
             {
               caseLabel: "FOH Rack",
@@ -725,7 +724,7 @@ describe("§8.3 sentinel-hiding — Pack-list taxonomy (GearSection)", () => {
           ],
         })}
         viewer={ADMIN}
-        today={PACK_TODAY}
+        today={new Date("2026-04-21T16:00:00Z")}
         showId={SHOW_ID}
       />,
     ).container;

@@ -566,7 +566,9 @@ export const COLLAPSE_CENSUS: readonly CollapseCensusRow[] = [
     // effect's `hidden` dependency and its note sit above. Same <Icon>.
     // 141 -> 142 (origin/main merge, saved-copy bar): the header comment's
     // dimension rule names the saved-copy bar's height. Same <Icon>.
-    site: "components/crew/CrewWideNav.tsx:142",
+    // 142 -> 134 (PR C Task 9): the item moved into `renderItem`, above the JSX return,
+    // so one body serves a bare item and a group's. Same <Icon>.
+    site: "components/crew/CrewWideNav.tsx:134",
     disposition: "carrier-survives",
     reason:
       "an icon inside the crew wide nav item; the item itself carries the state, as aria-current (the forced-colors Highlight fill) and as weight (font-semibold on the active path only)",
@@ -669,5 +671,12 @@ export const COLLAPSE_CENSUS: readonly CollapseCensusRow[] = [
     site: "components/show-panels/ContactsBody.tsx:142",
     disposition: "not-a-state",
     reason: "same: the admin's square and the crew's, fixed per mount by `actionTone`",
+  },
+  {
+    // PR C gate repair 8: the crew's prompt left the faint tone.
+    site: "components/shared/ReportModal.tsx:753",
+    disposition: "not-a-state",
+    reason:
+      "the textarea's prompt carries the admin's arm and the crew's (`promptTone`), fixed per surface for the modal's whole life; nothing toggles between them",
   },
 ];
