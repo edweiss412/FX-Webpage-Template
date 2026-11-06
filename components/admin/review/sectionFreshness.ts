@@ -304,7 +304,7 @@ function renderedEventDetails(d: PublishedSectionData): unknown {
   const keys = EVENT_DETAIL_GROUPS.flatMap((g) => g.keys as readonly string[]);
   // BL-FRESHNESS-PROJECTION-NARROWING: the body coerces every value with
   // `String(...).trim()` and puts `opening_reel` through `stripOpeningReelText`
-  // first (`step3ReviewSections.tsx:2224-2231`), which erases embedded
+  // first (`eventDetailGroups`, `lib/crew/eventDetailsSpecs.ts:75-92`), which erases embedded
   // Drive/Docs URLs. Two raw values differing only inside a stripped URL paint
   // the same characters, so hashing the raw text over-cues.
   //

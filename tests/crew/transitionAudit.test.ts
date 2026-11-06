@@ -173,6 +173,9 @@ const CONTACTS = "components/crew/sections/ContactsSection.tsx";
 const HOTEL_CARD_BODY = "components/show-panels/HotelCardBody.tsx";
 const TRANSPORT_BODY = "components/show-panels/TransportBody.tsx";
 const MINI_AVATAR = "components/show-panels/MiniAvatar.tsx";
+// PR C plan Task 2: the shared Event details body (admin side first; the crew page
+// renders it from Task 5).
+const EVENT_DETAILS_BODY = "components/show-panels/EventDetailsBody.tsx";
 // PR B plan Task 9: the crew Hotels and Transport sections that replace Travel.
 const HOTELS = "components/crew/sections/HotelsSection.tsx";
 const TRANSPORT = "components/crew/sections/TransportSection.tsx";
@@ -962,6 +965,26 @@ const CONDITIONAL_RENDERS: Record<string, { presences: number; renders: Conditio
       { match: "{confirmation !== null ? (", treatment: T.serverPresence },
       { match: "{notes !== null ? (", treatment: T.serverPresence },
       { match: "{names.length > 0 ? (", treatment: T.serverPresence },
+    ],
+  },
+  [EVENT_DETAILS_BODY]: {
+    presences: 0,
+    renders: [
+      // The chip's state: Yes, No, or the parsed token. Two conditionals, one per line.
+      { match: '{state === "yes" ? (', treatment: T.serverPresence },
+      { match: ') : state === "no" ? (', treatment: T.serverPresence },
+      // The reel's row alone, or its block with the attention cards and the player.
+      {
+        match: "if (reelCards.length === 0 && !reelPlayer) return row;",
+        treatment: T.serverPresence,
+      },
+      { match: "{reelCards.length > 0 ? (", treatment: T.serverPresence },
+      // A row in its field card, or bare.
+      { match: "{card ? FieldCard({ card, children: row }) : row}", treatment: T.serverPresence },
+      { match: "{rows.length > 0 ? <div", treatment: T.serverPresence },
+      { match: "{chipFields.length > 0 ? (", treatment: T.serverPresence },
+      // Nothing to show: no block.
+      { match: "if (shown.length === 0) return null;", treatment: T.serverPresence },
     ],
   },
   [TRANSPORT_BODY]: {

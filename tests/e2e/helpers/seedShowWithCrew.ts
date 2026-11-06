@@ -127,7 +127,7 @@ export type SeedShowWithCrewOptions = {
    * shows.event_details jsonb (the parsed sheet's event-detail fields). Omit →
    * column left NULL, and `EventDetailsBreakdown` filters every group out, so
    * the review modal renders no event-detail section at all
-   * (components/admin/wizard/step3ReviewSections.tsx:2216-2221). Set it to
+   * (`eventDetailGroups`, lib/crew/eventDetailsSpecs.ts:75-92). Set it to
    * render real groups — e.g. the font-binding row measurement, which needs a
    * non-empty "Wardrobe & key moments" group.
    *

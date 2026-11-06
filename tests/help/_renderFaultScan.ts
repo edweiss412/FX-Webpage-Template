@@ -1007,7 +1007,16 @@ export function scanCandidates(): Candidate[] {
       // actions beside the identity from the crew threshold (row 20). None is a
       // fault branch. Re-derived by running the guard.
       //
-      // Probed: 799 such ternaries under the derived roots, 79 on a
+      // 799 -> 798 on feat/crew-page-redesign-pr-c Task 2: EventDetailsBreakdown's group
+      // list moved into the shared Event details body
+      // (components/show-panels/EventDetailsBody.tsx). Its empty state stays in the
+      // admin. The rows block, the chip grid and the chip's yes and no arms moved, each
+      // still counted once; the row map's reel and dress ternaries became a dispatch
+      // whose arms are calls, which the arm does not count, and the reel's attention
+      // cards one ternary inside it. None is a fault branch; 79 kept. Re-derived by
+      // running the guard.
+      //
+      // Probed: 798 such ternaries under the derived roots, 79 on a
       // fault-vocabulary guard and unclassifiable. 69 of those 79 sit in
       // `"use client"` files, where the guard is interaction state -- `errorCode`,
       // `state.kind === "error"`, `switchStatus === "error"` -- and not a server-render

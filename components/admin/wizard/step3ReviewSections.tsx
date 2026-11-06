@@ -37,7 +37,6 @@ import {
 } from "react";
 import {
   AlertTriangle,
-  Check,
   ChevronRight,
   Circle,
   ExternalLink,
@@ -46,7 +45,6 @@ import {
   Info,
   Lightbulb,
   MessageSquareWarning,
-  Minus,
   Package,
   Theater,
   TriangleAlert,
@@ -140,8 +138,6 @@ import { renderEmphasis } from "@/components/messages/renderEmphasis";
 import { buildSheetDeepLink, type SourceAnchor } from "@/lib/sheet-links/buildSheetDeepLink";
 import { sheetCellReference } from "@/lib/sheet-links/sheetCellReference";
 import { CorrectionLoopCallout } from "@/components/admin/CorrectionLoopCallout";
-import { stripOpeningReelText } from "@/lib/visibility/openingReelText";
-import { EVENT_DETAILS_LABELS } from "@/lib/crew/eventDetailsSpecs";
 import { partialAttendanceLabel } from "@/lib/crew/partialAttendance";
 import {
   resolveOptionalField,
@@ -156,7 +152,6 @@ import { candidateLabel } from "@/lib/parser/candidateLabel";
 import { labelFromRawSnippet } from "@/lib/parser/rawSnippet";
 import { CrewRowActions, type CrewRowOutcome } from "@/components/admin/wizard/CrewRowActions";
 import { AgendaScheduleBlock } from "@/components/show-panels/AgendaScheduleBlock";
-import { DressCodeLines } from "@/components/crew/DressCodeLines";
 import type { AdminAgendaItem } from "@/lib/agenda/agendaAdminPreview";
 import { agendaOverflowNotes } from "@/lib/agenda/agendaPaint";
 import { VenueMapTile } from "@/components/admin/wizard/VenueMapTile";
@@ -182,6 +177,7 @@ import {
 import { cn } from "@/lib/ui/cn";
 import { SHOW_SECTION_GROUPS, showSection, type ShowSectionId } from "@/lib/showSections/registry";
 import { BillingBody } from "@/components/show-panels/BillingBody";
+import { EventDetailsBody, eventDetailGroups } from "@/components/show-panels/EventDetailsBody";
 import { CrewBody } from "@/components/show-panels/CrewBody";
 import { ContactsBody, contactBlocks } from "@/components/show-panels/ContactsBody";
 import { EYEBROW_CLASS, EYEBROW_STYLE, contentRows } from "@/components/show-panels/FieldRowList";
@@ -352,49 +348,11 @@ export { FieldRowList } from "@/components/show-panels/FieldRowList";
 export { nightsBetween } from "@/components/show-panels/HotelCardBody";
 
 /**
- * Event-details grouping (spec "3a Grouped"). The flat 20-field wall clusters
- * under five eyebrow headers; every key in the closed-vocab `EVENT_DETAILS_LABELS`
- * appears in exactly one group so a newly-added spec key can never silently
- * vanish from the review surface (pinned by a completeness test). The four
- * `EVENT_DETAIL_BOOLEAN_KEYS` render as neutral Yes/No state chips; `dress_code`
- * renders as a sunken free-text block; everything else is a label:value row.
+ * Event-details grouping (spec "3a Grouped"). It lives beside the labels it groups
+ * (crew page redesign PR C plan Task 2) and is re-exported here under the same
+ * name, so the freshness projection and every admin import of it are unchanged.
  */
-export const EVENT_DETAIL_GROUPS: {
-  title: string;
-  keys: (keyof typeof EVENT_DETAILS_LABELS)[];
-}[] = [
-  { title: "Stage & scenic", keys: ["stage_size", "podium_type", "led", "scenic", "gooseneck"] },
-  {
-    title: "Display & content",
-    keys: ["test_pattern", "digital_signage", "opening_reel", "fonts"],
-  },
-  { title: "Production", keys: ["polling", "record", "virtual_speaker", "virtual_audience"] },
-  {
-    title: "Site & logistics",
-    keys: ["equipment_storage", "staff_office_room", "internet", "power"],
-  },
-  { title: "Wardrobe & key moments", keys: ["keynote_requirements", "dress_code", "notes"] },
-];
-
-const EVENT_DETAIL_BOOLEAN_KEYS = new Set<string>([
-  "polling",
-  "record",
-  "virtual_speaker",
-  "virtual_audience",
-]);
-
-/**
- * Classify a boolean-field value as affirmative / negative for the state chip.
- * Returns null for anything that is neither (a sentinel like `TBD`, or richer
- * free text) so the review surface shows the raw parsed token muted rather than
- * coercing an ambiguous value into a false "No".
- */
-function interpretBooleanValue(value: string): "yes" | "no" | null {
-  const v = value.trim().toLowerCase();
-  if (/^(y|yes|true|yep|yeah)\b/.test(v)) return "yes";
-  if (/^(n|no|none|false|nope)\b/.test(v)) return "no";
-  return null;
-}
+export { EVENT_DETAIL_GROUPS } from "@/lib/crew/eventDetailsSpecs";
 
 /**
  * Modal section chrome (Task 5 — spec §6.4/§5.2). The review modal wraps each
@@ -1934,7 +1892,7 @@ export function RoomsBreakdown({ dfid, rooms }: { dfid: string | null; rooms: Ro
 
 // Show-level event-detail fields the crew GearSection surfaces — keynote + opening
 // reel — so the operator can verify them at the publish gate. opening_reel is
-// URL-stripped (stripOpeningReelText) for a clean line; values shown as-parsed.
+// URL-stripped (eventDetailGroups) for a clean line; values shown as-parsed.
 export function EventDetailsBreakdown({
   dfid,
   eventDetails,
@@ -1942,10 +1900,9 @@ export function EventDetailsBreakdown({
   dfid: string | null;
   eventDetails: Record<string, string> | null | undefined;
 }) {
-  const ed = eventDetails ?? {};
   // attention-alert-routing §3.3: asset cards routed to the `opening_reel` anchor,
   // threaded through this section's chrome. Rendered beside the opening_reel field
-  // by EventDetailGroupBody; ABSENT (byte-identical) when there is no attention.
+  // by EventDetailsBody; ABSENT (byte-identical) when there is no attention.
   const reelCards = useContext(Step3SectionChromeContext)?.reelAttention ?? [];
   // Render every known TEXT spec (closed-vocab EVENT_DETAILS_LABELS; `diagrams`
   // is excluded there — folder link) so the operator sees the full picture
@@ -1954,21 +1911,7 @@ export function EventDetailsBreakdown({
   // parsed-but-unfilled) — deliberately NOT sentinel-hidden like the crew card.
   // This asymmetry is the existing, tested contract (Step3Review.test.tsx
   // "shown as-parsed (review surface, not sentinel-hidden like the crew page)").
-  //
-  // Spec "3a Grouped": the flat field wall clusters under five eyebrow headers
-  // (EVENT_DETAIL_GROUPS, which covers every label key). Coerce FIRST (String()
-  // is null/non-string-safe); `opening_reel` keeps its URL-strip cleanup; trim
-  // prevents whitespace from inflating `count`.
-  const valueFor = (key: string): string => {
-    const text = String(ed[key] ?? "").trim();
-    return key === "opening_reel" ? stripOpeningReelText(text).trim() : text;
-  };
-  const groups = EVENT_DETAIL_GROUPS.map((g) => ({
-    title: g.title,
-    fields: g.keys
-      .map((key) => ({ key, label: EVENT_DETAILS_LABELS[key], value: valueFor(key) }))
-      .filter((f) => f.value.length > 0),
-  })).filter((g) => g.fields.length > 0);
+  const groups = eventDetailGroups(eventDetails);
   const count = groups.reduce((n, g) => n + g.fields.length, 0);
   return (
     <BreakdownSection
@@ -1979,134 +1922,9 @@ export function EventDetailsBreakdown({
       {count === 0 ? (
         <p className="text-sm text-text-subtle">No event details parsed.</p>
       ) : (
-        <div className="flex flex-col gap-5">
-          {groups.map((g) => (
-            <div key={g.title} className="flex flex-col gap-3">
-              <div className="flex items-center gap-2.5">
-                <span className={EYEBROW_CLASS} style={EYEBROW_STYLE}>
-                  {g.title}
-                </span>
-                {/* Decorative rule. `min-w-4` is a FLOOR, not a breakpoint hide: measured, this
-                    rule never collapses in the supported range — 22.94px at the narrowest real
-                    row (240px, being a 320px viewport's 280px pane minus `--spacing-tile-pad`
-                    each side) and 0 only at rows <=215px, because its five group titles are a
-                    closed set whose longest is "Wardrobe & key moments". Hiding a rule that
-                    draws correctly everywhere would be a regression, so it gets a floor that
-                    makes the zero state unreachable instead. 16px and not `min-w-6`: 24px
-                    exceeds the width actually available at 240px, so it would bind and wrap the
-                    label. Spec 2026-07-25 §3.2; DESIGN.md §7a. */}
-                <span aria-hidden="true" className="h-px min-w-4 flex-1 bg-border" />
-              </div>
-              <EventDetailGroupBody fields={g.fields} reelCards={reelCards} />
-            </div>
-          ))}
-        </div>
+        <EventDetailsBody groups={groups} reelCards={reelCards} />
       )}
     </BreakdownSection>
-  );
-}
-
-/** One label:value row inside an event-details group; sentinels render muted. */
-function EventDetailRow({ label, value }: { label: string; value: string }) {
-  const muted = shouldHideGenericOptional(value);
-  return (
-    <div className="grid grid-cols-[8rem_minmax(0,1fr)] items-baseline gap-x-4">
-      <span className="wrap-break-word text-xs font-medium text-text-subtle">{label}</span>
-      <span className={`wrap-break-word text-sm ${muted ? "text-text-faint" : "text-text"}`}>
-        {value}
-      </span>
-    </div>
-  );
-}
-
-/** A neutral Yes/No state chip (no green/red — Yes is filled, No is outlined). */
-function BooleanChip({ label, value }: { label: string; value: string }) {
-  const state = interpretBooleanValue(value);
-  return (
-    <div className="flex items-center justify-between gap-2 rounded-md bg-surface-sunken px-3 py-2">
-      <span className="wrap-break-word text-xs font-medium text-text-subtle">{label}</span>
-      {state === "yes" ? (
-        <span className="inline-flex shrink-0 items-center gap-1 rounded-pill border border-border-strong bg-surface px-2.5 py-0.5 text-xs font-semibold text-text-strong">
-          <Check className="size-3" aria-hidden="true" />
-          Yes
-        </span>
-      ) : state === "no" ? (
-        <span className="inline-flex shrink-0 items-center gap-1 rounded-pill border border-border px-2.5 py-0.5 text-xs font-semibold text-text-faint">
-          <Minus className="size-3" aria-hidden="true" />
-          No
-        </span>
-      ) : (
-        // Neither yes nor no (sentinel / richer text) → raw parsed token, muted.
-        <span className="wrap-break-word text-xs font-medium text-text-faint">{value}</span>
-      )}
-    </div>
-  );
-}
-
-/**
- * Renders a group's fields: booleans as a Yes/No chip grid, `dress_code` as a
- * sunken block of phase/attire pairs (DressCodeLines), everything else as label:value
- * rows. Rows render before chips so the Production group (all-boolean) reads as
- * a clean chip grid and mixed groups keep their text rows on top.
- */
-function EventDetailGroupBody({
-  fields,
-  reelCards = [],
-}: {
-  fields: { key: string; label: string; value: string }[];
-  // attention-alert-routing §3.3: asset cards for the `opening_reel` anchor,
-  // co-located with the opening_reel field when present. Default [] keeps every
-  // other group + the no-attention path byte-identical.
-  reelCards?: React.ReactNode[];
-}) {
-  const chips = fields.filter((f) => EVENT_DETAIL_BOOLEAN_KEYS.has(f.key));
-  const rows = fields.filter((f) => !EVENT_DETAIL_BOOLEAN_KEYS.has(f.key));
-  return (
-    <>
-      {rows.length > 0 ? (
-        <div className="flex flex-col gap-2.5">
-          {rows.map((f) =>
-            f.key === "opening_reel" && reelCards.length > 0 ? (
-              // The anchored asset cards mount immediately BELOW the reel value,
-              // inside a testid'd wrapper that co-locates both — a DOM-ancestry
-              // check binds the card to the reel field it belongs to (§3.3).
-              // gap-2 (tighter than the gap-2.5 between sibling rows) plus min-w-0
-              // binds the cards to their reel field and keeps a wide/unbreakable
-              // banner child from forcing horizontal overflow at 320px (impeccable P3).
-              <div
-                key={f.key}
-                data-testid="event-opening-reel"
-                className="flex min-w-0 flex-col gap-2"
-              >
-                <EventDetailRow label={f.label} value={f.value} />
-                <div className="flex min-w-0 flex-col gap-2">{reelCards}</div>
-              </div>
-            ) : f.key === "dress_code" ? (
-              <div
-                key={f.key}
-                className="grid grid-cols-[8rem_minmax(0,1fr)] items-baseline gap-x-4"
-              >
-                <span className="wrap-break-word text-xs font-medium text-text-subtle">
-                  {f.label}
-                </span>
-                <div className="rounded-md border border-border bg-surface-sunken px-3 py-2">
-                  <DressCodeLines value={f.value} />
-                </div>
-              </div>
-            ) : (
-              <EventDetailRow key={f.key} label={f.label} value={f.value} />
-            ),
-          )}
-        </div>
-      ) : null}
-      {chips.length > 0 ? (
-        <div className="grid grid-cols-1 gap-2 min-[420px]:grid-cols-2">
-          {chips.map((f) => (
-            <BooleanChip key={f.key} label={f.label} value={f.value} />
-          ))}
-        </div>
-      ) : null}
-    </>
   );
 }
 
