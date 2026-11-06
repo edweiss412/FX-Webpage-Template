@@ -21,6 +21,7 @@ export const CREW_SECTION_IDS = [
   "agenda",
   "hotels",
   "transport",
+  "rooms",
   "gear",
   "packlist",
   "billing",

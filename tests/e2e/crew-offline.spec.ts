@@ -255,7 +255,7 @@ test("1. first visit is saved, then an offline reload shows full content, a work
 
   const savedSection = /data-active-section="([^"]+)"/.exec(html ?? "")?.[1];
   expect(savedSection, "the stored copy names its section").toBeTruthy();
-  expect(savedSection, "Venue is a real switch from the saved section").not.toBe("venue");
+  expect(savedSection, "Rooms is a real switch from the saved section").not.toBe("rooms");
 
   proxy.setMode("refuse");
   await page.reload();
@@ -273,7 +273,7 @@ test("1. first visit is saved, then an offline reload shows full content, a work
   const rows = await page
     .locator('[data-testid="crew-all-sections-row"]')
     .evaluateAll((nodes) => nodes.map((node) => node.getAttribute("data-section")));
-  const otherSection = rows.find((row) => row !== savedSection && row !== "venue");
+  const otherSection = rows.find((row) => row !== savedSection && row !== "rooms");
   expect(otherSection, "the All sections card offers a third section").toBeTruthy();
   await page.goto(`${origin}${path}?s=${otherSection}`);
   await waitForCrewHydrated(page);
@@ -282,16 +282,16 @@ test("1. first visit is saved, then an offline reload shows full content, a work
   await expect(sections).toHaveAttribute("data-active-section", savedSection ?? "");
   await expect.poll(() => new URL(page.url()).searchParams.get("s")).toBe(savedSection);
 
-  // Opening a section is a client-side switch: the sheet opens on Venue's body
+  // Opening a section is a client-side switch: the sheet opens on Rooms' body
   // from the saved page, with no request the refusing proxy could answer.
-  await sectionRow(page, "venue").click();
+  await sectionRow(page, "rooms").click();
   await expect(page.getByTestId("crew-section-sheet-dialog")).toHaveAttribute(
     "data-section",
-    "venue",
+    "rooms",
   );
-  await expect(page.getByTestId("section-venue")).toBeVisible();
-  await expect(sections).toHaveAttribute("data-active-section", "venue");
-  await expect.poll(() => new URL(page.url()).searchParams.get("s")).toBe("venue");
+  await expect(page.getByTestId("section-rooms")).toBeVisible();
+  await expect(sections).toHaveAttribute("data-active-section", "rooms");
+  await expect.poll(() => new URL(page.url()).searchParams.get("s")).toBe("rooms");
 
   // The stage diagrams render from the stored assets: the proxy refuses every
   // request, and the asset route sends `private, max-age=0`.

@@ -52,6 +52,7 @@ import { HotelsSection } from "@/components/crew/sections/HotelsSection";
 import { CrewSection } from "@/components/crew/sections/CrewSection";
 import { EventSection } from "@/components/crew/sections/EventSection";
 import { GearSection } from "@/components/crew/sections/GearSection";
+import { RoomsSection } from "@/components/crew/sections/RoomsSection";
 import { PackListSection } from "@/components/crew/sections/PackListSection";
 import { HomeSection } from "@/components/crew/sections/HomeSection";
 import { ScheduleSection } from "@/components/crew/sections/ScheduleSection";
@@ -509,6 +510,17 @@ export async function CrewShell({
       case "contacts":
         return (
           <ContactsSection
+            data={data}
+            viewer={viewer}
+            today={today}
+            showId={showId}
+            ledger={tileLedger}
+            cardReport={cardReport}
+          />
+        );
+      case "rooms":
+        return (
+          <RoomsSection
             data={data}
             viewer={viewer}
             today={today}

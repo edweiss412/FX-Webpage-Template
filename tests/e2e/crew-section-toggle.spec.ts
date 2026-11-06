@@ -520,6 +520,43 @@ test.describe("crew compact home and section sheet (spec §5.2)", () => {
     expect(new URL(page.url()).searchParams.get("s")).toBe("event");
   });
 
+  // Crew page redesign PR C Task 7: Rooms is a section of its own, holding Diagrams.
+  test("rooms: ?s=rooms opens the sheet on initial load, in the server HTML and after hydration", async ({
+    page,
+  }) => {
+    const res = await page.request.get(`${route}?s=rooms`);
+    expect(res.status()).toBe(200);
+    const html = await res.text();
+    const dialogAt = html.search(/<[^>]*data-testid="crew-section-sheet-dialog"[^>]*>/);
+    expect(dialogAt, "the open sheet is in the server HTML").toBeGreaterThan(-1);
+    const dialogTag = html.slice(dialogAt, html.indexOf(">", dialogAt) + 1);
+    expect(dialogTag).toContain('data-section="rooms"');
+    expect(html.indexOf('data-testid="section-rooms"', dialogAt)).toBeGreaterThan(dialogAt);
+
+    await load(page, "?s=rooms");
+    await expect(sheetDialog(page)).toHaveAttribute("data-section", "rooms");
+    await expect(sheetDialog(page).getByTestId("section-rooms")).toBeVisible();
+    await expect(sheetDialog(page).getByRole("heading", { level: 2 })).toHaveText(
+      showSection("rooms").label,
+    );
+    expect(new URL(page.url()).searchParams.get("s")).toBe("rooms");
+  });
+
+  test("rooms: Diagrams render inside the Rooms sheet and not in Venue", async ({ page }) => {
+    await load(page, "?s=rooms");
+    const inRooms = sheetDialog(page).getByTestId("section-rooms");
+    await expect(inRooms.getByTestId("venue-diagrams")).toHaveCount(1);
+    await expect(inRooms.getByTestId("diagrams-tile")).toBeVisible();
+
+    await load(page, "?s=venue");
+    const inVenue = sheetDialog(page).getByTestId("section-venue");
+    // POSITIVE CONTROL: Venue rendered its own cards.
+    await expect(inVenue.getByTestId("venue-where")).toBeVisible();
+    await expect(inVenue.getByTestId("venue-diagrams")).toHaveCount(0);
+    await expect(inVenue.getByTestId("diagrams-tile")).toHaveCount(0);
+    await expect(inVenue.getByTestId("venue-column")).toHaveCount(0);
+  });
+
   test("sheet: ?s=today renders the home with no sheet, in the HTML and after hydration", async ({
     page,
   }) => {
@@ -1056,7 +1093,7 @@ test.describe("crew compact compound transitions (spec §7, plan Task 12)", () =
     page,
   }) => {
     await loadPath(page, await waldorfRoute());
-    await openFromRow(page, "venue");
+    await openFromRow(page, "rooms");
     // The first AVAILABLE slot: the seed's first embedded diagram has no snapshot
     // and renders as a placeholder with no button.
     const thumb = sheetDialog(page)
@@ -1069,7 +1106,7 @@ test.describe("crew compact compound transitions (spec §7, plan Task 12)", () =
     await page.keyboard.press("Escape");
 
     await expect(page.getByTestId("diagrams-lightbox")).toHaveCount(0);
-    await expect(sheetDialog(page)).toHaveAttribute("data-section", "venue");
+    await expect(sheetDialog(page)).toHaveAttribute("data-section", "rooms");
     await expect.poll(() => focusInsideSheet(page)).toBe(true);
     await expect(thumb).toBeFocused();
   });
@@ -2083,6 +2120,7 @@ test.describe("agenda: the Agenda section, compact (PR B Task 10)", () => {
           "event",
           "hotels",
           "packlist",
+          "rooms",
           "transport",
           "venue",
         ].sort(),

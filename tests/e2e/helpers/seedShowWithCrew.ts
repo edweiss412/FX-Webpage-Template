@@ -79,6 +79,23 @@ export type SeedHotelReservationInput = {
   notes?: string | null;
 };
 
+/** One rooms row; omitted fields are written NULL. */
+export type SeedRoomInput = {
+  kind: "gs" | "breakout" | "additional";
+  name: string;
+  floor?: string | null;
+  dimensions?: string | null;
+  setup?: string | null;
+  setTime?: string | null;
+  showTime?: string | null;
+  strikeTime?: string | null;
+  audio?: string | null;
+  video?: string | null;
+  lighting?: string | null;
+  scenic?: string | null;
+  other?: string | null;
+};
+
 /** The show's transportation row; omitted fields are written NULL (schedule empty). */
 export type SeedTransportationInput = {
   driverName?: string | null;
@@ -175,6 +192,17 @@ export type SeedShowWithCrewOptions = {
   hotelReservations?: SeedHotelReservationInput[];
   /** The show's transportation row, inserted in the same transaction. Omit → none. */
   transportation?: SeedTransportationInput;
+  /**
+   * rooms rows, inserted in the same locked transaction after the show, as
+   * `hotelReservations` are: the Waldorf seed's one room holds no discipline, so a
+   * Rooms case seeds its own. Omit → none.
+   */
+  rooms?: SeedRoomInput[];
+  /**
+   * shows.diagrams jsonb. Omit → column left NULL. Written by the same show insert,
+   * named only when supplied, as `venue` is.
+   */
+  diagrams?: unknown;
 };
 
 export type SeededShow = {
@@ -320,7 +348,7 @@ export async function seedShowWithCrew(options: SeedShowWithCrewOptions = {}): P
        (id, drive_file_id, slug, title, client_label, template_version,
         published, archived, picker_epoch, dates, agenda_links, event_details, pull_sheet${
           options.venue === undefined ? "" : ", venue"
-        })
+        }${options.diagrams === undefined ? "" : ", diagrams"})
      values
        (${sqlString(showId)}::uuid, ${sqlString(driveFileId)}, ${sqlString(slug)},
         ${sqlString(options.title ?? "Picker E2E Show")},
@@ -332,7 +360,7 @@ export async function seedShowWithCrew(options: SeedShowWithCrewOptions = {}): P
         ${sqlJsonbOrNull(eventDetails)},
         ${sqlJsonbOrNull(options.pullSheet ?? null)}${
           options.venue === undefined ? "" : `, ${sqlJsonbOrNull(options.venue)}`
-        });`,
+        }${options.diagrams === undefined ? "" : `, ${sqlJsonbOrNull(options.diagrams)}`});`,
   ];
   for (const row of crewRows) {
     statements.push(
@@ -360,6 +388,19 @@ export async function seedShowWithCrew(options: SeedShowWithCrewOptions = {}): P
           ${h.checkIn == null ? "null" : `${sqlString(h.checkIn)}::date`},
           ${h.checkOut == null ? "null" : `${sqlString(h.checkOut)}::date`},
           ${sqlTextOrNull(h.notes)});`,
+    );
+  }
+  for (const r of options.rooms ?? []) {
+    statements.push(
+      `insert into public.rooms
+         (show_id, kind, name, floor, dimensions, setup, set_time, show_time, strike_time,
+          audio, video, lighting, scenic, other)
+       values
+         (${sqlString(showId)}::uuid, ${sqlString(r.kind)}, ${sqlString(r.name)},
+          ${sqlTextOrNull(r.floor)}, ${sqlTextOrNull(r.dimensions)}, ${sqlTextOrNull(r.setup)},
+          ${sqlTextOrNull(r.setTime)}, ${sqlTextOrNull(r.showTime)},
+          ${sqlTextOrNull(r.strikeTime)}, ${sqlTextOrNull(r.audio)}, ${sqlTextOrNull(r.video)},
+          ${sqlTextOrNull(r.lighting)}, ${sqlTextOrNull(r.scenic)}, ${sqlTextOrNull(r.other)});`,
     );
   }
   if (options.transportation !== undefined) {

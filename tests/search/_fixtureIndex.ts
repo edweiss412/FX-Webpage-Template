@@ -142,7 +142,7 @@ export const FIXTURE_INDEX: SearchIndex = {
       value: "100A three phase at stage left",
     },
     {
-      section: "venue",
+      section: "rooms",
       region: "venue-diagrams",
       group: "Diagrams",
       label: null,

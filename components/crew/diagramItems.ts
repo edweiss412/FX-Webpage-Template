@@ -35,7 +35,7 @@ import { entryId } from "@/lib/search/entryId";
 /** The Diagrams card's heading, which is also the search `group` of its lines. */
 export const DIAGRAMS_HEADING = "Diagrams";
 
-/** The Diagrams block's `data-card-id` in VenueSection: the search region. */
+/** The Diagrams block's `data-card-id` in RoomsSection: the search region. */
 export const DIAGRAMS_CARD_ID = "venue-diagrams";
 
 /**
@@ -129,7 +129,7 @@ export function diagramGalleryItems(diagrams: PersistedDiagrams | null): Diagram
 
   const seen = new Map<string, number>();
   const line = (value: string) =>
-    entryId("venue", DIAGRAMS_CARD_ID, DIAGRAMS_HEADING, null, value, seen);
+    entryId("rooms", DIAGRAMS_CARD_ID, DIAGRAMS_HEADING, null, value, seen);
   const heading = { id: line(DIAGRAMS_HEADING), value: DIAGRAMS_HEADING };
   // The gallery renders the first INITIAL_VISIBLE items, unavailable ones
   // included, until "Show all"; only those with a real name are lines.

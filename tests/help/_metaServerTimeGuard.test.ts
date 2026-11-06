@@ -192,7 +192,9 @@ describe("Server-side time-call grep guard (test #16 — AC-11.38)", () => {
   // 248 -> 249 (PR B invariant-8 gate repairs, row 13's peer): lib/crew/contactHrefs.ts,
   // the crew contact links moved out of crewRows.ts so the client-reachable peek can
   // read them. Re-derived by running this guard.
-  const DERIVED_LIB_POPULATION = 249;
+  // 249 -> 248 (crew page redesign PR C Task 7): lib/crew/roomDetailFields.ts retired
+  // with its last consumer. Re-derived by running this guard.
+  const DERIVED_LIB_POPULATION = 248;
 
   it(`the derived lib population has exactly ${DERIVED_LIB_POPULATION} members, including both directory-index modules`, () => {
     // The shipped resolver tried only <base>.ts and <base>.tsx, so five live
@@ -452,7 +454,7 @@ describe("Server-side time-call grep guard (test #16 — AC-11.38)", () => {
     // correction keeps the sheet's marker. It reads history state, never the clock.
     // Re-derived by running this guard.
     expect(rel).toContain("lib/ui/historyState.ts");
-    // 249 (crew page redesign PR B, Task 2): lib/showSections/registry.ts, the
+    // lib/showSections/registry.ts (crew page redesign PR B, Task 2), the
     // show-section registry step3ReviewSections.tsx now reads its shared section
     // labels, groups and icons from. It holds constants, never the clock.
     // Re-derived by running this guard.

@@ -1033,8 +1033,14 @@ export function scanCandidates(): Candidate[] {
       // are the shared Pack list body's, which already counted them, and PackListSection
       // decides its empty state with an early return. None is a fault branch; 79 kept.
       // Re-derived by running the guard.
+      // 793 -> 789 on feat/crew-page-redesign-pr-c Task 7: Gear's six went with its cards
+      // (the fetch failure, the empty state, the scope grid, the eyebrow, the room details
+      // and their overflow line) and Venue's two with its split (the Diagrams block and
+      // the split's branch), and RoomsSection's four came in (the fetch failure, the empty
+      // state, the panel and the Diagrams block). None is a new fault branch; 79 kept.
+      // Re-derived by running the guard.
       //
-      // Probed: 793 such ternaries under the derived roots, 79 on a
+      // Probed: 789 such ternaries under the derived roots, 79 on a
       // fault-vocabulary guard and unclassifiable. 69 of those 79 sit in
       // `"use client"` files, where the guard is interaction state -- `errorCode`,
       // `state.kind === "error"`, `switchStatus === "error"` -- and not a server-render

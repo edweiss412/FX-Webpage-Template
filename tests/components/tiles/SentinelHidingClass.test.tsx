@@ -20,7 +20,7 @@
  *   - contact phone/email/notes (dead-link guard) → ContactsSection →
  *     ContactsBody (crew page redesign PR B Task 7).
  *   - crew member phone/email (dead-link guard) → CrewSection → CrewBody.
- *   - room audio/video/lighting scope → GearSection scope cards.
+ *   - room audio/video/lighting scope → RoomsSection discipline rows.
  *   - financials po/proposal/invoice/invoice_notes → BillingSection.
  *   - pack-list item cat/subCat taxonomy → PackListSection.
  *
@@ -36,7 +36,7 @@ import { cleanup, render } from "@testing-library/react";
 import { ContactsSection } from "@/components/crew/sections/ContactsSection";
 import { CrewSection } from "@/components/crew/sections/CrewSection";
 import { EventSection } from "@/components/crew/sections/EventSection";
-import { GearSection } from "@/components/crew/sections/GearSection";
+import { RoomsSection } from "@/components/crew/sections/RoomsSection";
 import { HotelsSection } from "@/components/crew/sections/HotelsSection";
 import { PackListSection } from "@/components/crew/sections/PackListSection";
 import { TransportSection } from "@/components/crew/sections/TransportSection";
@@ -586,15 +586,15 @@ describe("§8.3 actionable-link guard — Crew roster (CrewSection → CrewBody)
 });
 
 // ─────────────────────────────────────────────────────────────────────
-// Room scope strings → GearSection scope cards
+// Room scope strings → RoomsSection discipline rows
 // ─────────────────────────────────────────────────────────────────────
 
-describe("§8.3 sentinel-hiding — Scope cards (GearSection)", () => {
+describe("§8.3 sentinel-hiding — Discipline rows (RoomsSection)", () => {
   const FLAGS: RoleFlag[] = ["LEAD", "L1"];
 
-  function gear(rooms: Array<Record<string, unknown>>) {
+  function roomsOf(rooms: Array<Record<string, unknown>>) {
     return render(
-      <GearSection
+      <RoomsSection
         {...ledgerProp()}
         data={makeShowForViewer({
           rooms: rooms as never,
@@ -620,28 +620,30 @@ describe("§8.3 sentinel-hiding — Scope cards (GearSection)", () => {
 
   for (const discipline of ["audio", "video", "lighting"] as const) {
     for (const sentinel of SENTINELS) {
-      test(`every room.${discipline} = "${sentinel}" → ${discipline} card omitted`, () => {
-        const c = gear([{ id: "r1", kind: "gs", name: "GS", [discipline]: sentinel }]);
-        expect(c.querySelector(`[data-testid="gear-scope-${discipline}"]`)).toBeNull();
+      test(`every room.${discipline} = "${sentinel}" → ${discipline} row omitted`, () => {
+        const c = roomsOf([{ id: "r1", kind: "gs", name: "GS", [discipline]: sentinel }]);
+        // The room's card rendered, so the omission is the discipline's.
+        expect(c.querySelector('[data-testid="crew-panel-room-0-header"]')).not.toBeNull();
+        expect(c.querySelector('[data-testid="room-scope-key"]')).toBeNull();
         if (sentinel.trim().length > 0) expect(html(c)).not.toContain(sentinel);
       });
     }
   }
 
   test("mixed rooms — only non-sentinel scope rows render", () => {
-    const c = gear([
+    const c = roomsOf([
       { id: "r1", kind: "gs", name: "GS", audio: "TBD" },
       { id: "r2", kind: "breakout", name: "Ballroom", audio: "L-Acoustics K1" },
       { id: "r3", kind: "additional", name: "Green Room", audio: "N/A" },
     ]);
-    expect(c.querySelector('[data-testid="gear-scope-audio"]')).toBeTruthy();
+    expect(c.querySelectorAll('[data-testid="room-scope-key"]')).toHaveLength(1);
     expect(c.textContent ?? "").toContain("L-Acoustics K1");
     expect(html(c)).not.toContain("TBD");
     expect(html(c)).not.toContain("N/A");
   });
 
   test("non-sentinel scope renders (anti-tautology)", () => {
-    const c = gear([{ id: "r1", kind: "gs", name: "GS", lighting: "MAC Aura XB wash" }]);
+    const c = roomsOf([{ id: "r1", kind: "gs", name: "GS", lighting: "MAC Aura XB wash" }]);
     expect(c.textContent ?? "").toContain("MAC Aura XB wash");
   });
 });

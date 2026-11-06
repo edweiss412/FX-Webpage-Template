@@ -166,6 +166,7 @@ function fullShow(): ShowForViewer {
     hotelReservations: [reservation({})],
     transportation: transport([...CONTENT_LEGS, BLANK_LEG]),
     pullSheet: Array.from({ length: 14 }, (_, i) => ({ caseLabel: `Case ${i + 1}`, items: [] })),
+    rooms: [{ id: "r1", kind: "gs", name: "Ballroom" }],
     financials: { po: "PO-4471", proposal: null, invoice: null, invoice_notes: null },
     contacts: CONTACTS,
   });
@@ -308,6 +309,24 @@ describe("sectionPeek (peek, spec §4.6)", () => {
     (show.show as { event_details: unknown }).event_details = null;
     show.openingReelHasVideo = false;
     expect(peek("event", show, crew("c-plain"))).toBeNull();
+  });
+
+  it("peek: rooms counts the rooms the section renders, every viewer alike, and nothing at zero", () => {
+    const withRooms = (rooms: unknown) => {
+      const show = fullShow();
+      (show as { rooms: unknown }).rooms = rooms;
+      return show;
+    };
+    const room = (id: string) => ({ id, kind: "breakout", name: `Room ${id}` });
+    // A room with no scope and no detail still renders its name, so it counts.
+    expect(peek("rooms", withRooms([room("a"), room("b"), room("c")]), crew("c-plain"))).toBe(
+      "3 rooms",
+    );
+    expect(peek("rooms", withRooms([room("a")]), crew("c-plain"))).toBe("1 room");
+    expect(peek("rooms", withRooms([]), crew("c-plain"))).toBeNull();
+    // Absent on a partial projection.
+    expect(peek("rooms", withRooms({ id: "not a list" }), crew("c-plain"))).toBeNull();
+    expect(peek("rooms", withRooms(null), crew("c-plain"))).toBeNull();
   });
 
   it("peek: packlist counts a pack list only on the days its phase and stage gates show it", () => {

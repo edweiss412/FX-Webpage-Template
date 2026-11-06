@@ -24,6 +24,7 @@ import { CrewSection } from "@/components/crew/sections/CrewSection";
 import { EventSection } from "@/components/crew/sections/EventSection";
 import { PackListSection } from "@/components/crew/sections/PackListSection";
 import { GearSection } from "@/components/crew/sections/GearSection";
+import { RoomsSection } from "@/components/crew/sections/RoomsSection";
 import { AgendaSection } from "@/components/crew/sections/AgendaSection";
 import { ScheduleSection } from "@/components/crew/sections/ScheduleSection";
 import { HotelsSection } from "@/components/crew/sections/HotelsSection";
@@ -36,7 +37,6 @@ import type { SectionId } from "@/lib/crew/resolveActiveSection";
 import { createTileRenderLedger } from "@/lib/crew/tileRenderLedger";
 import { parseWifiValue } from "@/lib/crew/wifiDisplay";
 import { resolveViewerContext } from "@/lib/data/viewerContext";
-import { CARD_REGION_MAP } from "@/lib/sheet-links/buildSheetDeepLink";
 import { stripOpeningReelText } from "@/lib/visibility/openingReelText";
 import { todayIsoInShowTimezone } from "@/lib/visibility/packList";
 import * as matrix from "@/tests/search/_viewerMatrix";
@@ -99,6 +99,7 @@ function renderSection(id: SectionId, c: ViewerCase): HTMLElement {
     transport: () => <TransportSection {...props} />,
     crew: () => <CrewSection {...props} />,
     contacts: () => <ContactsSection {...props} />,
+    rooms: () => <RoomsSection {...props} />,
     gear: () => <GearSection {...props} />,
     packlist: () => <PackListSection {...props} />,
     billing: () => <BillingSection {...props} />,
@@ -266,15 +267,15 @@ describe("fullContent", () => {
     expect(byTestId(root, "venue-facilities")).toHaveTextContent(ed["power"]!);
   });
 
-  test("Gear: one scope card per discipline, room details", () => {
-    const root = renderSection("gear", fullContent);
-
-    const scopeCards = Object.keys(CARD_REGION_MAP).filter((k) => k.startsWith("gear-scope-"));
-    expect(scopeCards.length).toBeGreaterThan(0);
-    for (const id of scopeCards) byTestId(root, id);
-
-    const details = byTestId(root, "gear-room-details");
-    for (const room of fullContent.data.rooms) byTestId(details, `gear-room-detail-${room.id}`);
+  test("Rooms: a card per room, every discipline and header field inside it (PR C Task 7)", () => {
+    const root = renderSection("rooms", fullContent);
+    const panel = byCardId(root, "gear-room-details");
+    expect(panel.querySelectorAll(":scope > ul > li")).toHaveLength(fullContent.data.rooms.length);
+    const gs = fullContent.data.rooms.find((r) => r.kind === "gs")!;
+    expect(panel).toHaveTextContent(gs.name);
+    for (const value of [gs.audio, gs.video, gs.lighting, gs.scenic, gs.other, gs.dimensions]) {
+      expect(panel).toHaveTextContent(value!);
+    }
   });
 
   test("Pack list: every case, and the section its own (PR C Task 6)", () => {

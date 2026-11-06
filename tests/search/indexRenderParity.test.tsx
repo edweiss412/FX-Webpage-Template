@@ -38,7 +38,8 @@ import * as packListRows from "@/components/crew/sections/packListRows";
 import { PackListSection } from "@/components/crew/sections/PackListSection";
 import * as eventRows from "@/components/crew/sections/eventRows";
 import { GearSection } from "@/components/crew/sections/GearSection";
-import * as gearRows from "@/components/crew/sections/gearRows";
+import * as roomsRows from "@/components/crew/sections/roomsRows";
+import { RoomsSection } from "@/components/crew/sections/RoomsSection";
 import { AgendaSection } from "@/components/crew/sections/AgendaSection";
 import * as agendaRowsModule from "@/components/crew/sections/agendaRows";
 import { ScheduleSection } from "@/components/crew/sections/ScheduleSection";
@@ -150,6 +151,7 @@ function renderSection(id: SectionId, c: ViewerCase): HTMLElement {
     transport: () => <TransportSection {...props} />,
     crew: () => <CrewSection {...props} />,
     contacts: () => <ContactsSection {...props} />,
+    rooms: () => <RoomsSection {...props} />,
     gear: () => <GearSection {...props} />,
     packlist: () => <PackListSection {...props} />,
     billing: () => <BillingSection {...props} />,
@@ -619,129 +621,383 @@ describe("transport", () => {
   });
 });
 
-// ── gear ─────────────────────────────────────────────────────────────────────
+// ── rooms ──────────────────────────────────────────────────────────────────────
 
-describe("gear", () => {
+describe("rooms", () => {
+  type Room = ShowForViewer["rooms"][number];
+  const PANEL_LABEL = showSection("rooms").label;
+  const REGION = (card: string) => (e: SearchEntry) => e.id.startsWith(`rooms:${card}:`);
+  const inRegion = (es: readonly SearchEntry[], card: string) => es.filter(REGION(card));
+  const has = (root: HTMLElement, selector: string) => root.querySelector(selector) !== null;
+  const panelEntries = (es: readonly SearchEntry[]) => inRegion(es, "gear-room-details");
+
   const salon = fullContent.data.rooms.find((r) => r.kind === "breakout");
   if (salon === undefined) throw new Error("fullContent carries no breakout room");
 
+  const SNAPSHOT = (i: number) =>
+    `diagram-snapshots/shows/${SHOW_ID}/rev/embedded-v-${i}.png` as const;
+  const embeddedImage = (i: number, alt: string | undefined, snapshotPath: string | null) => ({
+    sheetTab: "DIAGRAMS",
+    objectId: `v-${i}`,
+    mimeType: "image/png",
+    ...(alt === undefined ? {} : { alt }),
+    sheetsRevisionId: "sheet-rev-1",
+    embeddedFingerprint: `fp-v-${i}`,
+    recovery_disposition: "normal" as const,
+    snapshotPath,
+  });
+
   /**
-   * The Gear shape no shared case renders: a second room with the same label and
-   * scope text as another, so its scope row and room-details heading get `~2`.
+   * A second room with the same label and scope text as another, so its name and
+   * its discipline lines get `~2`.
    */
-  const gearFallbacks = variant(fullContent, "gearFallbacks", {
+  const roomFallbacks = variant(fullContent, "roomFallbacks", {
     ...fullContent.data,
     rooms: [...fullContent.data.rooms, { ...salon, id: `${salon.id}-twin` }],
   });
+  /** A room with no name (the crew's label stands in), one holding only sentinels. */
+  const roomForms = variant(fullContent, "roomForms", (d) => ({
+    ...d,
+    rooms: [
+      ...d.rooms,
+      { id: "room-nameless", kind: "additional", name: "", setup: "Storage only" } as Room,
+      {
+        id: "room-sentinels",
+        kind: "breakout",
+        name: "Lasalle",
+        floor: "TBD",
+        dimensions: "N/A",
+        audio: "Not specified",
+        video: "TBD",
+      } as Room,
+    ],
+  }));
+  /**
+   * Every gallery item form: a named thumbnail, an unnamed one (the gallery
+   * invents "Diagram N"), a named image that is unavailable (its name is
+   * screen-reader text, not an alt), a whitespace name, a linked-folder item, and
+   * a second thumbnail with the first one's name (a duplicate line, `~2`).
+   */
+  const diagramForms = variant(diagramsNamedAndUnnamed, "roomsDiagramForms", (d) => ({
+    ...d,
+    diagrams: {
+      ...d.diagrams!,
+      embeddedImages: [
+        embeddedImage(1, "FOH plot", SNAPSHOT(1)),
+        embeddedImage(2, undefined, SNAPSHOT(2)),
+        embeddedImage(3, "Stage plot", null),
+        embeddedImage(4, "   ", SNAPSHOT(4)),
+        embeddedImage(5, "FOH plot", SNAPSHOT(5)),
+      ],
+      linkedFolderItems: [
+        {
+          driveFileId: "drv-rig",
+          mimeType: "image/jpeg",
+          alt: "Rigging plan",
+          drive_modified_time: "2026-05-01T12:00:00Z",
+          headRevisionId: "head-1",
+          md5Checksum: "md5-1",
+          snapshotPath: `diagram-snapshots/shows/${SHOW_ID}/rev/folder-drv-rig.jpg`,
+        },
+      ],
+    },
+  }));
+  /** An admin whose rooms fetch failed: the degraded block renders, and no room does. */
+  const roomsFailed = variant(adminViewer, "roomsFetchFailed", (d) => ({
+    ...d,
+    rooms: [],
+    diagrams: null,
+    tileErrors: { ...d.tileErrors, rooms: "boom" },
+  }));
+  /** Nothing to show at all: the section-level empty state. */
+  const allHidden = variant(adminViewer, "roomsAllHidden", (d) => ({
+    ...d,
+    rooms: [],
+    diagrams: null,
+  }));
 
-  const LOCAL_CASES: readonly ViewerCase[] = [gearFallbacks];
-  const cases = [...ALL_CASES, ...LOCAL_CASES].filter((c) => canOpen("gear", c));
+  const LOCAL_CASES: readonly ViewerCase[] = [
+    roomFallbacks,
+    roomForms,
+    diagramForms,
+    roomsFailed,
+    allHidden,
+  ];
+  const cases = [...ALL_CASES, ...LOCAL_CASES].filter((c) => canOpen("rooms", c));
 
-  const renderGear = (c: ViewerCase) => renderRoot(<GearSection {...shellProps(c)} />);
+  const renderRooms = (c: ViewerCase) => renderRoot(<RoomsSection {...shellProps(c)} />);
 
-  /** Each case whose gate is a Gear gate proves it flipped in its own render. */
+  const thumbnails = (root: HTMLElement) =>
+    root.querySelectorAll('[data-card-id="venue-diagrams"] [data-testid^="diagram-slot-"]');
+
+  /** Each case whose gate is a Rooms gate proves it flipped in its own render. */
   const PREMISES: Partial<Record<string, (root: HTMLElement, c: ViewerCase) => void>> = {
-    overCaps: (root) => {
+    overCaps: (root, c) => {
       premiseHolds(
-        "overCaps renders the room-details overflow line",
-        /more rooms?$/.test(
-          squash(root.querySelector('[data-testid="gear-room-details"]')?.textContent),
-        ),
+        "overCaps renders every room, with no overflow line",
+        root.querySelectorAll('[data-card-id="gear-room-details"] > ul > li').length ===
+          c.data.rooms.length && !/more rooms?/.test(root.textContent ?? ""),
+      );
+      premise(
+        "overCaps has more diagrams than the gallery shows",
+        overCaps.data.diagrams!.embeddedImages.length,
+        INITIAL_VISIBLE,
+      );
+      premiseHolds(
+        "overCaps renders exactly the first INITIAL_VISIBLE thumbnails",
+        thumbnails(root).length === INITIAL_VISIBLE,
       );
     },
     adminViewer: (root) =>
       premiseHolds(
-        "adminViewer renders an emphasized scope card",
+        "adminViewer renders an emphasized discipline row",
         root.querySelector('[data-emphasis="you"]') !== null,
       ),
-    gearFallbacks: (root) => {
-      const headings = [...root.querySelectorAll('[data-testid="gear-room-details"] h4')].map((h) =>
-        squash(h.textContent),
+    diagramsNamedAndUnnamed: (root) =>
+      premiseHolds(
+        "diagramsNamedAndUnnamed renders a named and an unnamed thumbnail",
+        thumbnails(root).length === 2,
+      ),
+    roomFallbacks: (root) => {
+      const headings = [...root.querySelectorAll('[data-card-id="gear-room-details"] h4')].map(
+        (h) => squash(h.textContent),
       );
       premiseHolds(
-        "gearFallbacks renders one room-details heading twice (the ~2 id)",
+        "roomFallbacks renders one room name twice (the ~2 id)",
         new Set(headings).size < headings.length,
       );
     },
+    roomForms: (root) =>
+      premiseHolds(
+        "roomForms renders the kind's label for a nameless room",
+        [...root.querySelectorAll('[data-card-id="gear-room-details"] h4')].some(
+          (h) => h.textContent === "Additional",
+        ),
+      ),
+    roomsDiagramForms: (root) =>
+      premiseHolds(
+        "roomsDiagramForms renders an unavailable slot",
+        has(root, '[data-card-id="venue-diagrams"] [data-unavailable="true"]'),
+      ),
+    roomsFetchFailed: (root) =>
+      premiseHolds(
+        "roomsFetchFailed renders the degraded block",
+        has(root, '[data-testid="section-tile-error-rooms"]'),
+      ),
+    roomsAllHidden: (root) =>
+      premiseHolds(
+        "roomsAllHidden renders the empty state",
+        has(root, '[data-testid="section-empty"]'),
+      ),
   };
 
-  test.each(parityOver("gear", cases))("$name: index equals render", (c) => {
-    const root = renderGear(c);
+  test.each(parityOver("rooms", cases))("$name: index equals render", (c) => {
+    const root = renderRooms(c);
     PREMISES[c.name]?.(root, c);
-    expect(assertParity(root, SECTION_BUILDERS.gear(c))).toEqual([]);
+    expect(assertParity(root, SECTION_BUILDERS.rooms(c))).toEqual([]);
   });
 
-  const inRegion = (e: SearchEntry, region: string) => e.id.startsWith(`gear:${region}`);
+  const altsOf = (c: ViewerCase) => [
+    ...(c.data.diagrams?.embeddedImages ?? []).map((i) => i.alt),
+    ...(c.data.diagrams?.linkedFolderItems ?? []).map((i) => i.alt),
+  ];
 
-  /** Inventory §6, G1 and G5 (G5b is the room-details heading); G4, G6 and G7 left for `event`, G2 and G3 for `packlist`. */
+  /** Inventory §6, G1 and G5 (G5b is the room's name), and the Diagrams lines V14 and V15. */
   const LINE_KINDS: readonly LineKind[] = [
     {
-      kind: "G1 scope row",
+      kind: "G1 discipline row",
       caseName: crewNoTransport.name,
-      present: (es) => es.some((e) => inRegion(e, "gear-scope-") && e.label !== null),
-    },
-    {
-      kind: "G1 scope row on the viewer's own card",
-      caseName: adminViewer.name,
       present: (es) =>
-        es.some((e) => inRegion(e, "gear-scope-") && e.context.includes("Your scope")),
+        panelEntries(es).some(
+          (e) => e.group === PANEL_LABEL && e.label === "Audio" && e.context.length === 1,
+        ),
     },
     {
-      kind: "G5 room detail field",
-      caseName: fullContent.name,
-      present: (es) => es.some((e) => e.group === "Room details" && e.label !== null),
+      kind: "G1 discipline row on the viewer's own line",
+      caseName: adminViewer.name,
+      present: (es) => panelEntries(es).some((e) => e.context.includes("Your scope")),
     },
     {
-      kind: "G5b room-details heading",
+      kind: "G5 room header field",
       caseName: fullContent.name,
-      present: (es) => es.some((e) => e.group === "Room details" && e.label === null),
+      present: (es) => panelEntries(es).some((e) => e.label === "Room Dimensions"),
+    },
+    {
+      kind: "G5 room time",
+      caseName: fullContent.name,
+      present: (es) => panelEntries(es).some((e) => e.label === "Strike"),
+    },
+    {
+      kind: "G5 floor, a line with no label",
+      caseName: fullContent.name,
+      present: (es, c) =>
+        panelEntries(es).some(
+          (e) => e.label === null && c.data.rooms.some((r) => r.floor === e.value),
+        ),
+    },
+    {
+      kind: "G5b room name",
+      caseName: fullContent.name,
+      present: (es, c) =>
+        panelEntries(es).some(
+          (e) => e.label === null && c.data.rooms.some((r) => r.name === e.value),
+        ),
+    },
+    {
+      kind: "V14 diagrams card title",
+      caseName: "diagramsNamedAndUnnamed",
+      present: (es) =>
+        inRegion(es, "venue-diagrams").some((e) => e.label === null && e.value === e.group),
+    },
+    {
+      kind: "V15 diagram name",
+      caseName: "diagramsNamedAndUnnamed",
+      present: (es) =>
+        inRegion(es, "venue-diagrams").some((e) =>
+          altsOf(diagramsNamedAndUnnamed).includes(e.value),
+        ),
+    },
+    {
+      kind: "V15 unavailable diagram name",
+      caseName: "roomsDiagramForms",
+      present: (es) => inRegion(es, "venue-diagrams").some((e) => e.value === "Stage plot"),
+    },
+    {
+      kind: "V15 linked-folder diagram name",
+      caseName: "roomsDiagramForms",
+      present: (es) => inRegion(es, "venue-diagrams").some((e) => e.value === "Rigging plan"),
     },
   ];
 
   test.each(LINE_KINDS)("line kind $kind renders in $caseName", ({ caseName, present }) => {
-    const c = [...ALL_CASES, ...LOCAL_CASES].find((x) => x.name === caseName);
-    if (c === undefined) throw new Error(`no case named ${caseName}`);
-    expect(present(SECTION_BUILDERS.gear(c), c)).toBe(true);
+    const c = caseNamed([...ALL_CASES, ...LOCAL_CASES], caseName);
+    expect(present(SECTION_BUILDERS.rooms(c), c)).toBe(true);
   });
 
-  test("the pack list's lines are Pack list's, not Gear's", () => {
-    premiseHolds("fullContent carries pack cases", (fullContent.data.pullSheet ?? []).length > 0);
-    expect(SECTION_BUILDERS.gear(fullContent).some((e) => inRegion(e, "gear-pack-list:"))).toBe(
-      false,
-    );
+  test("every line opens Rooms: a search result reveals in the section its entry names", () => {
+    const entries = SECTION_BUILDERS.rooms(diagramsNamedAndUnnamed);
+    premise("the case has a Diagrams line", inRegion(entries, "venue-diagrams").length, 0);
+    premise("the case has a panel line", panelEntries(entries).length, 0);
+    expect([...new Set(entries.map((e) => e.section))]).toEqual(["rooms"]);
   });
 
-  test("error guard: a throwing derivation empties the page block and the index alike", () => {
-    // Gear's whole body is one WrappedSection (`crew:gear:scope`), so the block
-    // that throws is the section: its fallback replaces every line, and there
-    // are no other blocks whose entries could stay behind.
-    const c = fullContent;
+  test("a discipline with nothing on file has no line, in the index as on the page", () => {
+    const entries = SECTION_BUILDERS.rooms(roomForms).filter((e) => e.context.includes("Lasalle"));
     premiseHolds(
-      "fullContent renders Gear search targets when nothing throws",
-      renderGear(c).querySelector("[data-search-target]") !== null,
+      "the room's name is a line, so the room was built",
+      SECTION_BUILDERS.rooms(roomForms).some((e) => e.value === "Lasalle"),
+    );
+    expect(entries).toEqual([]);
+  });
+
+  test("error guard: a throwing derivation empties the panel's lines, and the Diagrams block stays", () => {
+    // The rooms' wrapper holds the panel. Diagrams sit outside it, in a wrapper of
+    // their own, so their lines stay on the page and in the index.
+    const c = diagramsNamedAndUnnamed;
+    const intact = inRegion(build("rooms", c), "venue-diagrams");
+    premise("the Diagrams block contributes entries", intact.length, 0);
+    premiseHolds(
+      "the case renders the panel's search targets when nothing throws",
+      renderRooms(c).querySelector('[data-card-id="gear-room-details"] [data-search-target]') !==
+        null,
     );
     cleanup();
 
-    const spy = vi.spyOn(gearRows, "roomDetailBlocks").mockImplementation(() => {
-      throw new Error("planted roomDetailBlocks fault");
+    const spy = vi.spyOn(roomsRows, "roomsPanel").mockImplementation(() => {
+      throw new Error("planted roomsPanel fault");
     });
     try {
-      const root = renderGear(c);
-      expect(spy, "the section derives its room details through gearRows").toHaveBeenCalled();
+      const root = renderRooms(c);
+      expect(spy, "the section derives its rooms through roomsRows").toHaveBeenCalled();
       expect(root.querySelector('[data-testid="tile-error-fallback"]')).not.toBeNull();
-      expect(root.querySelector("[data-search-target]")).toBeNull();
+      expect(root.querySelector('[data-card-id="gear-room-details"]')).toBeNull();
 
       spy.mockClear();
-      const entries = SECTION_BUILDERS.gear(c);
-      expect(
-        spy,
-        "the builder derives its room details through the same function",
-      ).toHaveBeenCalled();
-      expect(entries).toEqual([]);
+      const entries = SECTION_BUILDERS.rooms(c);
+      expect(spy, "the builder derives its rooms through the same function").toHaveBeenCalled();
+      expect(entries).toEqual(intact);
       expect(assertParity(root, entries)).toEqual([]);
     } finally {
       spy.mockRestore();
     }
+  });
+
+  test("error guard: a throwing gallery derivation drops the diagrams block only", () => {
+    // The diagrams block has its own WrappedSection, and the panel renders outside it,
+    // indexed exactly as before.
+    const c = diagramsNamedAndUnnamed;
+    const intact = build("rooms", c).filter((e) => !REGION("venue-diagrams")(e));
+    premise("the panel outside the boundary contributes entries", intact.length, 0);
+
+    const spy = vi.spyOn(diagramItemsModule, "diagramGalleryItems").mockImplementation(() => {
+      throw new Error("planted diagram gallery fault");
+    });
+    const root = renderSection("rooms", c);
+    premiseHolds("the planted fault reached the component", spy.mock.calls.length > 0);
+    premiseHolds(
+      "the diagrams block rendered its tile fallback and the panel rendered",
+      has(root, '[data-card-id="venue-diagrams"] [data-testid="tile-error-fallback"]') &&
+        !has(root, '[data-testid="diagrams-tile"]') &&
+        has(root, '[data-card-id="gear-room-details"]'),
+    );
+    const calls = spy.mock.calls.length;
+    const entries = build("rooms", c);
+    premiseHolds("the planted fault reached the builder", spy.mock.calls.length > calls);
+    expect(inRegion(entries, "venue-diagrams")).toEqual([]);
+    expect(entries).toEqual(intact);
+    expect(assertParity(root.querySelector('[data-testid="section-rooms"]')!, entries)).toEqual([]);
+  });
+
+  test("a thumbnail the gallery names itself (no sheet name) is skipped, never indexed", () => {
+    // Parity cannot see this rule: a page and an index that BOTH took the
+    // invented "Diagram N" would agree with each other. So the slot whose
+    // source has no name is located, and its rendered alt checked against both.
+    for (const c of [diagramsNamedAndUnnamed, diagramForms]) {
+      const root = renderSection("rooms", c);
+      const slots = [...thumbnails(root)];
+      const sources = [
+        ...(c.data.diagrams?.embeddedImages ?? []),
+        ...(c.data.diagrams?.linkedFolderItems ?? []),
+      ];
+      const unnamed = sources.flatMap((src, i) =>
+        src.alt === undefined || src.alt.trim().length === 0 ? [i] : [],
+      );
+      premise(`${c.name} has thumbnails the sheet did not name`, unnamed.length, 0);
+      const values = inRegion(build("rooms", c), "venue-diagrams").map((e) => e.value);
+      for (const i of unnamed) {
+        const slot = slots[i]!;
+        const alt = slot.querySelector("img")?.getAttribute("alt") ?? "";
+        expect(slot.hasAttribute("data-search-skip"), `${c.name} slot ${i}`).toBe(true);
+        expect(slot.hasAttribute("data-search-target"), `${c.name} slot ${i}`).toBe(false);
+        if (alt.trim().length > 0) expect(values, `${c.name} slot ${i}`).not.toContain(alt);
+      }
+      cleanup();
+    }
+  });
+
+  test("past the gallery's first INITIAL_VISIBLE thumbnails, no diagram is indexed by name", () => {
+    const names = overCaps.data.diagrams!.embeddedImages.map((i) => i.alt);
+    const indexed = inRegion(build("rooms", overCaps), "venue-diagrams").map((e) => e.value);
+    premise("overCaps names more diagrams than the gallery shows", names.length, INITIAL_VISIBLE);
+    expect(indexed.filter((v) => names.includes(v))).toEqual(names.slice(0, INITIAL_VISIBLE));
+  });
+});
+
+// ── gear ─────────────────────────────────────────────────────────────────────
+
+describe("gear", () => {
+  // Its cards left for Event details, Pack list and Rooms (PR C Tasks 5 to 7). It
+  // holds nothing but its empty state until it retires in Task 8, so it has no line.
+  const cases = ALL_CASES.filter((c) => canOpen("gear", c));
+
+  test.each(parityOver("gear", cases))("$name: index equals render", (c) => {
+    const root = renderRoot(<GearSection {...shellProps(c)} />);
+    premiseHolds(
+      `${c.name} renders Gear's empty state`,
+      root.querySelector('[data-testid="section-empty"]') !== null,
+    );
+    expect(SECTION_BUILDERS.gear(c)).toEqual([]);
+    expect(assertParity(root, SECTION_BUILDERS.gear(c))).toEqual([]);
   });
 });
 
@@ -1488,19 +1744,6 @@ describe("venue", () => {
   const textOf = (root: HTMLElement, selector: string) =>
     root.querySelector(selector)?.textContent ?? "";
 
-  const SNAPSHOT = (i: number) =>
-    `diagram-snapshots/shows/${SHOW_ID}/rev/embedded-v-${i}.png` as const;
-  const embeddedImage = (i: number, alt: string | undefined, snapshotPath: string | null) => ({
-    sheetTab: "DIAGRAMS",
-    objectId: `v-${i}`,
-    mimeType: "image/png",
-    ...(alt === undefined ? {} : { alt }),
-    sheetsRevisionId: "sheet-rev-1",
-    embeddedFingerprint: `fp-v-${i}`,
-    recovery_disposition: "normal" as const,
-    snapshotPath,
-  });
-
   /** A geocoded city (its own City row, stripped from the name) and a Maps link. */
   const cityAndMaps = variant(fullContent, "venueCityAndMaps", (d) => ({
     ...d,
@@ -1513,36 +1756,6 @@ describe("venue", () => {
         city: "Chicago",
         googleLink: "https://maps.example.com/?q=four-seasons",
       },
-    },
-  }));
-  /**
-   * Every gallery item form: a named thumbnail, an unnamed one (the gallery
-   * invents "Diagram N"), a named image that is unavailable (its name is
-   * screen-reader text, not an alt), a whitespace name, a linked-folder item, and
-   * a second thumbnail with the first one's name (a duplicate line, `~2`).
-   */
-  const diagramForms = variant(diagramsNamedAndUnnamed, "venueDiagramForms", (d) => ({
-    ...d,
-    diagrams: {
-      ...d.diagrams!,
-      embeddedImages: [
-        embeddedImage(1, "FOH plot", SNAPSHOT(1)),
-        embeddedImage(2, undefined, SNAPSHOT(2)),
-        embeddedImage(3, "Stage plot", null),
-        embeddedImage(4, "   ", SNAPSHOT(4)),
-        embeddedImage(5, "FOH plot", SNAPSHOT(5)),
-      ],
-      linkedFolderItems: [
-        {
-          driveFileId: "drv-rig",
-          mimeType: "image/jpeg",
-          alt: "Rigging plan",
-          drive_modified_time: "2026-05-01T12:00:00Z",
-          headRevisionId: "head-1",
-          md5Checksum: "md5-1",
-          snapshotPath: `diagram-snapshots/shows/${SHOW_ID}/rev/folder-drv-rig.jpg`,
-        },
-      ],
     },
   }));
   /** An admin whose transportation fetch failed: the error block renders above the cards. */
@@ -1623,7 +1836,6 @@ describe("venue", () => {
     cityInStreet,
     cityUppercaseSuffix,
     cityRepeated,
-    diagramForms,
     transportFailed,
     sentinels,
     synthRoom,
@@ -1636,8 +1848,6 @@ describe("venue", () => {
     [...root.querySelectorAll('[data-card-id="venue-where"] [data-search-target]')].map(
       (el) => el.textContent,
     );
-  const thumbnails = (root: HTMLElement) =>
-    root.querySelectorAll('[data-card-id="venue-diagrams"] [data-testid^="diagram-slot-"]');
   const PREMISES: Record<string, (root: HTMLElement) => void> = {
     crewNoTransport: (root) =>
       premiseHolds("crewNoTransport hides the Parking row", !facilities(root).includes("Parking")),
@@ -1660,22 +1870,6 @@ describe("venue", () => {
       premiseHolds(
         "wifiNotes renders the notes row",
         has(root, '[data-testid="venue-wifi-notes"]'),
-      ),
-    overCaps: (root) => {
-      premise(
-        "overCaps has more diagrams than the gallery shows",
-        overCaps.data.diagrams!.embeddedImages.length,
-        INITIAL_VISIBLE,
-      );
-      premiseHolds(
-        "overCaps renders exactly the first INITIAL_VISIBLE thumbnails",
-        thumbnails(root).length === INITIAL_VISIBLE,
-      );
-    },
-    diagramsNamedAndUnnamed: (root) =>
-      premiseHolds(
-        "diagramsNamedAndUnnamed renders a named and an unnamed thumbnail",
-        thumbnails(root).length === 2,
       ),
     fullContent: (root) =>
       premiseHolds(
@@ -1712,11 +1906,6 @@ describe("venue", () => {
         whereLines(root).join("|") ===
           "Four Seasons Hotel|120 E Delaware Pl Chicago, IL 60611|Chicago",
       ),
-    venueDiagramForms: (root) =>
-      premiseHolds(
-        "venueDiagramForms renders an unavailable slot",
-        has(root, '[data-card-id="venue-diagrams"] [data-unavailable="true"]'),
-      ),
     venueTransportFailed: (root) =>
       premiseHolds(
         "venueTransportFailed renders the error block",
@@ -1752,10 +1941,6 @@ describe("venue", () => {
   );
 
   const wifi = (c: ViewerCase) => parseWifiValue(c.data.show.event_details["internet"] ?? "");
-  const altsOf = (c: ViewerCase) => [
-    ...(c.data.diagrams?.embeddedImages ?? []).map((i) => i.alt),
-    ...(c.data.diagrams?.linkedFolderItems ?? []).map((i) => i.alt),
-  ];
   const LINE_KINDS: LineKind[] = [
     {
       kind: "V1 venue name",
@@ -1857,30 +2042,6 @@ describe("venue", () => {
       present: (es) =>
         inRegion(es, "venue-status").some((e) => e.value === fullContent.data.show.venue?.notes),
     },
-    {
-      kind: "V14 diagrams card title",
-      caseName: "diagramsNamedAndUnnamed",
-      present: (es) =>
-        inRegion(es, "venue-diagrams").some((e) => e.label === null && e.value === e.group),
-    },
-    {
-      kind: "V15 diagram name",
-      caseName: "diagramsNamedAndUnnamed",
-      present: (es) =>
-        inRegion(es, "venue-diagrams").some((e) =>
-          altsOf(diagramsNamedAndUnnamed).includes(e.value),
-        ),
-    },
-    {
-      kind: "V15 unavailable diagram name",
-      caseName: "venueDiagramForms",
-      present: (es) => inRegion(es, "venue-diagrams").some((e) => e.value === "Stage plot"),
-    },
-    {
-      kind: "V15 linked-folder diagram name",
-      caseName: "venueDiagramForms",
-      present: (es) => inRegion(es, "venue-diagrams").some((e) => e.value === "Rigging plan"),
-    },
   ];
 
   test.each(LINE_KINDS.map((k) => [k.kind, k] as const))("line kind %s renders", (_k, kind) => {
@@ -1888,65 +2049,14 @@ describe("venue", () => {
     expect(kind.present(build("venue", c), c)).toBe(true);
   });
 
-  test("error guard: a throwing gallery derivation drops the diagrams block only", () => {
-    // The diagrams block has its own WrappedSection; Where (inside another),
-    // Facilities and Venue status render outside it and must be indexed exactly
-    // as before.
-    const c = diagramsNamedAndUnnamed;
-    const intact = build("venue", c).filter((e) => !REGION("venue-diagrams")(e));
-    premise("the blocks outside the boundary contribute entries", intact.length, 0);
-
-    const spy = vi.spyOn(diagramItemsModule, "diagramGalleryItems").mockImplementation(() => {
-      throw new Error("planted diagram gallery fault");
-    });
-    const root = renderSection("venue", c);
-    premiseHolds("the planted fault reached the component", spy.mock.calls.length > 0);
+  test("Venue indexes no Diagrams line: they sit in Rooms (spec line 317)", () => {
     premiseHolds(
-      "the diagrams block rendered its tile fallback and the other cards rendered",
-      has(root, '[data-card-id="venue-diagrams"] [data-testid="tile-error-fallback"]') &&
-        !has(root, '[data-testid="diagrams-tile"]') &&
-        has(root, '[data-card-id="venue-where"]'),
+      "the case carries diagrams to index",
+      (diagramsNamedAndUnnamed.data.diagrams?.embeddedImages.length ?? 0) > 0,
     );
-    const calls = spy.mock.calls.length;
-    const entries = build("venue", c);
-    premiseHolds("the planted fault reached the builder", spy.mock.calls.length > calls);
-    expect(inRegion(entries, "venue-diagrams")).toEqual([]);
-    expect(entries).toEqual(intact);
-    expect(assertParity(root, entries)).toEqual([]);
-  });
-
-  test("a thumbnail the gallery names itself (no sheet name) is skipped, never indexed", () => {
-    // Parity cannot see this rule: a page and an index that BOTH took the
-    // invented "Diagram N" would agree with each other. So the slot whose
-    // source has no name is located, and its rendered alt checked against both.
-    for (const c of [diagramsNamedAndUnnamed, diagramForms]) {
-      const root = renderSection("venue", c);
-      const slots = [...thumbnails(root)];
-      const sources = [
-        ...(c.data.diagrams?.embeddedImages ?? []),
-        ...(c.data.diagrams?.linkedFolderItems ?? []),
-      ];
-      const unnamed = sources.flatMap((src, i) =>
-        src.alt === undefined || src.alt.trim().length === 0 ? [i] : [],
-      );
-      premise(`${c.name} has thumbnails the sheet did not name`, unnamed.length, 0);
-      const values = inRegion(build("venue", c), "venue-diagrams").map((e) => e.value);
-      for (const i of unnamed) {
-        const slot = slots[i]!;
-        const alt = slot.querySelector("img")?.getAttribute("alt") ?? "";
-        expect(slot.hasAttribute("data-search-skip"), `${c.name} slot ${i}`).toBe(true);
-        expect(slot.hasAttribute("data-search-target"), `${c.name} slot ${i}`).toBe(false);
-        if (alt.trim().length > 0) expect(values, `${c.name} slot ${i}`).not.toContain(alt);
-      }
-      cleanup();
-    }
-  });
-
-  test("past the gallery's first INITIAL_VISIBLE thumbnails, no diagram is indexed by name", () => {
-    const names = overCaps.data.diagrams!.embeddedImages.map((i) => i.alt);
-    const indexed = inRegion(build("venue", overCaps), "venue-diagrams").map((e) => e.value);
-    premise("overCaps names more diagrams than the gallery shows", names.length, INITIAL_VISIBLE);
-    expect(indexed.filter((v) => names.includes(v))).toEqual(names.slice(0, INITIAL_VISIBLE));
+    expect(build("venue", diagramsNamedAndUnnamed).some((e) => e.id.includes("diagrams"))).toBe(
+      false,
+    );
   });
 });
 

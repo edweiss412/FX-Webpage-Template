@@ -11,9 +11,9 @@
  * part of this block, and `agenda_links` no longer factors into the
  * whole-block-missing gate (Diagrams hides on diagram content alone).
  *
- * The export name is kept as `DiagramsTile` so VenueSection's direct-invocation
- * call site (`DiagramsTile({ ... })` inside a WrappedSection render seam)
- * remains byte-identical — only the import path moved from
+ * The export name is kept as `DiagramsTile`: RoomsSection's direct-invocation call
+ * site (`DiagramsTile({ ... })` inside a WrappedSection render seam) moved with the
+ * block from Venue (crew page redesign PR C Task 7), and the import path from
  * `@/components/tiles/DiagramsTile` to `@/components/crew/DiagramsBlock`.
  *
  * AC-7.2b — embedded-first ordering: this block (through diagramItems.ts, which

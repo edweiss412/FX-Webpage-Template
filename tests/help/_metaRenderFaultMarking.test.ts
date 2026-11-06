@@ -674,7 +674,16 @@ describe("the scanner's population is pinned against resolver drift", () => {
     // fetch-failure block). Nothing joined or left: membership is still 34, and mapping
     // that ONE row back reproduces 964312b2... byte-for-byte (recomputed from
     // scanCandidates()).
-    expect(digest).toBe("529074b8882e8be74e55bc2a405981a724ae43c8387b12abd0e459d0c4d99032");
+    // Regenerated for feat/crew-page-redesign-pr-c Task 7, to the same bar. EXACTLY TWO
+    // inputs changed:
+    //   components/crew/sections/GearSection.tsx:127 -> RoomsSection.tsx:84 (the same
+    //   rooms `tile-errors` row, moved with the cards it guards)
+    //   components/crew/sections/VenueSection.tsx 338 -> 158 (-180: the split, the
+    //   Diagrams block and its derivations left)
+    // Same guard, still marked. Nothing joined or left: membership is still 34, and
+    // mapping those TWO rows back reproduces 529074b8... byte-for-byte (recomputed from
+    // scanCandidates()).
+    expect(digest).toBe("f6a41bec23bc458a9688e6ae7107058de39cd3bd8fa68f0707e3559cfd89ab3c");
   });
 });
 

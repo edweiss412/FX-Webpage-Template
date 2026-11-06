@@ -6,8 +6,8 @@
  * Server Component (no `"use client"`): it renders the server `SourceLink` and
  * the client `CardReportTrigger` leaf. The `anchor` is passed in EXPLICITLY (not
  * derived from `CARD_REGION_MAP[cardId]`) because some call sites compute a
- * bespoke anchor — the `gear-scope-*` cards pick the dynamic `gear_scope` anchor
- * when present, else fall back to `rooms` (GearSection). Only `region` (for the
+ * bespoke anchor — the Rooms panel picks the dynamic `gear_scope` anchor when
+ * present, else falls back to `rooms` (RoomsSection). Only `region` (for the
  * report `fieldRef`) comes from the static `CARD_REGION_MAP`.
  */
 import type { ReactNode } from "react";

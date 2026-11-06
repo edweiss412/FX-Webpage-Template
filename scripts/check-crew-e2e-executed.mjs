@@ -66,7 +66,9 @@ export const REQUIRED = {
   // the Show day's gate and payload, a refresh off a pack-list phase, a member with no
   // pull sheet, a stage-restricted viewer, the layout at each phone width). Re-derived
   // from `playwright test --list` (54).
-  "crew-section-toggle.spec.ts": 54,
+  // 56 since PR C's Task 7 added two "rooms" cases (?s=rooms, and Diagrams in the
+  // Rooms sheet and not in Venue). Re-derived from --list.
+  "crew-section-toggle.spec.ts": 56,
   "picker-flow.spec.ts": 7,
   "alert-action-links.spec.ts": 4,
   // 3 SFS-1 cases + 3 seeded agenda-fold cases.
@@ -112,8 +114,9 @@ export const REQUIRED = {
   // (the day row at 4 and at 5 or more buttons, the pass's fact grid, the quick
   // facts at three and four tiles, the sheet). The observed local run executed
   // 39: inv3 skipped itself at runtime because the local shared seed rendered no
-  // gear scope cards (the same seed state that fails crew-layout-dimensions'
-  // 5-card gear case locally and on origin/main), so the row is that run plus inv3.
+  // gear scope cards, so the row is that run plus inv3. (inv3 retired with the scope
+  // cards in PR C Task 7; the Rooms cases seed their own rooms, so neither it nor
+  // the 5-card case reads that seed state any more.)
   // 42 since the UI-gate fixes: the pass sizing case (no time, label or role is
   // cut, X1) and the pass floor case (a set day and after the show, review R4-F7).
   // Re-derived from the wiring guard's live Playwright resolution (42).
@@ -133,7 +136,11 @@ export const REQUIRED = {
   // dress code in the sheet and off the home, the reel strip in the DOM and the
   // payload, the field card's wrap, Venue's two fields). Re-derived from the wiring
   // guard's live Playwright resolution (60).
-  "crew-page.spec.ts": 60,
+  // 68 since PR C's Task 7: ten "rooms" cases joined on a seeded show (the emphasis
+  // for an Audio and a Video viewer, no flags, the page width at 320 and 390, and the
+  // accent edge at five widths), and inv3 and the venue row of inv7 retired with the
+  // scope grid and the split. Re-derived from --list.
+  "crew-page.spec.ts": 68,
   // The crew page's wide layout (crew page redesign plan PR A, Task 6): eight cases,
   // desktop-chromium ALONE (its testMatch; the wide layout begins at 1024px). Nine
   // since Task 7 added the wide header case (search between title and chip).
@@ -170,7 +177,8 @@ export const REQUIRED = {
   // added four "pack list" cases (?s=packlist lands on the stacked section, a Show day
   // has neither item nor section, an open sheet crossing into wide, the layout at
   // 1280). Re-derived from `playwright test --list` (38).
-  "crew-wide-nav.spec.ts": 38,
+  // 39 since PR C's Task 7 added the "rooms" deep link. Re-derived from --list.
+  "crew-wide-nav.spec.ts": 39,
   // 9, and the number is the MATRIX rather than a multiple (plan
   // 2026-08-09-quick-wins-2 "e2e harness readiness"). theme-toggle runs two arms:
   //   arm (a) — 4 standalone-toggle cases, BOTH projects            = 8
@@ -218,7 +226,8 @@ export const REQUIRED = {
   // added one at each viewport (a hotel-name result reveals its line in Hotels). 16
   // since PR C's Task 5 added one at each viewport (a dress code result reveals its
   // line in Event details).
-  "crew-search.spec.ts": 16,
+  // 18 since PR C's Task 7 added the diagram name result at each width.
+  "crew-search.spec.ts": 18,
   // The census, across mobile-safari + desktop-chromium. The checker enforces
   // `executed >= min`, so THE NUMBER IS THE GUARD: a row of 1 would let every
   // case but one skip while CI stayed green, which is exactly what the registry

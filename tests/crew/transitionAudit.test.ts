@@ -85,6 +85,7 @@ const SSR_SURFACES = [
   "components/crew/sections/HomeSection.tsx",
   "components/crew/sections/EventSection.tsx",
   "components/crew/sections/PackListSection.tsx",
+  "components/crew/sections/RoomsSection.tsx",
 ];
 
 describe("§5.7 SSR surfaces stay instant (no client motion)", () => {
@@ -189,6 +190,8 @@ const PACK_LIST_BODY = "components/show-panels/PackListBody.tsx";
 const PACK_CASE_ITEMS = "components/show-panels/PackCaseItems.tsx";
 // PR C plan Task 6: the crew Pack list section.
 const PACK_LIST_SECTION = "components/crew/sections/PackListSection.tsx";
+// PR C plan Task 7: the crew Rooms section.
+const ROOMS_SECTION = "components/crew/sections/RoomsSection.tsx";
 // PR B plan Task 9: the crew Hotels and Transport sections that replace Travel.
 const HOTELS = "components/crew/sections/HotelsSection.tsx";
 const TRANSPORT = "components/crew/sections/TransportSection.tsx";
@@ -1120,6 +1123,25 @@ const CONDITIONAL_RENDERS: Record<string, { presences: number; renders: Conditio
       { match: 'return (\n<div data-testid="section-empty">', treatment: T.serverPresence },
       // The proxied player, only over a playable video.
       { match: "reelPlayer: panel.showPlayer ? <OpeningReelVideo", treatment: T.serverPresence },
+    ],
+  },
+  [ROOMS_SECTION]: {
+    presences: 0,
+    renders: [
+      // The admin's fetch-failure block, a server render.
+      {
+        match: '{roomsFetchFailed ? <SectionTileError domain="rooms" /> : null}',
+        treatment: T.serverPresence,
+      },
+      // The section's empty state.
+      {
+        match: "{!hasRooms && !hasDiagrams && !roomsFetchFailed ? (",
+        treatment: T.serverPresence,
+      },
+      // The panel, over at least one room.
+      { match: "{hasRooms ? (", treatment: T.serverPresence },
+      // The Diagrams block.
+      { match: "{hasDiagrams ? (", treatment: T.serverPresence },
     ],
   },
   [PACK_LIST_SECTION]: {

@@ -284,9 +284,9 @@ const GENERIC_OPTIONAL_FIELDS: ReadonlyArray<{
     pattern:
       /event_details\[\s*"(stage_size|podium_type|polling|led|scenic|gooseneck|digital_signage|test_pattern|fonts|equipment_storage|staff_office_room|record|virtual_speaker|virtual_audience|notes)"\s*\]/,
   },
-  // BL-ROOM-DETAIL-UNRENDERED: the crew "Room details" card surfaces these
-  // RoomRow fields (GearSection). The card reads them via a dynamic loop over
-  // ROOM_DETAIL_FIELDS (no literal access), so this pattern matches nothing
+  // BL-ROOM-DETAIL-UNRENDERED: the crew Rooms panel surfaces these RoomRow fields
+  // (RoomsSection). The crew's model reads them via a dynamic loop over
+  // ROOM_HEADER_KEYS (no literal access), so this pattern matches nothing in it
   // today — FORWARD-DEFENSE that fails CI if a future edit adds a direct
   // `r.dimensions`-style read in a walked component without sentinel-hiding.
   {
@@ -335,6 +335,13 @@ const EXEMPTIONS: ReadonlyArray<{
     filename: "components/show-panels/ContactsBody.tsx",
     reason:
       "renders a contact's name, links and note only from contactBlockDisplay (components/show-panels/contactsBlocks.ts), whose `shown` calls shouldHideGenericOptional on the name and note; walked and held to this contract there",
+  },
+  // PR C Task 7: the room header's sentinel rule moved to the markup-free roomScope.ts,
+  // so the crew's line model reads the rule the body renders with.
+  {
+    filename: "components/show-panels/RoomsBody.tsx",
+    reason:
+      "renders a room's header fields only through roomHeaderValue (components/show-panels/roomScope.ts), whose `sentinels: \"hide\"` branch calls shouldHideGenericOptional; the admin's default shows them as parsed",
   },
   {
     filename: "components/crew/sections/crewRows.ts",

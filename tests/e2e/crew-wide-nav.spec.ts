@@ -304,15 +304,17 @@ test.describe("crew wide nav (spec §5.3)", () => {
   test("wide nav: a click under reduced motion jumps instantly", async ({ page }) => {
     await page.emulateMedia({ reducedMotion: "reduce" });
     await load(page, "?s=today");
-    // One frame after the click the window is already at the target: no glide.
+    // One frame after the click the window is already at the target: no glide. Rooms,
+    // not Gear: Gear is an empty state from PR C Task 7, too short to reach the top
+    // from the page's end.
     const landed = await page.evaluate(async () => {
       const item = document.querySelector<HTMLElement>(
-        '[data-testid="crew-wide-nav"] [data-section="gear"]',
+        '[data-testid="crew-wide-nav"] [data-section="rooms"]',
       )!;
       item.click();
       await new Promise((r) => requestAnimationFrame(() => r(null)));
       const section = document.querySelector(
-        '[data-testid="crew-wide-section"][data-section="gear"]',
+        '[data-testid="crew-wide-section"][data-section="rooms"]',
       )!;
       // Measured from the sticky header's bottom edge, as `sectionTop` does.
       const header = document.querySelector('[data-testid="page-header"]')!;
@@ -392,15 +394,15 @@ test.describe("crew wide nav (spec §5.3)", () => {
   test("wide nav: a deep link ?s=<id> scrolls to that section after hydration", async ({
     page,
   }) => {
-    await load(page, "?s=gear");
+    await load(page, "?s=rooms");
     // One copy of the body: the server render's sheet left without an exit slide.
-    await expect(page.getByTestId("section-gear")).toHaveCount(1);
+    await expect(page.getByTestId("section-rooms")).toHaveCount(1);
     await expect
-      .poll(() => sectionTop(page, "gear"), { timeout: 5000 })
+      .poll(() => sectionTop(page, "rooms"), { timeout: 5000 })
       .toBeLessThanOrEqual(SCROLL_SPY_OFFSET_PX);
-    expect(await sectionTop(page, "gear")).toBeGreaterThanOrEqual(-1);
+    expect(await sectionTop(page, "rooms")).toBeGreaterThanOrEqual(-1);
     expect(await page.evaluate(() => window.scrollY)).toBeGreaterThan(0);
-    await expect(navItem(page, "gear")).toHaveAttribute("aria-current", "true");
+    await expect(navItem(page, "rooms")).toHaveAttribute("aria-current", "true");
   });
 
   // Crew page redesign PR C Task 5: Event details is a section of its own.
@@ -415,6 +417,24 @@ test.describe("crew wide nav (spec §5.3)", () => {
     expect(await sectionTop(page, "event")).toBeGreaterThanOrEqual(-1);
     await expect(navItem(page, "event")).toHaveAttribute("aria-current", "true");
     await expect(navItem(page, "event")).toHaveText(showSection("event").label);
+  });
+
+  // Crew page redesign PR C Task 7: Rooms is a section of its own, holding Diagrams.
+  test("rooms: a deep link ?s=rooms lands on the stacked section after hydration", async ({
+    page,
+  }) => {
+    await load(page, "?s=rooms");
+    await expect(page.getByTestId("section-rooms")).toHaveCount(1);
+    await expect
+      .poll(() => sectionTop(page, "rooms"), { timeout: 5000 })
+      .toBeLessThanOrEqual(SCROLL_SPY_OFFSET_PX);
+    expect(await sectionTop(page, "rooms")).toBeGreaterThanOrEqual(-1);
+    await expect(navItem(page, "rooms")).toHaveAttribute("aria-current", "true");
+    await expect(navItem(page, "rooms")).toHaveText(showSection("rooms").label);
+    // Diagrams stack under the rooms, and the stacked Venue holds none.
+    await expect(page.getByTestId("section-rooms").getByTestId("venue-diagrams")).toHaveCount(1);
+    await expect(page.getByTestId("section-venue").getByTestId("venue-where")).toHaveCount(1);
+    await expect(page.getByTestId("section-venue").getByTestId("venue-diagrams")).toHaveCount(0);
   });
 
   test("wide nav: Back and Forward over compact-created entries scroll without moving focus", async ({
@@ -622,11 +642,11 @@ test.describe("crew wide nav (spec §5.3)", () => {
     // focus ring is ever under the header.
     const landed = await page.evaluate(async () => {
       document
-        .querySelector<HTMLElement>('[data-testid="crew-wide-nav"] [data-section="gear"]')!
+        .querySelector<HTMLElement>('[data-testid="crew-wide-nav"] [data-section="rooms"]')!
         .click();
       await new Promise((r) => requestAnimationFrame(() => r(null)));
       const heading = document.querySelector(
-        '[data-testid="crew-wide-section"][data-section="gear"] h2',
+        '[data-testid="crew-wide-section"][data-section="rooms"] h2',
       )!;
       return {
         headingTop: heading.getBoundingClientRect().top,
@@ -640,9 +660,9 @@ test.describe("crew wide nav (spec §5.3)", () => {
       Math.abs(landed.headingTop - (landed.headerBottom + m.ring)),
       JSON.stringify(landed),
     ).toBeLessThanOrEqual(TOL);
-    const heading = page.locator('[data-testid="crew-wide-section"][data-section="gear"] h2');
+    const heading = page.locator('[data-testid="crew-wide-section"][data-section="rooms"] h2');
     await expect(heading).toBeFocused();
-    await expectClearOfStickyChrome(heading, "the Gear heading after a nav jump");
+    await expectClearOfStickyChrome(heading, "the Rooms heading after a nav jump");
   });
 
   // ── Compound transitions across the breakpoint (spec §7, plan Task 12) ──────

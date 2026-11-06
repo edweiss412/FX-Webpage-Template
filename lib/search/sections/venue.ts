@@ -1,4 +1,3 @@
-import { DIAGRAMS_HEADING, diagramGalleryItems } from "@/components/crew/diagramItems";
 import {
   FACILITIES_TITLE,
   STATUS_TITLE,
@@ -14,22 +13,17 @@ import { resolveViewerContext } from "@/lib/data/viewerContext";
 import type { SectionBuildInput } from "@/lib/search/sections";
 import type { SearchCopy, SearchEntry } from "@/lib/search/types";
 import { showSection } from "@/lib/showSections/registry";
-import { shouldHideDiagrams } from "@/lib/visibility/emptyState";
 
 /**
  * Venue search entries (spec §2.4, §4): the Venue panel's lines (the venue
  * name, the street and the city, grouped under the panel card's title, the
  * section's registry label), Facilities (dock, parking when the transport tile
  * is visible, room, the Wi-Fi network and password with `copy`, or the raw Crew
- * Wi-Fi row, internet notes, power), Venue status (COI, venue notes), and the
- * Diagrams card title plus every thumbnail the gallery renders under a real
- * name — exactly the lines `VenueSection` renders.
+ * Wi-Fi row, internet notes, power) and Venue status (COI, venue notes): exactly
+ * the lines `VenueSection` renders. Diagrams moved to Rooms (PR C Task 7).
  *
- * Two blocks run inside a `WrappedSection`. The Venue panel's wrapper holds the
- * body call only; its lines are derived before it, on both sides. The diagrams
- * block's derivation runs inside its wrapper: when it throws, the section
- * renders a fallback there and the builder drops that block's entries (title
- * included) and keeps the rest.
+ * The Venue panel's wrapper holds the body call only; its lines are derived before
+ * it, on both sides.
  */
 export function buildVenueEntries({ data, viewer }: SectionBuildInput): SearchEntry[] {
   const ctx = resolveViewerContext(viewer, data);
@@ -63,18 +57,6 @@ export function buildVenueEntries({ data, viewer }: SectionBuildInput): SearchEn
   const { coi, notes } = venueStatusLines(data);
   for (const line of [coi, notes]) {
     if (line !== null) entries.push(entry(line.searchTarget, STATUS_TITLE, line.label, line.value));
-  }
-
-  if (!shouldHideDiagrams(data.diagrams)) {
-    try {
-      const gallery = diagramGalleryItems(data.diagrams);
-      entries.push(entry(gallery.heading.id, DIAGRAMS_HEADING, null, gallery.heading.value));
-      for (const t of gallery.thumbnails) {
-        entries.push(entry(t.id, DIAGRAMS_HEADING, null, t.value));
-      }
-    } catch {
-      // VenueSection's WrappedSection renders a fallback with no lines.
-    }
   }
   return entries;
 }

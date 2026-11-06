@@ -43,7 +43,7 @@ import { PackListSection } from "@/components/crew/sections/PackListSection";
 import { HotelsSection } from "@/components/crew/sections/HotelsSection";
 import { TransportSection } from "@/components/crew/sections/TransportSection";
 import { VenueSection } from "@/components/crew/sections/VenueSection";
-import { GearSection } from "@/components/crew/sections/GearSection";
+import { RoomsSection } from "@/components/crew/sections/RoomsSection";
 import { AgendaSection } from "@/components/crew/sections/AgendaSection";
 import { ScheduleSection } from "@/components/crew/sections/ScheduleSection";
 import { BillingSection } from "@/components/crew/sections/BillingSection";
@@ -244,7 +244,7 @@ function renderAllSections(data: ShowForViewer) {
         today={FROZEN_TODAY}
         showId="show-1"
       />
-      <GearSection
+      <RoomsSection
         {...ledgerProp()}
         data={data}
         viewer={adminViewer}
@@ -333,7 +333,7 @@ describe("source-link field-aware coverage walker (§8 / §12)", () => {
   // renders the DATES block as its own card.
   const WARNING_ANCHOR_ONLY = new Set<string>(["client", "dates"]);
 
-  // `gear_scope` is consumed DYNAMICALLY by GearSection's runtime `scopeRegion`
+  // `gear_scope` is consumed DYNAMICALLY by RoomsSection's runtime anchor
   // selection (it prefers the `gear_scope` anchor when present, else the static
   // CARD_REGION_MAP → `rooms`), so it is intentionally NOT a static CARD_REGION_MAP
   // value and is exempt from the no-zombie-region parity check (gear-parser-fidelity Task 8).
@@ -380,10 +380,22 @@ describe("source-link field-aware coverage walker (§8 / §12)", () => {
       "gear-keynote",
       "gear-opening-reel",
       "gear-pack-list",
+      "gear-room-details",
     ]) {
       expect(ids, kept).toContain(kept);
     }
-    for (const retired of ["today-tonight", "today-where", "today-contact", "today-key-times"]) {
+    for (const retired of [
+      "today-tonight",
+      "today-where",
+      "today-contact",
+      "today-key-times",
+      // The discipline cards: spec line 309 replaces them with rooms (plan decision 3).
+      "gear-scope-audio",
+      "gear-scope-video",
+      "gear-scope-lighting",
+      "gear-scope-scenic",
+      "gear-scope-other",
+    ]) {
       expect(ids, retired).not.toContain(retired);
       expect(Object.prototype.hasOwnProperty.call(CARD_REGION_MAP, retired), retired).toBe(false);
     }
@@ -417,12 +429,12 @@ describe("source-link field-aware coverage walker (§8 / §12)", () => {
         sourceBackedSeen += 1;
         // `id` is a verified key of CARD_REGION_MAP (isMapped guard above), so the
         // CardId cast is sound; the lookup then yields a non-undefined RegionId.
-        // gear-scope-* cards select their region DYNAMICALLY (spec §3.6 / R4-M2):
-        // GearSection prefers the `gear_scope` anchor when present (GEAR-derived
+        // The Rooms panel selects its region DYNAMICALLY (spec §3.6 / R4-M2):
+        // RoomsSection prefers the `gear_scope` anchor when present (GEAR-derived
         // scope), else the static `rooms` region. Mirror that here so the expected
         // href matches the rendered one for both branches.
         const region =
-          id.startsWith("gear-scope-") && data.sourceAnchors["gear_scope"]
+          id === "gear-room-details" && data.sourceAnchors["gear_scope"]
             ? "gear_scope"
             : CARD_REGION_MAP[id as CardId];
         const expectedHref = buildSheetDeepLink(data.driveFileId, data.sourceAnchors[region]);
@@ -496,10 +508,10 @@ describe("source-link field-aware coverage walker (§8 / §12)", () => {
     expect(card.querySelector('a[data-slot="source-link"]')).toBeNull();
   });
 
-  it("gear-scope card keeps its dynamic gear_scope link after the CardHeaderActions migration", () => {
+  it("the Rooms panel keeps the scope cards' dynamic gear_scope link (plan decision 3)", () => {
     const data = fullFixture();
     const { container } = renderAllSections(data);
-    const card = container.querySelector('[data-card-id="gear-scope-audio"]')!;
+    const card = container.querySelector('[data-card-id="gear-room-details"]')!;
     const href = ownElement(card, 'a[data-slot="source-link"]')!.getAttribute("href");
     // fullFixture() populates gear_scope → the card must use it, NOT rooms — proving
     // CardHeaderActions passes the call site's anchor expression through verbatim.

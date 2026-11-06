@@ -1,7 +1,7 @@
 /**
  * components/crew/sections/sectionLines.ts — one search entry per rendered line of
- * a section's card, shared by the sections' rows files (`gearRows.ts`,
- * `eventRows.ts`), so they spell a line one way (spec §2.4, INV-1).
+ * a section's card, shared by the sections' rows files (`eventRows.ts`,
+ * `packListRows.ts`, `roomsRows.ts`), so they spell a line one way (spec §2.4, INV-1).
  *
  * No `"use client"`: the builders run on the server.
  */

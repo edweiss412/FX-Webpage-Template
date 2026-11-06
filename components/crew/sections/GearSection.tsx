@@ -1,60 +1,23 @@
 /**
  * components/crew/sections/GearSection.tsx — crew-redesign §9 "Gear" section.
  *
- * The single synchronous Server Component that homes the gear-facing surfaces
- * the deleted AudioScopeTile / VideoScopeTile / LightingScopeTile
- * carried, into one curated page:
- *
- *   - A/V/L scope cards — one card per discipline (Audio, Video, Lighting),
- *     each listing the non-sentinel per-room scalar value for that discipline
- *     (`room.audio` / `room.video` / `room.lighting`, sentinel-guarded via
- *     `shouldHideGenericOptional`). EMPHASIS FLIP, not a gate: every card is
- *     shown to everyone; the viewer's own discipline(s) (derived from their
- *     roleFlags via the canonical `audioScopeVisible` / `videoScopeVisible` /
- *     `lightingScopeVisible` predicates) sort FIRST and carry a "Your scope"
- *     eyebrow + a thin accent left-edge + `data-emphasis="you"`. Non-viewer
- *     cards are neutral (no `data-emphasis`). A card whose discipline has ZERO
- *     non-sentinel room values is OMITTED — including the viewer's own.
- *
- * The Tech specs, keynote and opening reel cards left for the Event details
- * section (crew page redesign PR C Task 5), and the pack list for its own (Task 6).
- *
- * When ALL blocks are hidden, a section-level `<EmptyState data-testid=
- * "section-empty">` renders so the surface is never blank.
+ * Its cards all left: the Tech specs, keynote and opening reel for Event details (crew
+ * page redesign PR C Task 5), the pack list for its own section (Task 6), and the
+ * scope and room details for Rooms (Task 7). It holds nothing but its empty state until
+ * it retires in Task 8.
  *
  * Synchronous Server Component (no `'use client'`, no `async`, no `new Date()`).
- * `today` + `showId` are passed in; `viewer` flags resolve via
- * `resolveViewerContext` (which throws MalformedProjectionError on a malformed
- * crewMembers projection — this section does not swallow it).
+ * `viewer` flags resolve via `resolveViewerContext` (which throws
+ * MalformedProjectionError on a malformed crewMembers projection — this section
+ * does not swallow it).
  */
-import type { JSX, ReactNode } from "react";
-import { Boxes, Frame, LayoutGrid, Lightbulb, Video, Volume2 } from "lucide-react";
+import type { JSX } from "react";
 
 import { EmptyState } from "@/components/atoms/EmptyState";
-import { SectionTileError } from "@/components/crew/SectionTileError";
-import { SectionCard } from "@/components/crew/primitives/SectionCard";
-import { CardHeaderActions } from "@/components/crew/primitives/CardHeaderActions";
-import { DEFAULT_CARD_REPORT, type CardReportContext } from "@/lib/crew/cardReportContext";
-import { CARD_REGION_MAP } from "@/lib/sheet-links/buildSheetDeepLink";
-import { KeyValueRows } from "@/components/crew/primitives/KeyValueRows";
-import { WrappedSection } from "@/components/crew/WrappedSection";
-import {
-  gearScopeCards,
-  roomDetailBlocks,
-  YOUR_SCOPE,
-  type Discipline,
-} from "@/components/crew/sections/gearRows";
+import { type CardReportContext } from "@/lib/crew/cardReportContext";
+import { type TileRenderLedger } from "@/lib/crew/tileRenderLedger";
 import { resolveViewerContext } from "@/lib/data/viewerContext";
 import type { ShowForViewer, Viewer } from "@/lib/data/getShowForViewer";
-import { type TileRenderLedger } from "@/lib/crew/tileRenderLedger";
-import { cn } from "@/lib/ui/cn";
-
-/**
- * The room-details cap lives with the row derivations (gearRows.ts), which the
- * crew search builder shares; re-exported here for the callers that read it from
- * the section (the search viewer matrix).
- */
-export { ROOM_DETAIL_CAP } from "@/components/crew/sections/gearRows";
 
 type GearSectionProps = {
   data: ShowForViewer;
@@ -66,202 +29,14 @@ type GearSectionProps = {
   cardReport?: CardReportContext | null;
 };
 
-/**
- * The scope-card glyph per discipline. The discipline list, headings and the
- * per-room accessors live in gearRows.ts (`gearScopeCards`).
- */
-const DISCIPLINE_ICONS: Record<Discipline, ReactNode> = {
-  audio: <Volume2 size={14} strokeWidth={2} />,
-  video: <Video size={14} strokeWidth={2} />,
-  lighting: <Lightbulb size={14} strokeWidth={2} />,
-  scenic: <Frame size={14} strokeWidth={2} />,
-  other: <Boxes size={14} strokeWidth={2} />,
-};
-
-export function GearSection({
-  data,
-  viewer,
-  showId,
-  ledger,
-  cardReport = DEFAULT_CARD_REPORT,
-}: GearSectionProps): JSX.Element {
-  // Single canonical viewer resolution. admin → all-flags + none-restriction;
-  // crew/admin_preview → matched row; malformed projection throws
-  // MalformedProjectionError (INTENTIONALLY outside WrappedSection so the
-  // route-level infra arm catches it, not the per-block fallback).
-  const ctx = resolveViewerContext(viewer, data);
+export function GearSection({ data, viewer }: GearSectionProps): JSX.Element {
+  resolveViewerContext(viewer, data);
 
   return (
     <div data-testid="section-gear" className="flex flex-col gap-4">
-      <WrappedSection
-        ledger={ledger}
-        tileId="crew:gear:scope"
-        showId={showId}
-        sheetName={data.show.title}
-        render={() => {
-          // Every card's rows come from gearRows.ts, which the search builder
-          // reads too, so the page and the index agree on every line. Every
-          // generic-optional read there routes through `shouldHideGenericOptional`,
-          // as it did here. Scope cards: one per discipline with a present room
-          // value, the viewer's own disciplines first (an EMPHASIS flip, not a gate).
-          const scopeCards = gearScopeCards(data.rooms, ctx.viewerFlags);
-
-          // Per-room detail (BL-ROOM-DETAIL-UNRENDERED, capped at ROOM_DETAIL_CAP).
-          const roomDetails = roomDetailBlocks(data.rooms);
-          const hasRoomDetails = roomDetails.visible;
-          const shownRoomBlocks = roomDetails.shown;
-          const hiddenRoomCount = roomDetails.hiddenCount;
-
-          // §4.13 mechanism #3 — active-section FETCH-error visual fallback. The
-          // A/V/L scope cards read data.rooms; per _ShowBody §4.13 scope is shown
-          // to all viewers (effectively ungated), so a rooms fetch error surfaces
-          // an inline degraded block to admin and an omission to crew. NO
-          // upsertAdminAlert (the _CrewShell projection alert is the sole
-          // producer). Composes with the WrappedSection render-throw arm.
-          const roomsFetchFailed = Boolean(data.tileErrors["rooms"]) && ctx.isAdmin;
-
-          const allHidden = scopeCards.length === 0 && !hasRoomDetails;
-
-          return (
-            <>
-              {roomsFetchFailed ? <SectionTileError domain="rooms" /> : null}
-
-              {allHidden && !roomsFetchFailed ? (
-                <div data-testid="section-empty">
-                  <EmptyState label="No gear details on file yet." />
-                </div>
-              ) : null}
-
-              {/* §4.9 scope-card grid (mock `thirds`). The A/V/L cards lay out as a
-                  responsive CSS grid: a single full-width column in a narrow body container
-                  (a phone, the section sheet), 3 equal columns once split (`@min-crew-split`).
-                  CSS grid tracks default to `align-items: stretch`, so cards in the same row
-                  share an equal height without the Tailwind-v4 `.flex`-no-stretch
-                  trap (DESIGN §7) — no explicit `items-stretch`/`h-full` needed. The
-                  per-discipline `gear-scope-<id>` testids + their A→V→L order are
-                  preserved (the jsdom sentinel/scope tests pin them); each card keeps
-                  `min-w-0` so long room values wrap rather than overflow. */}
-              {scopeCards.length > 0 ? (
-                <div
-                  data-testid="gear-scopes-row"
-                  className="grid grid-cols-1 gap-3 @min-crew-split:grid-cols-3"
-                >
-                  {scopeCards.map((d) => (
-                    <div
-                      key={d.id}
-                      data-testid={`gear-scope-${d.id}`}
-                      data-card-id={`gear-scope-${d.id}`}
-                      {...(d.emphasized ? { "data-emphasis": "you" } : {})}
-                      className={cn(
-                        // Grid item (cell stretches to row height via grid's default
-                        // align-items:stretch); `flex flex-col` lets the inner
-                        // SectionCard (`h-full`) fill the stretched cell so same-row
-                        // cards stay equal-height. `min-w-0` keeps long room
-                        // values wrapping instead of overflowing.
-                        "flex min-w-0 flex-col",
-                        // §4.16: keep the ratified accent left-edge, but at 1px
-                        // (`border-l`, not `border-l-2`) to satisfy the >1px
-                        // colored-side-stripe ban. The "Your scope" eyebrow +
-                        // this 1px accent edge together carry the emphasis (still
-                        // not color-only), within the ≤10% accent-coverage rule.
-                        d.emphasized ? "rounded-md border-l border-l-accent-on-bg" : "",
-                      )}
-                    >
-                      <SectionCard
-                        icon={DISCIPLINE_ICONS[d.id]}
-                        title={d.heading}
-                        eyebrow={
-                          // The viewer's-own-scope eyebrow, above the header: in the
-                          // action slot beside "In sheet" and the report button it
-                          // left the title 2px at 320 and none in the 1024 thirds
-                          // (whole-diff review round 2, CI-parity run). Chrome, not
-                          // sheet data; the card's search lines carry it as context.
-                          d.emphasized ? (
-                            <span
-                              data-search-skip=""
-                              className="text-xs font-medium uppercase tracking-eyebrow text-accent-on-bg"
-                            >
-                              {YOUR_SCOPE}
-                            </span>
-                          ) : undefined
-                        }
-                        action={
-                          <CardHeaderActions
-                            cardId={`gear-scope-${d.id}`}
-                            driveFileId={data.driveFileId}
-                            anchor={
-                              // GEAR-derived scope (modern shows) → link to the GEAR tab via the
-                              // date-grid-gated `gear_scope` anchor; legacy INFO-inline shows have no
-                              // `gear_scope` anchor → the precise `rooms` (INFO) anchor (spec §3.6).
-                              data.sourceAnchors[
-                                data.sourceAnchors["gear_scope"]
-                                  ? "gear_scope"
-                                  : CARD_REGION_MAP[`gear-scope-${d.id}`]
-                              ]
-                            }
-                            showId={showId}
-                            cardReport={cardReport}
-                          />
-                        }
-                      >
-                        <KeyValueRows rows={d.rows} />
-                      </SectionCard>
-                    </div>
-                  ))}
-                </div>
-              ) : null}
-
-              {hasRoomDetails ? (
-                <div data-testid="gear-room-details" data-card-id="gear-room-details">
-                  <SectionCard
-                    icon={<LayoutGrid size={14} strokeWidth={2} />}
-                    title="Room details"
-                    action={
-                      <CardHeaderActions
-                        cardId="gear-room-details"
-                        driveFileId={data.driveFileId}
-                        anchor={data.sourceAnchors[CARD_REGION_MAP["gear-room-details"]]}
-                        showId={showId}
-                        cardReport={cardReport}
-                      />
-                    }
-                  >
-                    <div className="flex flex-col gap-4">
-                      {shownRoomBlocks.map((b) => (
-                        <div
-                          key={b.id}
-                          data-testid={`gear-room-detail-${b.id}`}
-                          className="flex flex-col gap-1.5"
-                        >
-                          {/* Room name as an h4 (under the card's h3) — gives each
-                              per-room block a heading so the room↔detail relationship
-                              is exposed to SR + reads as a distinct block, not another
-                              field label (impeccable critique + audit MED). */}
-                          <h4
-                            data-search-target={b.heading?.id}
-                            className="text-sm font-semibold text-text-strong"
-                          >
-                            {b.label}
-                          </h4>
-                          {/* columns={1}: detail reads label:value per line, keeping the
-                              physical (dimensions/floor/setup) → schedule (set/show/strike)
-                              order intact at every width (no 2-col interleave). */}
-                          <KeyValueRows rows={b.rows} columns={1} />
-                        </div>
-                      ))}
-                      {hiddenRoomCount > 0 ? (
-                        <p data-search-skip="" className="text-sm text-text-subtle">
-                          …and {hiddenRoomCount} more room{hiddenRoomCount === 1 ? "" : "s"}
-                        </p>
-                      ) : null}
-                    </div>
-                  </SectionCard>
-                </div>
-              ) : null}
-            </>
-          );
-        }}
-      />
+      <div data-testid="section-empty">
+        <EmptyState label="No gear details on file yet." />
+      </div>
     </div>
   );
 }

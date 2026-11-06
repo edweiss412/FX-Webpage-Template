@@ -347,6 +347,7 @@ describe("staged adapter output through the REAL CrewShell", () => {
         "gear",
         "hotels",
         "packlist",
+        "rooms",
         "schedule",
         "today",
         "transport",

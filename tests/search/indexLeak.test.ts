@@ -39,6 +39,7 @@ import { CREW_INLINE_CAP } from "@/components/crew/sections/crewRows";
 import { EventSection } from "@/components/crew/sections/EventSection";
 import { PackListSection } from "@/components/crew/sections/PackListSection";
 import { GearSection } from "@/components/crew/sections/GearSection";
+import { RoomsSection } from "@/components/crew/sections/RoomsSection";
 import { AgendaSection } from "@/components/crew/sections/AgendaSection";
 import { ScheduleSection } from "@/components/crew/sections/ScheduleSection";
 import { HotelsSection } from "@/components/crew/sections/HotelsSection";
@@ -126,6 +127,8 @@ function sectionElement(id: SectionId, c: ViewerCase): JSX.Element {
       return createElement(CrewSection, props);
     case "contacts":
       return createElement(ContactsSection, props);
+    case "rooms":
+      return createElement(RoomsSection, props);
     case "gear":
       return createElement(GearSection, props);
     case "packlist":

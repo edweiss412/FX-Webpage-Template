@@ -380,9 +380,10 @@ describe("DiagramsTile — §4 manifest fields reach GalleryItem", () => {
 });
 
 describe("DiagramsTile — thumbnailSizes passthrough", () => {
-  // The `sizes` repair spans VenueSection -> DiagramsTile -> Gallery, and the
+  // The `sizes` repair spanned VenueSection -> DiagramsTile -> Gallery, and the
   // over-declaration it fixed (thumbnails fetching 1024 where 256 suffices) is
-  // invisible to every status-and-URL assertion. This is the middle link.
+  // invisible to every status-and-URL assertion. This is the middle link. Rooms has
+  // no narrow column, so it passes none today (PR C Task 7).
   test("a caller-supplied thumbnailSizes reaches the Gallery", () => {
     render(
       <DiagramsTile

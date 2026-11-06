@@ -8,6 +8,7 @@ import { TransportSection } from "@/components/crew/sections/TransportSection";
 import { ContactsSection } from "@/components/crew/sections/ContactsSection";
 import { CrewSection } from "@/components/crew/sections/CrewSection";
 import { GearSection } from "@/components/crew/sections/GearSection";
+import { RoomsSection } from "@/components/crew/sections/RoomsSection";
 import { makeShowForViewer } from "@/tests/fixtures/showForViewer";
 import { ledgerProp } from "./_ledgerProp";
 
@@ -21,6 +22,7 @@ const SECTIONS = {
   CrewSection,
   ContactsSection,
   GearSection,
+  RoomsSection,
   AgendaSection,
 } as const;
 

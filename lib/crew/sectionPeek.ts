@@ -162,6 +162,12 @@ function eventPeek(data: ShowForViewer): string | null {
   return count === 0 ? null : plural(count, "detail", "details");
 }
 
+/** The rooms the section renders: every one, a bare room included (PR C plan decision 6). */
+function roomsPeek(data: ShowForViewer): string | null {
+  const count = Array.isArray(data.rooms) ? data.rooms.length : 0; // absent on a partial projection
+  return count === 0 ? null : plural(count, "room", "rooms");
+}
+
 /** The pack list's case count, only on a day its gate shows it to this viewer. */
 function packListPeek(data: ShowForViewer, viewer: SectionPeekViewer): string | null {
   const cases = data.pullSheet;
@@ -204,6 +210,8 @@ export function sectionPeek(
       return crewPeek(data);
     case "contacts":
       return contactsPeek(data);
+    case "rooms":
+      return roomsPeek(data);
     case "gear":
       return null;
     case "packlist":

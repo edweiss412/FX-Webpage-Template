@@ -162,7 +162,7 @@ export function NoteIcon({ className }: GlyphProps) {
   );
 }
 
-/** Map — a folded map (mock `map`). Venue "Site diagrams" card. */
+/** Map — a folded map (mock `map`). The Rooms section's Diagrams card. */
 export function MapIcon({ className }: GlyphProps) {
   return (
     <svg {...baseProps} className={className} aria-hidden="true">

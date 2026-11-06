@@ -52,6 +52,7 @@ const LABEL: Record<SectionId, string> = {
   transport: "Transport",
   crew: "Crew",
   contacts: "Contacts",
+  rooms: "Rooms & scope",
   gear: "Gear",
   packlist: "Pack list",
   billing: "Billing & docs",
@@ -300,7 +301,7 @@ describe("rows (spec §6.4)", () => {
       entries: buildEntries([
         { section: "today", region: "none", group: "", label: "Crew call", value: "6:30 AM" },
         {
-          section: "venue",
+          section: "rooms",
           region: "venue-diagrams",
           group: "Diagrams",
           label: null,

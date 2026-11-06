@@ -29,6 +29,7 @@ const SECTION_COMPONENTS = [
   "CrewSection",
   "ContactsSection",
   "EventSection",
+  "RoomsSection",
   "GearSection",
   "PackListSection",
   "BillingSection",
@@ -51,8 +52,8 @@ const EXPECTED_TILE_BY_FILE: Record<string, string> = {
   // every wrapper, for its own section and a new tile id (decision 6).
   "AgendaSection.tsx": "crew:agenda:schedule",
   // PR B plan Task 5: the shared Venue body is called inside its own wrapper
-  // (spec §6.1, error containment), ahead of the diagrams block in source order.
-  "VenueSection.tsx": "crew:venue:where,crew:venue:diagrams",
+  // (spec §6.1, error containment). The diagrams block left for Rooms (PR C Task 7).
+  "VenueSection.tsx": "crew:venue:where",
   // PR B plan Task 9: Travel split in two. Transport keeps Travel's tile id
   // (decision 6: its open alerts stay resolvable); Hotels gets a new one.
   "HotelsSection.tsx": "crew:hotels:list",
@@ -64,7 +65,9 @@ const EXPECTED_TILE_BY_FILE: Record<string, string> = {
   // PR C plan Task 5: the Tech specs, keynote and reel cards left Gear's wrapper,
   // and the Dress code card the home's, for this section's (decision 5).
   "EventSection.tsx": "crew:event:details",
-  "GearSection.tsx": "crew:gear:scope",
+  // PR C plan Task 7: the scope rows and the Diagrams block keep their ids (decision
+  // 5). Gear holds nothing but its empty state until it retires in Task 8.
+  "RoomsSection.tsx": "crew:gear:scope,crew:venue:diagrams",
   // PR C plan Task 6: the pack list left Gear's wrapper for its own (decision 5).
   "PackListSection.tsx": "crew:packlist:cases",
   "BillingSection.tsx": "crew:budget:rows",

@@ -11,7 +11,6 @@
  */
 import { CONTACTS_INLINE_CAP } from "@/components/crew/sections/ContactsSection";
 import { CREW_INLINE_CAP } from "@/components/crew/sections/CrewSection";
-import { ROOM_DETAIL_CAP } from "@/components/crew/sections/GearSection";
 import { CASE_CAP } from "@/components/crew/sections/packListRows";
 import { SOURCE_CAP, TRUNCATE_AT } from "@/components/crew/sections/todayRows";
 import { SHOWS_CAP } from "@/components/crew/primitives/KeyTimesStrip";
@@ -19,10 +18,10 @@ import { INITIAL_VISIBLE } from "@/components/diagrams/galleryLimits";
 import type { AgendaDay, AgendaExtraction } from "@/lib/agenda/types";
 import { TITLE_TRUNCATE_AT } from "@/lib/crew/agendaDisplay";
 import { CREW_TECH_SPEC_KEYS } from "@/lib/crew/eventDetailsSpecs";
-import type { RoomDetailKey } from "@/lib/crew/roomDetailFields";
 import type { ShowForViewer, Viewer } from "@/lib/data/getShowForViewer";
 import { resolveViewerContext } from "@/lib/data/viewerContext";
 import type { GearDiscipline } from "@/lib/parser/gearClassification";
+import type { RoomRow } from "@/lib/parser/types";
 import type {
   ContactRow,
   PersistedDiagrams,
@@ -252,7 +251,9 @@ const crewCount = CREW_INLINE_CAP + OVER;
 const contactCount = Math.max(CONTACTS_INLINE_CAP, SOURCE_CAP) + OVER;
 const showDayCount = SHOWS_CAP + OVER;
 const caseCount = CASE_CAP + OVER;
-const roomCount = ROOM_DETAIL_CAP + OVER;
+// Rooms has no cap (PR C plan decision 6): this count stands past the 12 blocks the
+// old Room details card kept, so a cap coming back drops a line the case can see.
+const roomCount = 12 + OVER;
 const diagramCount = INITIAL_VISIBLE + OVER;
 
 const overCapShowDays = Array.from({ length: showDayCount }, (_, i) => isoDay(i - 2));
@@ -546,8 +547,11 @@ const GS_SCOPE: Record<GearDiscipline, string> = {
   other: "Client laptops at the tech table, presenter clicker",
 };
 
-/** Every room-detail field, typed over `RoomDetailKey` so a new field fails tsc. */
-const GS_DETAILS: Record<RoomDetailKey, string> = {
+/** Every room header field, each a line of the card. */
+const GS_DETAILS: Pick<
+  RoomRow,
+  "dimensions" | "floor" | "setup" | "set_time" | "show_time" | "strike_time"
+> = {
   dimensions: "120' x 80'",
   floor: "Level 2",
   setup: "Classroom for 300 with a center aisle",

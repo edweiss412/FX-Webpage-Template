@@ -329,10 +329,10 @@ describe("order (spec §5.5)", () => {
   });
 
   it("sorts sections by their best row, ties in section order", () => {
-    // venue and gear tie at 2.0 and keep section order; schedule matches only
+    // rooms and gear tie at 2.0 and keep section order; schedule matches only
     // through context (1.2) and sorts after both despite coming first.
     const result = searchIndex(fixture, "grand ballroom");
-    expect(result.sections.map((s) => s.section)).toEqual(["venue", "gear", "schedule"]);
+    expect(result.sections.map((s) => s.section)).toEqual(["rooms", "gear", "schedule"]);
     const best = result.sections.map((s) => Number(s.rows[0]!.score.toFixed(2)));
     expect(best).toEqual([2, 2, 1.2]);
   });

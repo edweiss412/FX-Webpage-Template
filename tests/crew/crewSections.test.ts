@@ -330,11 +330,21 @@ describe("hotels and transport replace travel (PR B Task 9, spec line 240, plan 
     // Travel's slot was right after schedule; Agenda (PR B Task 10) sits between them now.
     expect(ids.indexOf("hotels")).toBe(ids.indexOf("agenda") + 1);
     expect(ids.indexOf("transport")).toBe(ids.indexOf("hotels") + 1);
-    expect(ids.indexOf("gear")).toBe(ids.indexOf("transport") + 1);
+    expect(ids.indexOf("rooms")).toBe(ids.indexOf("transport") + 1);
     for (const id of ["hotels", "transport"] as const) {
       expect(CREW_MOVED_IDS as readonly string[], id).toContain(id);
       expect(CREW_SECTION_LABELS[id as CrewSectionId], id).toBe(showSection(id).label);
     }
+  });
+
+  it("sections: rooms comes before gear in nav order, a moved id every viewer is listed, with its registry label", () => {
+    const rooms: CrewSectionId = "rooms";
+    const ids: readonly string[] = CREW_SECTION_IDS;
+    expect(ids.indexOf("gear")).toBe(ids.indexOf("rooms") + 1);
+    expect(CREW_MOVED_IDS as readonly string[]).toContain(rooms);
+    expect(isCrewMovedSection(rooms)).toBe(true);
+    expect(CREW_SECTION_LABELS[rooms]).toBe(showSection("rooms").label);
+    expect(CREW_ALWAYS_SECTION_IDS as readonly string[]).toContain(rooms);
   });
 
   it("sections: event follows venue in nav order, a moved id every viewer is listed, with its registry label", () => {

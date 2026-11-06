@@ -617,7 +617,10 @@ export const DISPOSITION_RULES: DispositionRule[] = [
     // 37 since PR C's Task 6: the pack list blocks load crew routes through a `path`
     // variable, the compact block's `loadPath` and the wide block's `loadIn`. Same
     // disposition: a crew page. Re-derived from the failure's own count (37 candidates).
-    expectedCount: 37,
+    // 38 since PR C's Task 7: the rooms block in crew-page.spec.ts loads crew routes
+    // through a `path` variable (`open`). Same disposition: a crew page. Re-derived from
+    // the failure's own count (38 candidates).
+    expectedCount: 38,
     match: (c) =>
       !c.file.startsWith("tests/e2e/published-review-modal.") &&
       !/\bcrewPage\.goto\(/.test(c.matchLineText) &&
@@ -737,7 +740,10 @@ export const DISPOSITION_RULES: DispositionRule[] = [
     // 31 since PR C's Task 6: the pack list compact block builds the preview-as path for
     // its seeded viewers (`previewOf(seeded, name)`). Re-derived from the failure's own
     // count (31 candidates).
-    expectedCount: 31,
+    // 32 since PR C's Task 7: the rooms block in crew-page.spec.ts builds the preview-as
+    // path for its seeded viewers (`previewPath(name)`). Re-derived from the failure's
+    // own count (32 candidates).
+    expectedCount: 32,
     match: (c) =>
       !isTestTitle(c.matchLineText) &&
       !/^\["\/admin\/show\//.test(c.matchLineText) &&

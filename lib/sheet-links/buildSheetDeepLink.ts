@@ -161,7 +161,7 @@ export const REGION_ANCHOR_SPEC: Record<RegionId, RegionAnchorSpec> = {
     terminators: BLOCK_TERMINATORS,
   },
   gear_packlist: { tabs: ["PULL SHEET", "GEAR"], strategy: "whole-tab" },
-  // gear_scope is the whole-GEAR-tab anchor for the per-discipline scope cards, but it is
+  // gear_scope is the whole-GEAR-tab anchor for the Rooms panel's disciplines, but it is
   // EMITTED ONLY when the GEAR tab carries the date-grid signature (gated in
   // lib/drive/sourceAnchors.ts via rowsHaveGearDateGrid — gear-parser-fidelity Task 8).
   gear_scope: { tabs: ["GEAR"], strategy: "whole-tab" },
@@ -170,8 +170,8 @@ export const REGION_ANCHOR_SPEC: Record<RegionId, RegionAnchorSpec> = {
 
 // `satisfies` (not an explicit `: Record<string, RegionId>` annotation) keeps the
 // KEYS as a literal union so a known-literal-key lookup — `CARD_REGION_MAP["crew-roster"]`
-// or `CARD_REGION_MAP[`gear-scope-${id}`]` — resolves to `RegionId` (NOT `RegionId |
-// undefined`) under `noUncheckedIndexedAccess`. The card wiring (components/crew/
+// — resolves to `RegionId` (NOT `RegionId | undefined`) under
+// `noUncheckedIndexedAccess`. The card wiring (components/crew/
 // sections/*) indexes `sourceAnchors` with these values, which would error if the
 // lookup widened to `undefined`. `CardId` is exported for the same literal-key safety.
 export const CARD_REGION_MAP = {
@@ -183,11 +183,6 @@ export const CARD_REGION_MAP = {
   "venue-where": "venue",
   "venue-facilities": "venue",
   "venue-status": "venue",
-  "gear-scope-audio": "rooms",
-  "gear-scope-video": "rooms",
-  "gear-scope-lighting": "rooms",
-  "gear-scope-scenic": "rooms",
-  "gear-scope-other": "rooms",
   "gear-pack-list": "gear_packlist",
   "gear-keynote": "details",
   "gear-opening-reel": "details",

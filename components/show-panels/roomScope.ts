@@ -76,6 +76,29 @@ export const ROOM_KIND_LABEL: Record<RoomRow["kind"], string> = {
   additional: "Additional",
 };
 
+/** A room's header lines, in render order, each with the label it renders under. */
+export const ROOM_HEADER_LABELS = {
+  floor: null,
+  set_time: "Set",
+  show_time: "Show",
+  strike_time: "Strike",
+  setup: "Setup",
+  dimensions: "Room Dimensions",
+} as const;
+
+export const ROOM_HEADER_KEYS = Object.keys(ROOM_HEADER_LABELS) as ReadonlyArray<
+  keyof typeof ROOM_HEADER_LABELS
+>;
+
+/**
+ * The value a header line shows: parsed text, past the sentinel rule. The body and the
+ * crew's row helper both read it, so the index and the render agree.
+ */
+export function roomHeaderValue(value: string | null, sentinels: "show" | "hide"): string | null {
+  if (!hasContent(value)) return null;
+  return sentinels === "hide" && shouldHideGenericOptional(value) ? null : value;
+}
+
 /** A discipline's parsed gear, or null when the room holds no text for it. */
 function scopeValue(room: RoomRow, key: RoomScopeKey): string | null {
   const value = room[key];

@@ -19,17 +19,17 @@
  * `room-scope-key` is the one test id that stays unprefixed.
  */
 import { EYEBROW_STYLE } from "@/components/show-panels/FieldRowList";
-import { hasContent } from "@/components/show-panels/fieldRows";
 import {
+  ROOM_HEADER_LABELS as LABEL,
   ROOM_KIND_LABEL,
   ROOM_SCOPE_UNSPECIFIED,
   YOUR_SCOPE,
+  roomHeaderValue,
   roomScopeRows,
   type RoomScopeKey,
   type RoomScopeRow,
 } from "@/components/show-panels/roomScope";
 import type { RoomRow } from "@/lib/parser/types";
-import { shouldHideGenericOptional } from "@/lib/visibility/emptyState";
 
 /** A room's searchable lines: its name, each header field, each discipline. */
 export type RoomLineKey =
@@ -86,12 +86,6 @@ function lineMarker(lines: RoomTargets | undefined, key: RoomLineKey): SearchMar
   if (lines === undefined) return {};
   const id = lines[key];
   return id === undefined ? SKIP : { "data-search-target": id };
-}
-
-/** The value the header shows for a field: parsed text, past the sentinel rule. */
-function headerValue(value: string | null, sentinels: "show" | "hide"): string | null {
-  if (!hasContent(value)) return null;
-  return sentinels === "hide" && shouldHideGenericOptional(value) ? null : value;
 }
 
 /**
@@ -187,27 +181,27 @@ function RoomCard({
     [
       {
         key: "set_time",
-        label: "Set",
-        value: headerValue(r.set_time, sentinels),
+        label: LABEL.set_time,
+        value: roomHeaderValue(r.set_time, sentinels),
         emphasized: false,
       },
       {
         key: "show_time",
-        label: "Show",
-        value: headerValue(r.show_time, sentinels),
+        label: LABEL.show_time,
+        value: roomHeaderValue(r.show_time, sentinels),
         emphasized: true,
       },
       {
         key: "strike_time",
-        label: "Strike",
-        value: headerValue(r.strike_time, sentinels),
+        label: LABEL.strike_time,
+        value: roomHeaderValue(r.strike_time, sentinels),
         emphasized: false,
       },
     ] as const
   ).filter((t) => t.value !== null);
-  const setup = headerValue(r.setup, sentinels);
-  const dimensions = headerValue(r.dimensions, sentinels);
-  const floor = headerValue(r.floor, sentinels);
+  const setup = roomHeaderValue(r.setup, sentinels);
+  const dimensions = roomHeaderValue(r.dimensions, sentinels);
+  const floor = roomHeaderValue(r.floor, sentinels);
   const hasHeaderBody = times.length > 0 || setup !== null || dimensions !== null;
   const scope = roomScopeRows(r, { dropEmpty, emphasize });
   // A room with no scope rows ends at its header, which then has nothing to divide
@@ -286,7 +280,7 @@ function RoomCard({
               className="shrink-0 text-xs font-semibold uppercase text-text-subtle"
               style={EYEBROW_STYLE}
             >
-              Setup
+              {LABEL.setup}
             </span>
             <span className="wrap-break-word text-xs text-text-subtle">{setup}</span>
           </div>
@@ -297,7 +291,7 @@ function RoomCard({
               className="shrink-0 text-xs font-semibold uppercase text-text-subtle"
               style={EYEBROW_STYLE}
             >
-              Room Dimensions
+              {LABEL.dimensions}
             </span>
             <span className="wrap-break-word text-xs tabular-nums text-text">{dimensions}</span>
           </div>

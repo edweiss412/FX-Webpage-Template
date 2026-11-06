@@ -10,6 +10,7 @@ import { buildEventEntries } from "./event";
 import { buildGearEntries } from "./gear";
 import { buildHotelsEntries } from "./hotels";
 import { buildPackListEntries } from "./packlist";
+import { buildRoomsEntries } from "./rooms";
 import { buildScheduleEntries } from "./schedule";
 import { buildTodayEntries } from "./today";
 import { buildTransportEntries } from "./transport";
@@ -50,6 +51,7 @@ export const SECTION_BUILDERS: Record<SectionId, SectionBuilder> = {
   transport: buildTransportEntries,
   crew: buildCrewEntries,
   contacts: buildContactsEntries,
+  rooms: buildRoomsEntries,
   gear: buildGearEntries,
   packlist: buildPackListEntries,
   billing: buildBillingEntries,

@@ -108,13 +108,15 @@ function fullData(): ShowForViewer {
     // The Agenda is listed, and draws its panel card, only over an agenda link with
     // a file (PR B Task 10); Event details draws its panel only over a field to show
     // (PR C Task 5); Pack list is a member only on a pack-list phase, and draws its
-    // panel only over a pull sheet (PR C Task 6).
+    // panel only over a pull sheet (PR C Task 6); Rooms draws its panel only over a
+    // room (PR C Task 7).
     show: {
       agenda_links: [{ label: "AGENDA", fileId: "agenda-file-9" }],
       event_details: { stage_size: "8 x 24" },
       schedule_phases: { "2026-05-14": ["Set"] },
     },
     pullSheet: [{ caseLabel: "Road Case 1", items: [] }],
+    rooms: [{ id: "r1", kind: "gs", name: "Grand Ballroom", audio: "Two lavs" }],
     financials: { po: "PO-9", proposal: "PR-9", invoice: "INV-9", invoice_notes: "Net 9" },
     // The Contacts section draws its panel card only over contacts (PR B Task 7).
     contacts: [{ kind: "venue", name: "Vic Venue", email: null, phone: "555-0120", notes: null }],

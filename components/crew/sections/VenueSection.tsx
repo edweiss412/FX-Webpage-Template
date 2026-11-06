@@ -2,8 +2,8 @@
  * components/crew/sections/VenueSection.tsx — crew-redesign §9 "Venue" section.
  *
  * The single synchronous Server Component that homes every venue-facing field
- * the deleted VenueTile / DiagramsTile / ShowStatusTile (venue half) used to
- * carry, into one curated surface:
+ * the deleted VenueTile / ShowStatusTile (venue half) used to carry, into one
+ * curated surface:
  *
  *   - The Venue panel — the shared Venue body (components/show-panels/
  *     VenueBody.tsx, crew page redesign PR B Task 5, spec §6.2 `venue` row) in
@@ -32,11 +32,9 @@
  *     every crew member (spec §6.2: COI stays in Venue). Sentinel-guarded: when
  *     the value is a sentinel/empty the `<span data-testid="coi-status">` is
  *     OMITTED entirely (no empty span). Then venue notes, sentinel-guarded.
- *   - Diagrams — the ported DiagramsTile, which owns embedded-first ordering
- *     and the MIME allowlist + null-snapshotPath gating (they stay in Venue
- *     through PR B, spec §6.2). The agenda PDF relocated to the Schedule section
- *     (§4.6) and is no longer here. Whole-block omission when there's nothing to
- *     show is DiagramsTile's own `null` return.
+ *
+ * Diagrams moved to the Rooms section (crew page redesign PR C Task 7, spec line
+ * 317), so the cards stack in one column at every width.
  *
  * When ALL blocks are hidden, a section-level `<EmptyState data-testid=
  * "section-empty">` renders so the surface is never blank.
@@ -48,7 +46,6 @@
  */
 import type { JSX } from "react";
 
-import { DiagramsTile } from "@/components/crew/DiagramsBlock";
 import { EmptyState } from "@/components/atoms/EmptyState";
 import { SectionTileError } from "@/components/crew/SectionTileError";
 import { SectionCard } from "@/components/crew/primitives/SectionCard";
@@ -145,15 +142,6 @@ export function VenueSection({
   const hasFacts = factRows.length > 0;
   const hasStatus = coi !== null || venueNotes !== null;
 
-  // diagrams renders null only when shouldHideDiagrams is true — recompute the
-  // same predicate input to decide whether the block contributes content. The
-  // agenda PDF relocated to the Schedule section (§4.6), so agenda presence no
-  // longer forces this block to render (an agenda-only show shows NO empty
-  // Diagrams block here).
-  const hasDiagrams =
-    (data.diagrams?.embeddedImages?.length ?? 0) + (data.diagrams?.linkedFolderItems?.length ?? 0) >
-    0;
-
   // §4.13 mechanism #3 — active-section FETCH-error visual fallback. The parking
   // block reads transportation.parking, gated by transportTileVisible (the same
   // gate _ShowBody applies: isAdmin || transportVisible). On a transportation
@@ -163,22 +151,18 @@ export function VenueSection({
   const transportFetchFailed =
     Boolean(data.tileErrors["transportation"]) && (ctx.isAdmin || transportVisible);
 
-  const allHidden = !hasWhere && !hasFacts && !hasStatus && !hasDiagrams;
+  const allHidden = !hasWhere && !hasFacts && !hasStatus;
 
-  // §4.9 mock `split-wide`: once split (`@min-crew-split`), two columns — LEFT the venue
-  // detail tiles (Where / Facilities / Venue status, which carries dock / parking
-  // / Wi-Fi / power / COI / venue notes), RIGHT the site-diagrams block. Narrower
-  // collapses to one column with the left tiles first, then diagrams. The grid
-  // only mounts when BOTH a left-detail tile AND diagrams have content; when
-  // diagrams are absent the left tiles render full-width (no dead right column),
-  // and vice-versa.
-  const hasLeft = hasWhere || hasFacts || hasStatus;
-  const useSplit = hasLeft && hasDiagrams;
+  return (
+    <div data-testid="section-venue" className="flex flex-col gap-4">
+      {transportFetchFailed ? <SectionTileError domain="transportation" /> : null}
 
-  // Left detail tiles (Where / Facilities / Venue status) as a stacked fragment
-  // so they can render either inside the split's left column or full-width.
-  const leftTiles = (
-    <>
+      {allHidden && !transportFetchFailed ? (
+        <div data-testid="section-empty">
+          <EmptyState label="No venue details on file yet." />
+        </div>
+      ) : null}
+
       {hasWhere ? (
         <div data-testid="venue-where">
           <WrappedSection
@@ -297,78 +281,6 @@ export function VenueSection({
           </SectionCard>
         </div>
       ) : null}
-    </>
-  );
-
-  const diagramsBlock = hasDiagrams ? (
-    <div data-testid="venue-diagrams" data-card-id="venue-diagrams">
-      <WrappedSection
-        ledger={ledger}
-        tileId="crew:venue:diagrams"
-        showId={showId}
-        sheetName={data.show.title}
-        render={() =>
-          // DiagramsTile owns the embedded-first ordering + MIME allowlist +
-          // null-snapshotPath gating — the throwable transform. DIRECT-INVOKED
-          // as a function call (not `<DiagramsTile/>` JSX) so its synchronous
-          // body runs INSIDE WrappedSection's try/catch (the H2
-          // direct-invocation contract); a build throw is contained (fallback +
-          // TILE_SERVER_RENDER_FAILED upsert).
-          DiagramsTile({
-            showId,
-            diagrams: data.diagrams,
-            // Only this component knows which branch rendered: in the split the
-            // gallery sits in the narrow 1fr column (~92px thumbnails at 1440px),
-            // so declaring the full-width default would make every thumbnail
-            // fetch a 1024 variant where 256 suffices.
-            ...(useSplit
-              ? {
-                  thumbnailSizes:
-                    "(min-width: 1200px) 92px, (min-width: 720px) 8vw, (min-width: 640px) 21vw, 29vw",
-                }
-              : {}),
-          })
-        }
-      />
-    </div>
-  ) : null;
-
-  return (
-    <div data-testid="section-venue" className="flex flex-col gap-4">
-      {transportFetchFailed ? <SectionTileError domain="transportation" /> : null}
-
-      {allHidden && !transportFetchFailed ? (
-        <div data-testid="section-empty">
-          <EmptyState label="No venue details on file yet." />
-        </div>
-      ) : null}
-
-      {/* items-start (NOT stretch): the right Diagrams column takes its natural
-          height rather than stretching to match the taller left detail stack
-          (2026-06-21 owner amendment, see v1-pre-deployment-amendments). */}
-      {useSplit ? (
-        <div className="grid grid-cols-1 gap-4 @min-crew-split:grid-cols-[1.6fr_1fr] @min-crew-split:items-start">
-          <div
-            data-testid="venue-column"
-            data-venue-column="details"
-            className="flex min-w-0 flex-col gap-4"
-          >
-            {leftTiles}
-          </div>
-          <div
-            data-testid="venue-column"
-            data-venue-column="diagrams"
-            className="flex min-w-0 flex-col gap-4"
-          >
-            {diagramsBlock}
-          </div>
-        </div>
-      ) : (
-        <>
-          {leftTiles}
-          {diagramsBlock}
-        </>
-      )}
     </div>
   );
 }
