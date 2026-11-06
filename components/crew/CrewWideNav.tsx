@@ -145,7 +145,7 @@ export function CrewWideNav({ items, active, hrefFor, hidden = false }: CrewWide
       data-testid="crew-wide-nav"
       aria-label="Show sections"
       hidden={hidden}
-      className="sticky top-(--crew-sticky-bottom) hidden h-[calc(100dvh-var(--crew-sticky-bottom))] w-60 shrink-0 flex-col gap-1 self-start overflow-y-auto border-r border-border py-6 pr-3 lg:flex"
+      className="sticky top-(--crew-sticky-bottom) hidden h-[calc(100dvh-var(--crew-sticky-bottom))] w-60 shrink-0 flex-col gap-0 self-start overflow-y-auto border-r border-border py-3 pr-3 lg:flex"
     >
       {indicator !== null ? (
         <span
@@ -171,12 +171,12 @@ export function CrewWideNav({ items, active, hrefFor, hidden = false }: CrewWide
             key={run.group}
             role="group"
             aria-labelledby={`${groupIdBase}-${index}`}
-            className="flex flex-col gap-1"
+            className="flex flex-col gap-0"
           >
             <div
               id={`${groupIdBase}-${index}`}
               data-testid="crew-wide-nav-group"
-              className="ml-3 px-3 pt-3 text-xs font-semibold uppercase tracking-eyebrow text-text-subtle"
+              className="ml-3 px-3 pt-2 text-xs font-semibold uppercase tracking-eyebrow text-text-subtle"
             >
               {run.group}
             </div>

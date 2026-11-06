@@ -140,16 +140,16 @@ export function CrewLoadingSkeleton() {
             always-listed sections, so the swap to the live nav does not jump. */}
         <div
           data-testid="crew-loading-nav"
-          className="sticky top-(--crew-sticky-bottom) hidden h-[calc(100dvh-var(--crew-sticky-bottom))] w-60 shrink-0 flex-col gap-1 self-start overflow-y-auto border-r border-border py-6 pr-3 lg:flex"
+          className="sticky top-(--crew-sticky-bottom) hidden h-[calc(100dvh-var(--crew-sticky-bottom))] w-60 shrink-0 flex-col gap-0 self-start overflow-y-auto border-r border-border py-3 pr-3 lg:flex"
         >
           {NAV_RUNS.map((run) =>
             run.group === undefined ? (
               run.items.map(({ id }) => <NavItemPlaceholder key={id} id={id} />)
             ) : (
-              <div key={run.group} className="flex flex-col gap-1">
+              <div key={run.group} className="flex flex-col gap-0">
                 <div
                   data-testid="crew-loading-nav-group"
-                  className="ml-3 px-3 pt-3 text-xs font-semibold uppercase tracking-eyebrow text-text-subtle"
+                  className="ml-3 px-3 pt-2 text-xs font-semibold uppercase tracking-eyebrow text-text-subtle"
                 >
                   {run.group}
                 </div>

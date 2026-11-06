@@ -2103,6 +2103,43 @@ test.describe("registry groups: the wide nav's group headings (PR C Task 9)", ()
     await expect(root).toHaveAttribute("data-crew-mode", "wide");
   }
 
+  // Gate repair 7 (B P2-3, A P3-4): a full nav ran 817px in a 704px box at 1280x800, so
+  // Pack list and Billing sat below the fold on a Set day, with no scrollbar on a Mac.
+  test("registry groups: a full nav shows every item at rest at 1280x800, each 44px tall", async ({
+    page,
+  }) => {
+    const seeded = await seedGroupsShow("Registry Groups Fit Show", "Set");
+    try {
+      await page.setViewportSize({ width: 1280, height: 800 });
+      await loadWide(page, `/show/${seeded.slug}/${seeded.shareToken}`);
+      const m = await navEl(page).evaluate((nav) => {
+        const box = nav.getBoundingClientRect();
+        return {
+          client: nav.clientHeight,
+          scroll: nav.scrollHeight,
+          items: [...nav.querySelectorAll("a[data-section]")].map((a) => {
+            const r = a.getBoundingClientRect();
+            return {
+              id: a.getAttribute("data-section"),
+              height: r.height,
+              below: r.bottom > box.bottom,
+            };
+          }),
+        };
+      });
+      const at = JSON.stringify(m);
+      // PREMISE: a full nav, so an overflow would have been the old 113px.
+      premise("every section is listed", m.items.length, 11);
+      expect(m.scroll, at).toBeLessThanOrEqual(m.client);
+      for (const item of m.items) {
+        expect(item.height, item.id ?? at).toBeGreaterThanOrEqual(44);
+        expect(item.below, item.id ?? at).toBe(false);
+      }
+    } finally {
+      await deleteSeededShow(seeded.driveFileId);
+    }
+  });
+
   const navEl = (page: Page) => page.getByTestId("crew-wide-nav");
   const navItem = (page: Page, id: string) => navEl(page).locator(`[data-section="${id}"]`);
 
