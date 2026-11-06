@@ -4,8 +4,8 @@
  *
  * The crew panel card titled "Event details" (the registry label) around the shared
  * body (components/show-panels/EventDetailsBody.tsx), CALLED with the crew props:
- * the crew keys, sentinels hidden, rows in place of chips, `h4` titles and the
- * crew's title map. The panel keeps the Tech specs card's id, `gear-tech-specs`, and
+ * the crew keys, sentinels hidden, rows in place of chips that read their container,
+ * `h4` titles and the crew's title map. The panel keeps the Tech specs card's id, `gear-tech-specs`, and
  * the keynote, the reel and the dress code each keep their card id and header
  * actions as a field card inside it (spec line 328, plan decision 4). The dress code
  * is the full-text destination of the pass's "Dress code" cell and the quick fact
@@ -116,6 +116,7 @@ export function EventSection({
                   dress_code: fieldCard(EVENT_FIELD_CARD_IDS.dress_code),
                 },
                 reelPlayer: panel.showPlayer ? <OpeningReelVideo showId={showId} /> : null,
+                rowLayout: "fluid",
                 targets: panel.targets,
               })}
             </PanelCard>

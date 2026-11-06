@@ -188,6 +188,19 @@ describe("event details: the section", () => {
   });
 });
 
+describe("event details: the row layout", () => {
+  test("event details: the crew rows read their container, so a long value keeps the width", () => {
+    const root = renderEvent(withDetails({ dress_code: "Show blacks", stage_size: "8 x 24" }));
+    const row = (label: string) => within(root).getByText(label).parentElement!;
+    expect(row(EVENT_DETAILS_LABELS.dress_code)).toHaveClass(
+      "@min-crew-split:grid-cols-[8rem_minmax(0,1fr)]",
+    );
+    expect(row(EVENT_DETAILS_LABELS.stage_size)).toHaveClass(
+      "@min-fact-pair:grid-cols-[8rem_minmax(0,1fr)]",
+    );
+  });
+});
+
 describe("event details: the keynote card", () => {
   test("event details: the keynote is a field card with its own id and actions, inside the panel", () => {
     const root = renderEvent(withDetails({ keynote_requirements: "Confidence monitor + clicker" }));

@@ -11,8 +11,8 @@
  *   It passes nothing else, so every prop below defaults to its output.
  * - Crew (components/crew/sections/EventSection.tsx): the crew keys, sentinels
  *   hidden, rows in place of chips, `h4` titles, the crew's title map, a field card
- *   per key that keeps its card id and actions, the reel player in its slot, and
- *   search targets.
+ *   per key that keeps its card id and actions, the reel player in its slot, rows
+ *   that read their container, and search targets.
  *
  * Plain props, hook-free, no context: the crew page calls it as a function inside
  * `WrappedSection`'s render callback (spec §6.1, error containment), and it calls
@@ -57,6 +57,11 @@ export type EventDetailsBodyProps = {
   fieldCards?: Partial<Record<EventDetailKey, EventFieldCard>>;
   /** The crew's proxied video, under the reel's row, or under its label when there is no text. */
   reelPlayer?: ReactNode;
+  /**
+   * "fixed" (the default, admin): an 8rem label track at every width. "fluid" (crew):
+   * the rows read their section's container (`ROW_LONG`, `ROW_SHORT`).
+   */
+  rowLayout?: "fixed" | "fluid";
   /**
    * Per key, a search target per line it renders (lib/search/entryId.ts): one for a
    * row, one per phase line for the dress code. Given, the body also marks what
@@ -109,6 +114,37 @@ function withReelSlot(groups: readonly EventDetailGroup[]): readonly EventDetail
   });
 }
 
+/** The admin's row: a desk pane holds the label's track at every width. */
+const ROW_FIXED = "grid grid-cols-[8rem_minmax(0,1fr)] items-baseline gap-x-4";
+
+/**
+ * A crew row whose value runs to several lines: the label sits over it below the crew
+ * split, since a value that long has left its label out of sight anyway and the track
+ * only takes its width (gate repair 1: 74px of dress code at a 320 phone, 53 lines).
+ */
+const ROW_LONG =
+  "grid grid-cols-1 items-baseline gap-x-4 gap-y-1 @min-crew-split:grid-cols-[8rem_minmax(0,1fr)]";
+
+/**
+ * A crew row whose value is a short fact: a scannable two-column list, down to the
+ * container that can still hold it (`--container-fact-pair`), so page zoom never leaves
+ * the value a track of nothing.
+ */
+const ROW_SHORT =
+  "grid grid-cols-1 items-baseline gap-x-4 gap-y-0.5 @min-fact-pair:grid-cols-[8rem_minmax(0,1fr)]";
+
+const LONG_FORM_KEYS = new Set<EventDetailKey>([
+  "dress_code",
+  "keynote_requirements",
+  "notes",
+  "opening_reel",
+]);
+
+function rowClass(key: EventDetailKey, rowLayout: "fixed" | "fluid"): string {
+  if (rowLayout === "fixed") return ROW_FIXED;
+  return LONG_FORM_KEYS.has(key) ? ROW_LONG : ROW_SHORT;
+}
+
 type SearchMarker = { "data-search-group"?: ""; "data-search-skip"?: "" };
 
 function FieldLabel({ label, marker }: { label: string; marker: SearchMarker }) {
@@ -126,18 +162,17 @@ function EventDetailRow({
   muted,
   marker,
   searchTarget,
+  className,
 }: {
   label: string;
   value: string;
   muted: boolean;
   marker: SearchMarker;
   searchTarget: string | undefined;
+  className: string;
 }) {
   return (
-    <div
-      data-search-target={searchTarget}
-      className="grid grid-cols-[8rem_minmax(0,1fr)] items-baseline gap-x-4"
-    >
+    <div data-search-target={searchTarget} className={className}>
       {FieldLabel({ label, marker })}
       <span className={`wrap-break-word text-sm ${muted ? "text-text-faint" : "text-text"}`}>
         {value}
@@ -173,13 +208,14 @@ function BooleanChip({ label, value }: { label: string; value: string }) {
 /**
  * A row that keeps its own card: `data-card-id` is its search region and its report
  * target, and the actions sit in the slot every source-link check scopes to
- * (tests/components/crew/sourceLinkCoverage.test.tsx). The row's basis is what it
- * needs to stay readable, the 8rem label, its gap and a 13rem value: `flex-wrap`
- * decides on the basis alone, so a smaller one keeps the actions beside the row on a
- * wider phone and leaves the value narrower than it is wrapped on a narrower one
- * (measured at 240px: 107px at a 430 viewport, 170px at 390). Past it, the actions
- * take their own line, right-aligned, the crew card header's wrap rule, under half
- * the rows' gap so they read as this row's and not the next one's.
+ * (tests/components/crew/sourceLinkCoverage.test.tsx). The row's basis is the width
+ * that keeps a value whole on every phone: `flex-wrap` decides on the basis alone, so
+ * a smaller one keeps the actions beside the row on a wider phone and takes their
+ * width from the value, as the fixed label's 240px basis did (107px at a 430 viewport,
+ * 170px at 390). Stacking the label did not move that: rechecked with it stacked, a
+ * 240px basis gives 251px at 430 where this one gives the row's 354px. Past the basis,
+ * the actions take their own line, right-aligned, the crew card header's wrap rule,
+ * under half the rows' gap so they read as this row's and not the next one's.
  */
 function FieldCard({ card, children }: { card: EventFieldCard; children: ReactNode }) {
   return (
@@ -223,6 +259,7 @@ function EventDetailGroupBody({
   sentinels,
   fieldCards,
   reelPlayer,
+  rowLayout,
   targets,
 }: {
   fields: readonly EventDetailField[];
@@ -231,6 +268,7 @@ function EventDetailGroupBody({
   sentinels: "show" | "hide";
   fieldCards: EventDetailsBodyProps["fieldCards"];
   reelPlayer: ReactNode;
+  rowLayout: "fixed" | "fluid";
   targets: EventDetailsBodyProps["targets"];
 }) {
   const isChip = (f: EventDetailField) => chips && EVENT_DETAIL_BOOLEAN_KEYS.has(f.key);
@@ -244,12 +282,13 @@ function EventDetailGroupBody({
       muted: sentinels === "show" && shouldHideGenericOptional(f.value),
       marker: labelMarker(targets, card, true),
       searchTarget: targets?.[f.key]?.[0],
+      className: rowClass(f.key, rowLayout),
     });
 
   const dressRow = (f: EventDetailField, card: EventFieldCard | undefined) => {
     const searchTargets = targets?.[f.key];
     return (
-      <div className="grid grid-cols-[8rem_minmax(0,1fr)] items-baseline gap-x-4">
+      <div className={rowClass(f.key, rowLayout)}>
         {FieldLabel({ label: f.label, marker: labelMarker(targets, card, false) })}
         <div className="rounded-md border border-border bg-surface-sunken px-3 py-2">
           {DressCodeLines({
@@ -321,6 +360,7 @@ export function EventDetailsBody({
   groupTitle = (title) => title,
   fieldCards,
   reelPlayer,
+  rowLayout = "fixed",
   targets,
 }: EventDetailsBodyProps) {
   const unhidden = sentinels === "hide" ? withoutHiddenEventFields(groups) : groups;
@@ -356,6 +396,7 @@ export function EventDetailsBody({
             sentinels,
             fieldCards,
             reelPlayer,
+            rowLayout,
             targets,
           })}
         </div>

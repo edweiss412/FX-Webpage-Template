@@ -4234,6 +4234,83 @@ test.describe("event details: the section on a seeded show (PR C Task 5)", () =>
     premise("the widths reach both the wrapped and the beside layout", layouts.size, 1);
   });
 
+  /** The label, the value and their row, for each field this case reads. */
+  async function rowsAt(page: import("@playwright/test").Page, width: number) {
+    await page.setViewportSize({ width, height: 844 });
+    await open(page, sharePath("?s=event"));
+    return page.getByTestId("section-event").evaluate((root) => {
+      const box = (el: Element) => {
+        const { top, bottom, left, right, width: w } = el.getBoundingClientRect();
+        return { top, bottom, left, right, width: w };
+      };
+      const row = (text: string) => {
+        const label = [...root.querySelectorAll("span")].find((s) => s.textContent === text)!;
+        return {
+          row: box(label.parentElement!),
+          label: box(label),
+          value: box(label.nextElementSibling!),
+        };
+      };
+      return { keynote: row("Keynote"), dress: row("Dress code"), stage: row("Stage size") };
+    });
+  }
+
+  // Gate repair 1 (A P1-2, audit P1-1, B P1-1): an 8rem label left the dress code 74px of
+  // text at 320, 53 line boxes. The label column bought nothing once the value ran past
+  // a few lines, so long-form rows stack below the crew split.
+  for (const width of [320, 390, 430, 768]) {
+    test(`event details: at ${width}px a long-form value sits under its label at the row's full width`, async ({
+      page,
+    }) => {
+      const TOL = 0.5;
+      const rows = await rowsAt(page, width);
+      for (const [name, r] of [
+        ["keynote", rows.keynote],
+        ["dress", rows.dress],
+      ] as const) {
+        const at = `${name} at ${width}px: ${JSON.stringify(r)}`;
+        expect(r.value.top, at).toBeGreaterThanOrEqual(r.label.bottom - TOL);
+        expect(Math.abs(r.value.width - r.row.width), at).toBeLessThanOrEqual(TOL);
+      }
+    });
+  }
+
+  for (const width of [1024, 1280]) {
+    test(`event details: at ${width}px a long-form row keeps the label track beside its value`, async ({
+      page,
+    }) => {
+      const TOL = 0.5;
+      const LABEL_TRACK = 128;
+      const rows = await rowsAt(page, width);
+      for (const r of [rows.keynote, rows.dress]) {
+        const at = `at ${width}px: ${JSON.stringify(r)}`;
+        expect(r.value.left, at).toBeGreaterThanOrEqual(r.row.left + LABEL_TRACK - TOL);
+        expect(r.value.top, at).toBeLessThan(r.label.bottom);
+      }
+    });
+  }
+
+  // 195 and 260 are a 390 phone under 200% and 150% page zoom: a fixed track left the
+  // value 0px and 40px there. A short fact stacks before that, and stays two columns on
+  // a real phone, 320 included.
+  test("event details: a short fact holds two columns on a phone and stacks under page zoom, never a starved value", async ({
+    page,
+  }) => {
+    const TOL = 0.5;
+    for (const width of [320, 390]) {
+      const { stage } = await rowsAt(page, width);
+      const at = `stage at ${width}px: ${JSON.stringify(stage)}`;
+      expect(stage.value.left, at).toBeGreaterThanOrEqual(stage.label.right);
+      expect(stage.value.top, at).toBeLessThan(stage.label.bottom);
+    }
+    for (const width of [195, 260]) {
+      const { stage } = await rowsAt(page, width);
+      const at = `stage at ${width}px: ${JSON.stringify(stage)}`;
+      expect(stage.value.top, at).toBeGreaterThanOrEqual(stage.label.bottom - TOL);
+      expect(Math.abs(stage.value.width - stage.row.width), at).toBeLessThanOrEqual(TOL);
+    }
+  });
+
   test("event details: a seeded internet and power render in Venue and not here", async ({
     page,
   }) => {
@@ -4384,6 +4461,62 @@ test.describe("rooms: the section on a seeded show (PR C Task 7)", () => {
     expect(plain.map((row) => row.key).sort()).toEqual(owned.map((row) => row.key).sort());
     expect(plain.every((row) => row.emphasis === null)).toBe(true);
     await expect(page.getByTestId("section-rooms")).not.toContainText("Your scope");
+  });
+
+  /** Each discipline row of room 0: its box, chip, key and value. */
+  async function scopeGeometry(page: import("@playwright/test").Page, width: number) {
+    await page.setViewportSize({ width, height: 844 });
+    await open(page, previewPath(A1));
+    return page.getByTestId("crew-panel-room-0-scope").evaluate((list) => {
+      const box = (el: Element) => {
+        const { top, bottom, left, right, width: w } = el.getBoundingClientRect();
+        return { top, bottom, left, right, width: w };
+      };
+      return [...list.querySelectorAll(":scope > li")].map((li) => {
+        const key = li.querySelector('[data-testid="room-scope-key"]')!;
+        return {
+          name: key.textContent,
+          row: box(li),
+          chip: box(key.previousElementSibling!),
+          key: box(key),
+          value: box(key.nextElementSibling!),
+        };
+      });
+    });
+  }
+
+  // Gate repair 1 (A P2-1, B P1-1): the chip and key tracks took 124px, leaving a gear
+  // list 160px at 390, 90px at 320 and nothing at 200% page zoom.
+  for (const width of [195, 260, 320, 390, 430, 768]) {
+    test(`rooms: at ${width}px chip and key share a line and the gear list takes the row beneath them`, async ({
+      page,
+    }) => {
+      const TOL = 0.5;
+      const rows = await scopeGeometry(page, width);
+      premise("the room renders several disciplines", rows.length, 1);
+      for (const r of rows) {
+        const at = `${r.name} at ${width}px: ${JSON.stringify(r)}`;
+        expect(r.key.left, at).toBeGreaterThanOrEqual(r.chip.right);
+        expect(r.key.top, at).toBeLessThan(r.chip.bottom);
+        expect(r.value.top, at).toBeGreaterThanOrEqual(r.chip.bottom - TOL);
+        expect(Math.abs(r.value.left - r.chip.left), at).toBeLessThanOrEqual(TOL);
+        expect(r.value.right, at).toBeLessThanOrEqual(r.row.right + TOL);
+        expect(r.value.width, at).toBeGreaterThan(0);
+      }
+    });
+  }
+
+  // 1280, not 1024: the layout reads the section's container, and the preview route's
+  // column at 1024 is 624px, under the split. The share route's is 688px; the same
+  // variant is pinned there by the event details case at 1024.
+  test("rooms: at 1280px a discipline keeps its three tracks", async ({ page }) => {
+    const rows = await scopeGeometry(page, 1280);
+    premise("the room renders several disciplines", rows.length, 1);
+    for (const r of rows) {
+      const at = `${r.name}: ${JSON.stringify(r)}`;
+      expect(r.value.left, at).toBeGreaterThanOrEqual(r.key.right);
+      expect(r.value.top, at).toBeLessThan(r.key.bottom);
+    }
   });
 
   for (const width of [320, 390]) {

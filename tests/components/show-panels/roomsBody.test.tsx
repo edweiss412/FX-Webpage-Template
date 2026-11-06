@@ -472,6 +472,41 @@ describe("scope order", () => {
   });
 });
 
+describe("scopeLayout", () => {
+  const FIXED_TRACKS = "grid-cols-[1.5rem_5rem_minmax(0,1fr)]";
+  const valueOf = (row: HTMLElement) =>
+    within(row).getByTestId("room-scope-key").nextElementSibling as HTMLElement;
+
+  test("the default holds the three tracks on every row, whatever the width", () => {
+    const root = body({ emphasize: new Set<RoomScopeKey>(["audio"]) });
+    premise("the room renders disciplines", scopeRows(root).length, 1);
+    for (const row of scopeRows(root)) {
+      expect(row, row.textContent ?? "").toHaveClass(FIXED_TRACKS);
+      expect(valueOf(row)).not.toHaveClass("col-span-full");
+    }
+    expect(root.innerHTML).not.toContain("@min-");
+  });
+
+  test("fluid puts chip and key on a line and the value under them until the crew split", () => {
+    const root = body({ scopeLayout: "fluid", emphasize: new Set<RoomScopeKey>(["audio"]) });
+    const rows = scopeRows(root);
+    premise("the room renders disciplines", rows.length, 1);
+    premiseHolds(
+      "both row shapes render",
+      rows.some((r) => r.hasAttribute("data-emphasis")) &&
+        rows.some((r) => !r.hasAttribute("data-emphasis")),
+    );
+    for (const row of rows) {
+      const at = row.textContent ?? "";
+      expect(row, at).not.toHaveClass(FIXED_TRACKS);
+      expect(row, at).toHaveClass("grid-cols-[1.5rem_minmax(0,1fr)]");
+      expect(row, at).toHaveClass(`@min-crew-split:${FIXED_TRACKS}`);
+      expect(valueOf(row), at).toHaveClass("col-span-full");
+      expect(valueOf(row), at).toHaveClass("@min-crew-split:col-span-1");
+    }
+  });
+});
+
 describe("emphasize", () => {
   const owned = new Set<RoomScopeKey>(["lighting"]);
 

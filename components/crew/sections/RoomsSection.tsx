@@ -6,7 +6,8 @@
  * room list (components/show-panels/RoomsBody.tsx), CALLED with the crew props: no cap,
  * the crew's room label, `h4` names, sentinels hidden, empty disciplines dropped, the
  * viewer's own disciplines labeled and first (an emphasis, never a gate: every
- * discipline stays visible to everyone), no room rail, and search targets. The panel
+ * discipline stays visible to everyone), no room rail, rows that read their container,
+ * and search targets. The panel
  * keeps the Room details card's id, `gear-room-details`, and takes the scope cards'
  * dynamic anchor: the GEAR tab when the show has one, else the INFO rooms region.
  *
@@ -122,6 +123,7 @@ export function RoomsSection({
                     dropEmpty: true,
                     emphasize: panel.emphasize,
                     navAnchors: false,
+                    scopeLayout: "fluid",
                     targets: panel.targets,
                   })}
                 </PanelCard>

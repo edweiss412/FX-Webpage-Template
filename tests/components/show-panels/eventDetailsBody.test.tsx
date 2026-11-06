@@ -371,6 +371,56 @@ describe("EventDetailsBody: fieldCards", () => {
   });
 });
 
+describe("EventDetailsBody: rowLayout", () => {
+  const FIXED = "grid grid-cols-[8rem_minmax(0,1fr)] items-baseline gap-x-4";
+  const LONG_FORM: readonly EventDetailKey[] = [
+    "dress_code",
+    "keynote_requirements",
+    "notes",
+    "opening_reel",
+  ];
+  /** Every key that renders as a row here, the booleans included: `chips: false`. */
+  const rowKeys = Object.keys(EVERY_FIELD) as EventDetailKey[];
+
+  test("the default holds the 8rem track on every row, whatever the width", () => {
+    const container = body({ chips: false });
+    for (const key of rowKeys) expect(rowOf(container, key).className, key).toBe(FIXED);
+    expect(container.innerHTML).not.toContain("@min-");
+  });
+
+  test("fluid stacks a long-form row until the crew split", () => {
+    const container = body({ chips: false, rowLayout: "fluid" });
+    premise("the fixture renders the long-form keys", LONG_FORM.length, 3);
+    for (const key of LONG_FORM) {
+      const { classList } = rowOf(container, key);
+      expect(classList.contains("grid-cols-1"), key).toBe(true);
+      expect(classList.contains("@min-crew-split:grid-cols-[8rem_minmax(0,1fr)]"), key).toBe(true);
+      expect(classList.contains("grid-cols-[8rem_minmax(0,1fr)]"), key).toBe(false);
+    }
+  });
+
+  test("fluid keeps a short fact in two columns until the container cannot hold it", () => {
+    const container = body({ chips: false, rowLayout: "fluid" });
+    const short = rowKeys.filter((key) => !LONG_FORM.includes(key));
+    premise("the fixture renders short facts", short.length, 3);
+    for (const key of short) {
+      const { classList } = rowOf(container, key);
+      expect(classList.contains("grid-cols-1"), key).toBe(true);
+      expect(classList.contains("@min-fact-pair:grid-cols-[8rem_minmax(0,1fr)]"), key).toBe(true);
+      expect(classList.contains("@min-crew-split:grid-cols-[8rem_minmax(0,1fr)]"), key).toBe(false);
+    }
+  });
+
+  test("a sentinel stays muted under either layout", () => {
+    const groups = eventDetailGroups({ ...EVERY_FIELD, led: "TBD" });
+    for (const rowLayout of ["fixed", "fluid"] as const) {
+      const container = body({ groups, chips: false, rowLayout });
+      expect(rowOf(container, "led").lastElementChild, rowLayout).toHaveClass("text-text-faint");
+      cleanup();
+    }
+  });
+});
+
 describe("EventDetailsBody: reelPlayer", () => {
   const player = <div data-testid="reel-player">player</div>;
 

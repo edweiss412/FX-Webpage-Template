@@ -11,7 +11,7 @@
  *   rail. It passes nothing else, so every optional prop defaults to its output.
  * - Crew (PR C plan Task 7): no cap, the crew's room label, `h4` names, sentinels
  *   hidden, empty disciplines dropped, the viewer's own disciplines labeled and
- *   first, no rail, and search targets.
+ *   first, no rail, rows that read their container, and search targets.
  *
  * Plain props, hook-free, no context: the crew page calls it as a function inside
  * `WrappedSection`'s render callback (spec §6.1, error containment), and it calls
@@ -66,6 +66,13 @@ export type RoomsBodyProps = {
   /** true (the default, admin): each room carries `data-room-nav` for the room rail. */
   navAnchors?: boolean;
   /**
+   * "fixed" (the default, admin): the chip, key and value tracks at every width.
+   * "fluid" (crew): below the crew split the chip and key share a line and the value
+   * takes the row under them. The tracks took 124px of a phone's row, leaving a gear
+   * list 160px at 390, 90px at 320 and nothing under 200% page zoom (gate repair 1).
+   */
+  scopeLayout?: "fixed" | "fluid";
+  /**
    * Per room, by its place in `rooms`, a search target per line. Given, the body
    * also marks what is not a line: a line with no target, the kind pill, the
    * "Your scope" label and the note are skipped, so no text is left uncovered.
@@ -99,10 +106,19 @@ function lineMarker(lines: RoomTargets | undefined, key: RoomLineKey): SearchMar
 function ScopeRow({
   row: { key, label, Icon, color, value, emphasized },
   lines,
+  scopeLayout,
 }: {
   row: RoomScopeRow;
   lines: RoomTargets | undefined;
+  scopeLayout: "fixed" | "fluid";
 }) {
+  const fluid = scopeLayout === "fluid";
+  const tracks = fluid
+    ? "grid-cols-[1.5rem_minmax(0,1fr)] @min-crew-split:grid-cols-[1.5rem_5rem_minmax(0,1fr)]"
+    : "grid-cols-[1.5rem_5rem_minmax(0,1fr)]";
+  const valueTrack = fluid
+    ? "col-span-full pt-1 @min-crew-split:col-span-1 @min-crew-split:pt-0.5"
+    : "pt-0.5";
   return (
     // Icon chip / eyebrow key / value tracks.
     <li
@@ -111,8 +127,8 @@ function ScopeRow({
       {...(emphasized ? { "data-emphasis": "you" } : {})}
       className={
         emphasized
-          ? "-ml-2 grid grid-cols-[1.5rem_5rem_minmax(0,1fr)] items-start gap-x-2.5 border-b border-l border-b-border border-l-accent-on-bg py-2 pl-1.75 last:border-b-0"
-          : "grid grid-cols-[1.5rem_5rem_minmax(0,1fr)] items-start gap-x-2.5 border-b border-border py-2 last:border-0"
+          ? `-ml-2 grid ${tracks} items-start gap-x-2.5 border-b border-l border-b-border border-l-accent-on-bg py-2 pl-1.75 last:border-b-0`
+          : `grid ${tracks} items-start gap-x-2.5 border-b border-border py-2 last:border-0`
       }
     >
       {emphasized ? (
@@ -142,8 +158,8 @@ function ScopeRow({
       <span
         className={
           value
-            ? "wrap-break-word pt-0.5 text-xs text-text"
-            : "pt-0.5 text-xs italic text-text-subtle"
+            ? `wrap-break-word ${valueTrack} text-xs text-text`
+            : `${valueTrack} text-xs italic text-text-subtle`
         }
       >
         {value ?? ROOM_SCOPE_UNSPECIFIED}
@@ -163,6 +179,7 @@ function RoomCard({
   dropEmpty,
   emphasize,
   navAnchors,
+  scopeLayout,
 }: {
   r: RoomRow;
   i: number;
@@ -174,6 +191,7 @@ function RoomCard({
   dropEmpty: boolean;
   emphasize: ReadonlySet<RoomScopeKey>;
   navAnchors: boolean;
+  scopeLayout: "fixed" | "fluid";
 }) {
   // Header schedule meta — Set/Show/Strike; keep only parsed values so the row (and
   // its dividers) omit entirely when nothing parsed.
@@ -300,7 +318,7 @@ function RoomCard({
       {/* Scope — unparsed reads "Not specified", unless dropped (roomScopeRows). */}
       {hasScope ? (
         <ul data-testid={`${testIdPrefix}-room-${i}-scope`} className="flex flex-col px-3.5 py-1">
-          {scope.map((row) => ScopeRow({ row, lines }))}
+          {scope.map((row) => ScopeRow({ row, lines, scopeLayout }))}
         </ul>
       ) : null}
     </li>
@@ -318,6 +336,7 @@ export function RoomsBody({
   dropEmpty = false,
   emphasize = NO_DISCIPLINES,
   navAnchors = true,
+  scopeLayout = "fixed",
   targets,
 }: RoomsBodyProps) {
   const shown = cap === null ? rooms : rooms.slice(0, cap);
@@ -338,6 +357,7 @@ export function RoomsBody({
               dropEmpty,
               emphasize,
               navAnchors,
+              scopeLayout,
             }),
           )}
         </ul>

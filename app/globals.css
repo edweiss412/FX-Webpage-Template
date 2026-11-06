@@ -353,6 +353,12 @@
      Narrower (320 to 375px phones, the 1024 wide column), that tile and the one
      it would share a row with span both columns (UI-gate re-run P3-3 / N3). */
   --container-quick-pair: 352px;
+  /* The narrowest section container that still holds a crew label:value pair
+     (`@min-fact-pair:`, Event details' short facts): the 8rem label, its 1rem gap,
+     a 94px value and the panel's 42px (2 x 20 `p-tile-pad` + 2 x 1 border) = 280. A
+     320px phone's 286px sheet keeps two columns; a 390 phone under 150% page zoom
+     (226px) stacks, where a fixed track left the value 40px (gate repair 1). */
+  --container-fact-pair: 280px;
 
   /* ── Shadows ── */
   /*

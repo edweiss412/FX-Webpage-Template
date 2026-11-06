@@ -329,6 +329,15 @@ describe("rooms: scope and emphasis", () => {
   });
 });
 
+describe("rooms: the row layout", () => {
+  test("rooms: a discipline's value reads the container, so a gear list keeps the width on a phone", () => {
+    const root = renderRooms(withRooms([room({ id: "r1", audio: "QU32" })]));
+    const [row] = scopeRows(root);
+    premiseHolds("the room renders a discipline", row !== undefined);
+    expect(row).toHaveClass("@min-crew-split:grid-cols-[1.5rem_5rem_minmax(0,1fr)]");
+  });
+});
+
 describe("rooms: each room's header", () => {
   test("rooms: renders per-room detail, sentinels hidden, a time as written, nothing out of scope", () => {
     const root = renderRooms(
