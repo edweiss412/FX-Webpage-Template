@@ -21,7 +21,7 @@
  */
 import "@testing-library/jest-dom/vitest";
 import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
-import { isValidElement, useEffect, type ReactElement, type ReactNode } from "react";
+import { createElement, isValidElement, useEffect, type ReactElement, type ReactNode } from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { CrewDayRow } from "@/components/crew/CrewDayRow";
@@ -35,6 +35,7 @@ import { CREW_SECTION_LABELS, type CrewSectionEntry } from "@/lib/crew/crewSecti
 import { buildDayRowProps, buildPassProps } from "@/lib/crew/passModel";
 import { buildRunCardProps, type RunCardProps } from "@/lib/crew/runOfShowCard";
 import { buildSectionHref } from "@/lib/crew/sectionHref";
+import { showSection } from "@/lib/showSections/registry";
 import type { ShowForViewer, Viewer } from "@/lib/data/getShowForViewer";
 import { resolveViewerContext } from "@/lib/data/viewerContext";
 import type {
@@ -434,6 +435,22 @@ describe("run card: cap and Full schedule (spec §4.4, §9.1)", () => {
     const sheet = screen.getByRole("dialog");
     expect(sheet).toHaveAttribute("data-section", "schedule");
     expect(within(sheet).getByTestId("body-schedule")).toBeInTheDocument();
+  });
+
+  // Gate repair 10 (A P3-3, audit P3-4): the nav draws the registry's glyph for Schedule,
+  // and the chip that opens it kept the old wall calendar.
+  it("run card: the Full schedule chip draws the glyph of the section it opens", () => {
+    renderController(showData({ runOfShow: { [DAY1]: scheduleDay(many(SPEC_ROW_CAP + 2)) } }));
+    const glyph = within(card()!).getByRole("link", { name: "Full schedule" }).querySelector("svg");
+    const expected = render(createElement(showSection("schedule").icon)).container.querySelector(
+      "svg",
+    );
+    premiseHolds(
+      "the registry's glyph draws a class to compare",
+      Boolean(expected?.classList.length),
+    );
+    expect(glyph?.getAttribute("class")).toBe(expected?.getAttribute("class"));
+    expect(glyph?.getAttribute("aria-hidden")).toBe("true");
   });
 
   // Gate fix X10: in the header, the "Full schedule" chip took the width the

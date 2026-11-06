@@ -11,13 +11,12 @@
  * Exported here: `DockIcon` (loading dock), `CarIcon` (parking/ground),
  * `WifiIcon` (crew Wi-Fi) — the three Venue fact-row mini-icons — and
  * `PlaneIcon` (flight legs / Travel section). Task 8.5 adds the seven crew
- * section glyphs: `HomeIcon` (Today), `CalendarIcon` (Schedule), `MapPinIcon`
- * (Venue), `PlaneIcon` (Travel — reused).
+ * section glyphs: `HomeIcon` (Today), `MapPinIcon` (Venue), `PlaneIcon` (Travel —
+ * reused).
  * Every section draws its registry glyph instead since PR C Task 9
  * (components/crew/sectionIcon.ts), so the Billing receipt left with Budget, the
  * Crew pair of people with the roster's move (PR B Task 6), and the Gear box with
- * the section (PR C Task 8). `HomeIcon` still draws the home, and `CalendarIcon` the
- * run card's Full schedule chip.
+ * the section (PR C Task 8). `HomeIcon` still draws the home.
  * Additional glyphs can join as surfaces adopt them.
  */
 import type { SVGProps } from "react";
@@ -89,16 +88,6 @@ export function HomeIcon({ className }: GlyphProps) {
   return (
     <svg {...baseProps} className={className} aria-hidden="true">
       <path d="M3 10.5 12 3l9 7.5M5 9.5V20a1 1 0 0 0 1 1h12a1 1 0 0 0 1-1V9.5M9.5 21v-6h5v6" />
-    </svg>
-  );
-}
-
-/** Schedule — a wall calendar (the Schedule section's icon). */
-export function CalendarIcon({ className }: GlyphProps) {
-  return (
-    <svg {...baseProps} className={className} aria-hidden="true">
-      <rect x="3" y="4.5" width="18" height="16" rx="2.5" />
-      <path d="M3 9h18M8 2.5v4M16 2.5v4" />
     </svg>
   );
 }
