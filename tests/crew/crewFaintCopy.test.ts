@@ -21,6 +21,7 @@ import { dirname, join, relative, resolve } from "node:path";
 import { describe, expect, test } from "vitest";
 
 import { premise, premiseHolds } from "@/tests/_shared/premise";
+import { stripCommentsForFile } from "@/tests/_shared/stripComments";
 
 const ROOT = process.cwd();
 
@@ -31,9 +32,6 @@ const IMPORT = /(?:from|import)\s*\(?\s*["']([^"']+)["']/g;
 
 /** The class, with any variant in front of it, and never `border-text-faint`. */
 const FAINT = /(?<![\w-])(?:[a-z-]+:)*text-text-faint(?![\w-])/g;
-
-const stripComments = (source: string): string =>
-  source.replace(/\/\*[\s\S]*?\*\//g, "").replace(/^\s*\/\/.*$/gm, "");
 
 function moduleAt(specifier: string, from: string): string | null {
   let base: string | null = null;
@@ -113,7 +111,7 @@ describe("faint text on the crew page's reach", () => {
     const found = Object.fromEntries(
       [...reachable]
         .map((file) => {
-          const source = stripComments(readFileSync(join(ROOT, file), "utf8"));
+          const source = stripCommentsForFile(readFileSync(join(ROOT, file), "utf8"), file);
           return [file, source.match(FAINT)?.length ?? 0] as const;
         })
         .filter(([, count]) => count > 0)
