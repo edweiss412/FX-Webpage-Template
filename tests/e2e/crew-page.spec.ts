@@ -4604,6 +4604,96 @@ test.describe("rooms: the section on a seeded show (PR C Task 7)", () => {
     }
   });
 
+  // Gate repair 4 (A P2-4, audit P1-2 and P2-2, B P2-2): moved out of Venue's narrow
+  // column, the thumbnails reach 198px, so the old block's 240px cap hid 167px of a
+  // six-slot gallery at 1280 behind a scroller with no scrollbar on a Mac, and its
+  // heading sat at 3.35:1. Six unavailable slots draw the same tiles with no assets.
+  test("rooms: the diagrams gallery shows every slot with no scroller of its own, under a heading that clears AA", async ({
+    page,
+  }) => {
+    const slot = (i: number) => ({
+      sheetTab: "DIAGRAMS",
+      objectId: `obj-${i}`,
+      mimeType: "image/png",
+      alt: `Plot ${i}`,
+      sheetsRevisionId: "rev-1",
+      embeddedFingerprint: `fp-${i}`,
+      recovery_disposition: "normal",
+      snapshotPath: null,
+    });
+    const gallery = await seedShowWithCrew({
+      title: "Rooms Gallery Show",
+      dates: {
+        travelIn: "2026-04-19",
+        set: "2026-04-20",
+        showDays: [SHOW_DAY, "2026-04-22"],
+        travelOut: "2026-04-23",
+      },
+      venue: { name: "Rooms Gallery Hall", address: "12 Stage Door Way" } as never,
+      rooms: [BREAKOUT],
+      diagrams: {
+        snapshot_revision_id: "11111111-1111-4111-8111-111111111111",
+        snapshot_status: "complete",
+        linkedFolder: null,
+        embeddedImages: [0, 1, 2, 3, 4, 5].map(slot),
+        linkedFolderItems: [],
+      },
+      crew: [{ name: PLAIN, role: "Driver", roleFlags: [] }],
+    });
+    try {
+      for (const width of [390, 1024, 1280]) {
+        await page.setViewportSize({ width, height: 900 });
+        await open(page, `/show/${gallery.slug}/${gallery.shareToken}?s=rooms`);
+        const m = await page.getByTestId("diagrams-tile").evaluate((tile) => {
+          const channels = (css: string) =>
+            css
+              .match(/[\d.]+/g)!
+              .slice(0, 3)
+              .map(Number);
+          const luminance = (css: string) => {
+            const [r, g, b] = channels(css).map((c) => {
+              const v = c / 255;
+              return v <= 0.03928 ? v / 12.92 : ((v + 0.055) / 1.055) ** 2.4;
+            });
+            return 0.2126 * r! + 0.7152 * g! + 0.0722 * b!;
+          };
+          const heading = tile.querySelector("h3")!;
+          const card = tile.querySelector('[data-testid="section-card"]') ?? tile;
+          const [hi, lo] = [
+            luminance(getComputedStyle(heading).color),
+            luminance(getComputedStyle(card).backgroundColor),
+          ].sort((p, q) => q - p);
+          const slots = [...tile.querySelectorAll('[data-testid^="diagram-slot-"]')];
+          const scrollers = [...tile.querySelectorAll("*")].filter((el) => {
+            const { overflowY } = getComputedStyle(el);
+            return (
+              (overflowY === "auto" || overflowY === "scroll") &&
+              el.scrollHeight > el.clientHeight + 1
+            );
+          });
+          return {
+            contrast: (hi! + 0.05) / (lo! + 0.05),
+            slots: slots.length,
+            grid:
+              slots.at(-1)!.getBoundingClientRect().bottom - slots[0]!.getBoundingClientRect().top,
+            lastBottom: slots.at(-1)!.getBoundingClientRect().bottom,
+            tileBottom: tile.getBoundingClientRect().bottom,
+            scrollers: scrollers.length,
+          };
+        });
+        const at = `at ${width}px: ${JSON.stringify(m)}`;
+        expect(m.slots, `PREMISE: six slots render ${at}`).toBe(6);
+        // PREMISE: at the wide widths the slots are taller than the cap they sat under.
+        if (width >= 1024) premise(`the grid outgrows 240px ${at}`, m.grid, 240);
+        expect(m.scrollers, at).toBe(0);
+        expect(m.lastBottom, at).toBeLessThanOrEqual(m.tileBottom);
+        expect(m.contrast, at).toBeGreaterThan(4.5);
+      }
+    } finally {
+      await deleteSeededShow(gallery.driveFileId);
+    }
+  });
+
   for (const width of [320, 390]) {
     test(`rooms: at ${width}px no room card or scope value widens the page`, async ({ page }) => {
       await page.setViewportSize({ width, height: 844 });

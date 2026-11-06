@@ -48,6 +48,7 @@ vi.mock("@/components/diagrams/Gallery", () => ({
 }));
 
 import { DiagramsTile } from "@/components/crew/DiagramsBlock";
+import { DIAGRAMS_HEADING, diagramGalleryItems } from "@/components/crew/diagramItems";
 import type { PersistedDiagrams } from "@/lib/parser/types";
 
 const SHOW_ID = "11111111-1111-4111-8111-111111111111";
@@ -205,9 +206,50 @@ describe("DiagramsTile", () => {
     const diaTile = screen.getByTestId("diagrams-tile");
     expect(diaTile).toBeTruthy();
     // Mock `map` glyph parity: the Site-diagrams card carries a leading icon in
-    // the Section primitive's headingIcon slot (this block uses Section, not
-    // SectionCard).
-    expect(diaTile.querySelector("header svg")).not.toBeNull();
+    // SectionCard's icon slot.
+    expect(diaTile.querySelector('header [data-slot="section-card-icon"] svg')).not.toBeNull();
+  });
+
+  describe("the card", () => {
+    const one = () =>
+      diagrams({
+        embeddedImages: [
+          {
+            sheetTab: "DIAGRAMS",
+            objectId: "obj-1",
+            alt: "FOH plot",
+            mimeType: "image/png",
+            sheetsRevisionId: "sheet-rev-1",
+            embeddedFingerprint: "fp",
+            recovery_disposition: "normal",
+            snapshotPath: `diagram-snapshots/shows/${SHOW_ID}/${REV}/embedded-obj-1.png`,
+          },
+        ],
+      });
+
+    const heading = () => screen.getByTestId("diagrams-tile").querySelector("h3")!;
+
+    test("the heading is a crew card's: h3, at the subtle tone, never the faint one", () => {
+      render(<DiagramsTile showId={SHOW_ID} diagrams={one()} />);
+      expect(heading().textContent).toBe(DIAGRAMS_HEADING);
+      expect(heading().classList.contains("text-text-subtle")).toBe(true);
+      expect(heading().classList.contains("text-text-faint")).toBe(false);
+    });
+
+    test("the heading stays a search line and the group of the thumbnail lines", () => {
+      render(<DiagramsTile showId={SHOW_ID} diagrams={one()} />);
+      expect(heading().getAttribute("data-search-target")).toBe(
+        diagramGalleryItems(one()).heading.id,
+      );
+      expect(heading().getAttribute("data-search-group")).toBe("");
+    });
+
+    test("the body has no height cap, so the gallery never scrolls inside the page", () => {
+      render(<DiagramsTile showId={SHOW_ID} diagrams={one()} />);
+      const tile = screen.getByTestId("diagrams-tile");
+      expect(tile.querySelector('[class*="max-h-"]')).toBeNull();
+      expect(tile.querySelector('[class*="overflow-y-"]')).toBeNull();
+    });
   });
 
   test("no diagrams → null (agenda relocated to Schedule, §4.6 — no empty block)", () => {

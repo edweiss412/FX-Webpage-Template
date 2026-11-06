@@ -7,7 +7,8 @@
  * (DESIGN.md §3/§4: `rounded-md border border-border bg-surface p-tile-pad`)
  * so crew sections read as the same family as the M4 tiles.
  *
- * Props (binding contract): {icon?, title?, action?, headingLevel?, children}.
+ * Props (binding contract): {icon?, title?, action?, headingLevel?,
+ * headingSearchTarget?, children}.
  *
  * Header width (whole-diff review round 2, the CI-parity run's Gear titles): the
  * title block's basis is its min-content width (the icon and the title's longest
@@ -35,13 +36,22 @@ type SectionCardProps = {
   action?: ReactNode;
   /** The title's heading level; 3 by default (the card sits under an h2). */
   headingLevel?: 2 | 3 | 4;
+  /** Crew search (spec §2.3): makes the title a search line too, with this id. */
+  headingSearchTarget?: string;
   /** Section body. Always rendered. */
   children: ReactNode;
 };
 
 const HEADING_TAG = { 2: "h2", 3: "h3", 4: "h4" } as const;
 
-export function SectionCard({ icon, title, action, headingLevel = 3, children }: SectionCardProps) {
+export function SectionCard({
+  icon,
+  title,
+  action,
+  headingLevel = 3,
+  headingSearchTarget,
+  children,
+}: SectionCardProps) {
   const Heading = HEADING_TAG[headingLevel];
   // The header row only renders when at least one of icon/title/action is
   // supplied — a card with body-only content gets no empty header band.
@@ -81,6 +91,7 @@ export function SectionCard({ icon, title, action, headingLevel = 3, children }:
                 // sheet and "CREW S…" in the 1024 wide column, losing the card's
                 // name (UI-gate re-run, critique N2; the run card's X10 class).
                 data-search-group=""
+                data-search-target={headingSearchTarget}
                 className="min-w-0 wrap-break-word text-xs font-medium uppercase tracking-eyebrow text-text-subtle"
               >
                 {title}
