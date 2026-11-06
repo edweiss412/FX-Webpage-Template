@@ -164,6 +164,15 @@ a second policed token: the ratified `--color-text-subtle` census and its 14
 exemption rows are untouched. Reasoning:
 `docs/superpowers/specs/2026-08-25-ui-polish-class-sweep-design.md` D4.
 
+**The text floor, ruled 2026-11-06.** The faint rung never carries text WCAG
+holds to 4.5:1. That leaves glyphs, aria-hidden separators, the OR on a divider
+rule, the logotype, and inactive components such as a disabled button or a
+loading stand-in. Everything else that sat here to read as quiet, including
+section eyebrows, day-card weekdays, timestamps and input placeholders, moved to
+`--color-text-subtle` (`BL-DIAGRAMS-HEADING-FAINT-CONTRAST`).
+`tests/styles/faintTextFloor.test.ts` walks the source and holds each kept site
+with its reason, so a new site fails until it names one.
+
 **Hover is unchanged by this policy.** Where a swapped site's existing hover
 target became its new resting color, that site's hover steps to
 `--color-text-strong` so hover still visibly strengthens; sites whose hover
@@ -1090,14 +1099,14 @@ Restyle 2026-07-17 (`components/admin/BellPanel.tsx`; source design comp "Alert 
 1. **Severity rail** — a 3px, `rounded-full` left rail, inset from the row's top/bottom padding, `position: absolute; left: 0`. Color by tone: notice = `bg-status-warn`, critical = `bg-status-degraded`, info = `bg-accent-on-bg`. This is the §9 side-stripe scoped exception; it is redundant with the glyph + title (never the sole severity carrier).
 2. **Stroke glyph** — an on-surface (no fill circle) 18px `lucide-react` stroke icon, same tone color as the rail. Glyph SHAPE is the color-blind-safe severity carrier: **notice = `TriangleAlert` (amber), critical = `CircleAlert` (red), info = `Info` (orange)**. Contrast floors (≥3:1 graphical): status-warn 4.1:1 light / 8.8:1 dark; status-degraded 6.3:1 / 4.8:1; accent-on-bg 5.34:1 / 9.39:1 (all from §1.2).
 3. **Unread pip** — the existing 8×8 `bg-accent-on-bg` dot, `ring-surface`, pinned to the glyph's top-right; opacity-flips on read (no layout shift, fixed slot). Contract unchanged from the prior design.
-4. **Header right group** — the occurrence **repeat-chip** (`occurrences > 1` only: a small `RotateCcw` glyph + tabular count, `text-text-faint`, with a hover/focus tooltip and accessible name "Detected N times"), then the `text-text-faint` relative timestamp, then the disclosure caret (only when the code carries helpful context).
+4. **Header right group** — the occurrence **repeat-chip** (`occurrences > 1` only: a small `RotateCcw` glyph + tabular count, `text-text-subtle`, with a hover/focus tooltip and accessible name "Detected N times"), then the `text-text-subtle` relative timestamp, then the disclosure caret (only when the code carries helpful context).
 5. **Identity token chip** — the resolved at-a-glance identity (when non-global) renders as ONE bordered token chip (`border-border-strong bg-surface-sunken text-text`, `rounded-md`), not plain inline text. The "+N more" overflow the resolver bakes into the identity value stays inside the chip (parsing it back out would be fragile).
-6. **Action row** — a leading **text-link CTA** (`text-accent-on-bg`, semibold, hover underline: the entry's action link, or the health "View in telemetry" deep link), a flex spacer, then a trailing **ghost resolve** button (`text-text-faint`, hover `text-text` + `bg-surface-sunken`). Both keep the 44px tap floor (`min-h-tap-min`) for the venue-floor phone context (PRODUCT.md), even though the visual weight is light. Health rows keep the telemetry-link-only contract (no resolve control — the global resolve route 403s health by design); auto-resolving rows show their note; the watch alert keeps its Retry form.
+6. **Action row** — a leading **text-link CTA** (`text-accent-on-bg`, semibold, hover underline: the entry's action link, or the health "View in telemetry" deep link), a flex spacer, then a trailing **ghost resolve** button (`text-text`, hover `text-text-strong` + `bg-surface-sunken`). Both keep the 44px tap floor (`min-h-tap-min`) for the venue-floor phone context (PRODUCT.md), even though the visual weight is light. Health rows keep the telemetry-link-only contract (no resolve control — the global resolve route 403s health by design); auto-resolving rows show their note; the watch alert keeps its Retry form.
 
    **The resolve button's LABEL is intent-driven and shared across surfaces**, not bell-specific: it reads from `lib/adminAlerts/resolveActionLabel.ts`, which maps each alert code to `confirm` ("Confirm" / "Confirming…") or `resolve` ("Mark resolved" / "Resolving…"). One alert therefore reads the same verb in the bell, the show modal, and developer telemetry; the bell previously said "Dismiss" while the other two said "Mark resolved" for the same action, which the product register calls out as a defect ("if the save button looks different in two places, one is wrong"). "Confirm" is reserved for approvals of a deliberate change that already applied, where nothing is broken. The action row is `flex-wrap`, so the longer resolve label wraps to its own line at narrow widths rather than crowding the CTA.
 7. **Row separation** — full-bleed rows separated by a 1px `bg-border` divider inset `mx-4`; unread rows keep a subtle `bg-stale-tint` wash (the pip is the primary unread cue). No per-row rounding.
 
-The **section eyebrow** ("Active · N") is an uppercase `text-text-faint` label; its `textContent` still carries "Active" + the count for a11y/tests.
+The **section eyebrow** ("Active · N") is an uppercase `text-text-subtle` label; its `textContent` still carries "Active" + the count for a11y/tests.
 
 ## 17. Forced colors — outline is the durable carrier, `transparent` is the trap
 

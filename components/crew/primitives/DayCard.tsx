@@ -86,7 +86,7 @@ export function DayCard({ day, phase, today, meta, label, searchTarget }: DayCar
         <span
           className={cn(
             "text-[11px] font-bold uppercase leading-none tracking-eyebrow",
-            today ? "text-accent-on-bg" : "text-text-faint",
+            today ? "text-accent-on-bg" : "text-text-subtle",
           )}
         >
           {dow}

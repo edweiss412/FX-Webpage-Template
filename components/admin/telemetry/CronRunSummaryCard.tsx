@@ -32,7 +32,7 @@ export function CronRunSummaryCard({ event }: { event: AppEventRow }) {
         {durationMs != null && (
           <span
             data-testid="cron-summary-duration"
-            className="text-xs text-text-faint tabular-nums"
+            className="text-xs text-text-subtle tabular-nums"
           >
             {durationMs} ms
           </span>

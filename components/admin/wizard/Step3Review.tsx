@@ -800,7 +800,7 @@ function SetAsideSection({
             class string is byte-identical — the tag changes, the rendered type
             scale does not, and a visual diff here is a defect. */}
         <h2 className="text-sm font-semibold text-text-subtle">
-          {heading} <span className="tabular-nums text-text-faint">({rows.length})</span>
+          {heading} <span className="tabular-nums">({rows.length})</span>
         </h2>
         {description ? <p className="text-xs text-text-subtle">{description}</p> : null}
       </div>

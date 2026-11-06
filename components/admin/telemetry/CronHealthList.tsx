@@ -30,7 +30,7 @@ export function CronHealthList({ jobs, now }: { jobs: CronHealthRow[]; now: Date
                 <div className="truncate text-[13px] font-semibold text-text-strong">
                   {job.label}
                 </div>
-                <div className="text-[11px] text-text-faint">{job.cadence}</div>
+                <div className="text-[11px] text-text-subtle">{job.cadence}</div>
               </div>
               <div className="flex flex-col items-end gap-0.5 text-right">
                 <StatusIndicator status={v.status} label={v.label} />

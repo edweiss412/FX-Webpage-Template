@@ -195,7 +195,7 @@ function OccurrenceChip({ occurrences, alertId }: { occurrences: number; alertId
       data-testid={`bell-occurrence-${alertId}`}
       role="img"
       aria-label={label}
-      className="group/occ relative inline-flex items-center gap-0.5 text-[11.5px] tabular-nums text-text-faint"
+      className="group/occ relative inline-flex items-center gap-0.5 text-[11.5px] tabular-nums text-text-subtle"
     >
       <RotateCcw aria-hidden="true" className="size-2.5 shrink-0" />
       <span aria-hidden="true">{occurrences}</span>
@@ -679,7 +679,7 @@ function ActiveRow({
             <OccurrenceChip occurrences={entry.occurrences} alertId={entry.alertId} />
             <span
               data-testid={`bell-time-${entry.alertId}`}
-              className="text-xs tabular-nums text-text-faint"
+              className="text-xs tabular-nums text-text-subtle"
             >
               {raisedAtSuffix(entry.activityAt, now)}
             </span>
@@ -767,7 +767,7 @@ function HistoryRow({ entry, now }: { entry: BellEntry; now: Date }) {
       {resolved ? (
         <span
           data-testid={`bell-time-${entry.alertId}`}
-          className="shrink-0 text-xs tabular-nums text-text-faint"
+          className="shrink-0 text-xs tabular-nums text-text-subtle"
         >
           {resolved}
         </span>
@@ -1130,7 +1130,7 @@ export function BellPanel({
             <Check className="size-[22px]" />
           </span>
           <p className="text-sm font-semibold text-text">You&rsquo;re all caught up.</p>
-          <p className="mt-1 text-xs text-text-faint">
+          <p className="mt-1 text-xs text-text-subtle">
             No active alerts. History window: {feed.historyDays} days
           </p>
         </div>
@@ -1151,7 +1151,7 @@ export function BellPanel({
                   count for a11y/tests (DESIGN.md §16 eyebrow, "Active · N"). */}
               <h3
                 data-testid="bell-section-active-heading"
-                className="px-4 pb-1 pt-1.5 text-xs font-bold uppercase tracking-wider text-text-faint tabular-nums"
+                className="px-4 pb-1 pt-1.5 text-xs font-bold uppercase tracking-wider text-text-subtle tabular-nums"
               >
                 Active · {active.length}
               </h3>
@@ -1222,7 +1222,7 @@ export function BellPanel({
               // content box, so one right edge serves the whole panel.
               className="-mx-2 mt-3 border-t border-border pt-3 text-text-subtle sm:-mx-2.5"
             >
-              <h3 className="mb-1.5 px-4 text-xs font-bold uppercase tracking-wider text-text-faint">
+              <h3 className="mb-1.5 px-4 text-xs font-bold uppercase tracking-wider text-text-subtle">
                 Earlier · last {feed.historyDays} days
               </h3>
               {history.map((entry) => (
