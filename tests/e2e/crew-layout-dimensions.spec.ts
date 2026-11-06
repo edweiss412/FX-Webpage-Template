@@ -1655,9 +1655,8 @@ test.describe("crew diagrams gallery — next/image variant tiers (private image
       else if (url.includes("/api/asset/diagram/")) assetRequests.push(url);
     });
 
-    // What the phone asked for, read before the wider leg: the gallery takes the
-    // default `sizes` in Rooms (PR C Task 7), and its 23vw at 1000px may fairly reach
-    // the largest tier, which is no claim about a phone.
+    // What the phone asked for, read before the wider leg, which is no claim about a
+    // phone: the wide column's thumbnails are twice the size.
     const phoneRequests: string[] = [];
     for (const width of [390, 1000] as const) {
       await page.setViewportSize({ width, height: 900 });

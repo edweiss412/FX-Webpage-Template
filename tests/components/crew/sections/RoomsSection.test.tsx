@@ -496,11 +496,13 @@ describe("rooms: the Diagrams block", () => {
     expect(root.querySelector('[data-testid="venue-diagrams"]')).toBeNull();
   });
 
-  test("rooms: the gallery keeps its own default sizes: there is no narrow column here", () => {
+  // Gate repair 5: the gallery's default says 30vw, so a 430 phone at 3x asked for 387px
+  // and fetched the 1024 tier for a 111px thumbnail. The section declares what it draws.
+  test("rooms: the gallery declares the thumbnails this section draws, not the default's", () => {
     const root = renderRooms(data());
     const sizes = root.querySelector("img")?.getAttribute("sizes") ?? "";
     premise("the gallery rendered an image with a sizes value", sizes.length, 0);
-    expect(sizes).not.toContain("92px");
+    expect(sizes).toBe("(min-width: 1024px) 200px, (min-width: 640px) 100px, 26vw");
   });
 });
 

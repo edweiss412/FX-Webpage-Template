@@ -42,6 +42,15 @@ import { CARD_REGION_MAP } from "@/lib/sheet-links/buildSheetDeepLink";
 import { shouldHideDiagrams } from "@/lib/visibility/emptyState";
 import { roomLabel } from "@/lib/visibility/roomLabel";
 
+/**
+ * What a thumbnail measures in this section: 26vw on a phone (76 to 113px), about 95px
+ * in the 446px sheet from 640, and at most 200px in the wide column. The gallery's
+ * default says 30vw, so a 430 phone at 3x asked for 387px, three past the 512 tier's
+ * reach, and fetched the 1024 tier for a 111px thumbnail: 2.8x the bytes on a venue's
+ * network (gate repair 5).
+ */
+const THUMBNAIL_SIZES = "(min-width: 1024px) 200px, (min-width: 640px) 100px, 26vw";
+
 type RoomsSectionProps = {
   data: ShowForViewer;
   viewer: Viewer;
@@ -147,7 +156,11 @@ export function RoomsSection({
               // function call (not `<DiagramsTile/>` JSX) so its synchronous body runs
               // INSIDE WrappedSection's try/catch (the H2 direct-invocation contract); a
               // build throw is contained (fallback + TILE_SERVER_RENDER_FAILED upsert).
-              DiagramsTile({ showId, diagrams: data.diagrams })
+              DiagramsTile({
+                showId,
+                diagrams: data.diagrams,
+                thumbnailSizes: THUMBNAIL_SIZES,
+              })
             }
           />
         </div>
