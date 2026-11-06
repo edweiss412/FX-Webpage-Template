@@ -98,6 +98,18 @@ function defaultProps(overrides?: Partial<React.ComponentProps<typeof ReportModa
 // ──────────────────────────────────────────────────────────────────────
 // A. Submit body + server contract shape
 // ──────────────────────────────────────────────────────────────────────
+describe("the prompt's tone", () => {
+  // The label is sr-only, so the placeholder is the one prompt a sighted reader sees,
+  // and at the faint tone it read 3.21:1 on the page ground. The text floor holds on
+  // every surface, so admin reads it at the same tone as crew.
+  test.each(["crew", "admin"] as const)("%s reads the prompt at the subtle tone", (surface) => {
+    render(<ReportModal {...defaultProps({ surface })} />);
+    const textarea = screen.getByTestId("report-modal-textarea").className;
+    expect(textarea).toContain("placeholder:text-text-subtle");
+    expect(textarea).not.toContain("placeholder:text-text-faint");
+  });
+});
+
 describe("A. Submit body shape", () => {
   test("POST /api/report carries idempotency_key, show_id, message, surface", async () => {
     fetchMock.mockResolvedValue(jsonResponse(201, { ok: true, status: "created" }));

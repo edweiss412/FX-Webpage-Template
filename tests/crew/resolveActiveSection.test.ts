@@ -91,16 +91,14 @@ describe("legacy section aliases (spec line 242, line 489)", () => {
       ...CREW_SECTION_IDS.filter((id) => crewSectionEntitled(id, data, viewer)),
     ]);
   }
-  const LEAD: CrewSectionsViewer = {
-    viewerFlags: ["LEAD"],
+  const VIEWER_BASE = {
     isAdmin: false,
     dateRestriction: { kind: "none" },
-  };
-  const NON_LEAD: CrewSectionsViewer = {
-    viewerFlags: [],
-    isAdmin: false,
-    dateRestriction: { kind: "none" },
-  };
+    stageRestriction: { kind: "none" },
+    today: new Date("2026-05-14T15:00:00Z"),
+  } as const;
+  const LEAD: CrewSectionsViewer = { ...VIEWER_BASE, viewerFlags: ["LEAD"] };
+  const NON_LEAD: CrewSectionsViewer = { ...VIEWER_BASE, viewerFlags: [] };
 
   test("every old id resolves to its replacement when entitled, and home when not", () => {
     const aliases = Object.entries(LEGACY_SECTION_ALIASES);
@@ -139,6 +137,31 @@ describe("legacy section aliases (spec line 242, line 489)", () => {
     expect(CREW_SECTION_IDS as readonly string[]).not.toContain("travel");
     expect(LEGACY_SECTION_ALIASES["travel"]).toBe("hotels");
     expect(canonicalSectionParam("travel")).toBe("hotels");
+  });
+
+  test("gear alias: ?s=gear and ?s=rooms open Rooms for every viewer, lead or not (PR C Task 8)", () => {
+    premiseHolds("the aliases hold gear", Object.hasOwn(LEGACY_SECTION_ALIASES, "gear"));
+    for (const viewer of [LEAD, NON_LEAD]) {
+      const entitled = entitledFor(viewer);
+      premiseHolds("rooms is entitled for every viewer", entitled.has("rooms"));
+      for (const raw of ["gear", "rooms"]) {
+        expect(resolveActiveSection(raw, entitled), raw).toBe("rooms");
+      }
+    }
+  });
+
+  test("gear alias: a viewer not entitled to rooms lands home from ?s=gear (spec line 463)", () => {
+    premiseHolds("the aliases hold gear", Object.hasOwn(LEGACY_SECTION_ALIASES, "gear"));
+    const without = new Set([...ALL].filter((id) => id !== "rooms"));
+    expect(resolveActiveSection("gear", without)).toBe("today");
+    // Positive control: the same value with rooms entitled opens it.
+    expect(resolveActiveSection("gear", ALL)).toBe("rooms");
+  });
+
+  test("gear alias: gear is no longer a section id, only an alias of rooms", () => {
+    expect(CREW_SECTION_IDS as readonly string[]).not.toContain("gear");
+    expect(LEGACY_SECTION_ALIASES["gear"]).toBe("rooms");
+    expect(canonicalSectionParam("gear")).toBe("rooms");
   });
 
   test("budget is no longer a section id, only an alias", () => {

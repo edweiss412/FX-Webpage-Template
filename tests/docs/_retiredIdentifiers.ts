@@ -58,6 +58,17 @@ export const RETIRED_IDENTIFIERS = [
   // components/crew/sections/HotelsSection.tsx and TransportSection.tsx, on the
   // shared hotel card and Transport bodies.
   "TravelSection",
+  // Crew page redesign PR C, Task 8: Gear's cards left for
+  // components/crew/sections/EventSection.tsx, PackListSection.tsx and RoomsSection.tsx,
+  // and the section retired with its row module; `gear` is an alias of `rooms`.
+  // `packListItemLabel` was the crew's copy of `packItemLabel`.
+  "GearSection",
+  "gearRows",
+  "packListItemLabel",
+  // Crew page redesign PR C, Task 9: every crew section reads its label and glyph from
+  // lib/showSections/registry.ts, so there is no moved set left to name.
+  "CREW_MOVED_IDS",
+  "isCrewMovedSection",
 ] as const;
 
 /**
@@ -439,6 +450,108 @@ export const RETIRED_IDENTIFIER_EXEMPTIONS: readonly ExemptionRow[] = [
     text: "\"components/crew/sections/TravelSection.tsx\": [0],",
     reason:
       "The same base-commit census, its declared filtered sites (see the row above).",
+  },
+  // Crew page redesign PR C, Task 8: the rows naming the Gear section as it was.
+  {
+    kind: "line",
+    file: "tests/help/_metaRenderFaultMarking.test.ts",
+    text: "//   components/crew/sections/GearSection.tsx 277 -> 288 (+11: CASE_CAP and",
+    reason:
+      "A dated digest-regeneration record (crew search and PR C Tasks 5 to 7): it names the input that moved, in the file it lived in then.",
+  },
+  {
+    kind: "line",
+    file: "tests/help/_metaRenderFaultMarking.test.ts",
+    text: "//   components/crew/sections/GearSection.tsx 288 -> 175 (-113: the caps, the",
+    reason:
+      "A dated digest-regeneration record (crew search and PR C Tasks 5 to 7): it names the input that moved, in the file it lived in then.",
+  },
+  {
+    kind: "line",
+    file: "tests/help/_metaRenderFaultMarking.test.ts",
+    text: "//   discipline table and the row derivations move to sections/gearRows.ts)",
+    reason:
+      "A dated digest-regeneration record (crew search and PR C Tasks 5 to 7): it names the input that moved, in the file it lived in then.",
+  },
+  {
+    kind: "line",
+    file: "tests/help/_metaRenderFaultMarking.test.ts",
+    text: "//   components/crew/sections/GearSection.tsx 175 -> 142 (-33: the keynote, reel and",
+    reason:
+      "A dated digest-regeneration record (crew search and PR C Tasks 5 to 7): it names the input that moved, in the file it lived in then.",
+  },
+  {
+    kind: "line",
+    file: "tests/help/_metaRenderFaultMarking.test.ts",
+    text: "//   components/crew/sections/GearSection.tsx 142 -> 127 (-15: the pack list's",
+    reason:
+      "A dated digest-regeneration record (crew search and PR C Tasks 5 to 7): it names the input that moved, in the file it lived in then.",
+  },
+  {
+    kind: "line",
+    file: "tests/help/_metaRenderFaultMarking.test.ts",
+    text: "//   components/crew/sections/GearSection.tsx:127 -> RoomsSection.tsx:84 (the same",
+    reason:
+      "A dated digest-regeneration record (crew search and PR C Tasks 5 to 7): it names the input that moved, in the file it lived in then.",
+  },
+  {
+    kind: "line",
+    file: "scripts/audit-cn-operand-kinds.mjs",
+    text: "[\"components/crew/sections/GearSection.tsx\", 2],",
+    reason:
+      "The classname-array-join-cn arc's audit measures its own base commit (the script's header: the property is of the BASE COMMIT); this row is that base's census, where the file existed.",
+  },
+  {
+    kind: "line",
+    file: "scripts/audit-cn-operand-kinds.mjs",
+    text: "\"components/crew/sections/GearSection.tsx\": [0],",
+    reason:
+      "The same base-commit census, its declared filtered sites (see the row above).",
+  },
+  {
+    kind: "line",
+    file: "scripts/verify-cn-operand-parity.mjs",
+    text: "[\"components/crew/sections/GearSection.tsx\", 2],",
+    reason:
+      "The classname-array-join-cn arc's audit measures its own base commit (the script's header: the property is of the BASE COMMIT); this row is that base's census, where the file existed.",
+  },
+  {
+    kind: "line",
+    file: "scripts/verify-cn-operand-parity.mjs",
+    text: "\"components/crew/sections/GearSection.tsx\": [0],",
+    reason:
+      "The same base-commit census, its declared filtered sites (see the row above).",
+  },
+  {
+    kind: "line",
+    file: "tests/components/admin/wizard/Step3Review.test.tsx",
+    text: "describe(\"Step3SheetCard — pack-list review (PULL-tab parity with crew GearSection)\", () => {",
+    reason:
+      "A suite title in an admin rendered-output suite, which the PR C plan's admin DOM invariant (layer 2) keeps byte-for-byte unmodified through the arc; the parity it names now lives in the shared PackListBody.",
+  },
+  {
+    kind: "line",
+    file: "docs/superpowers/plans/2026-04-30-fxav-crew-pages-v1/DEFERRED.md",
+    text:
+      "> `rawSnippet` render now has `tests/components/crew/sections/GearSection.rawSnippet.test.tsx`,",
+    reason:
+      "A dated closing note on a deferral row: it records what closed the residue then. The suite's cases moved to PackListSection.test.tsx in PR C Task 6.",
+  },
+  {
+    kind: "line",
+    file: "docs/superpowers/specs/parser/2026-07-04-rooms-scope-cards-redesign-mock/README.md",
+    text:
+      "| Audio/Video/Lighting/Scenic/Other | `audio`/`video`/`lighting`/`scenic`/`other` | `power`/`digital_signage` stay out of scope (event_details surfaces them), matching the crew GearSection ordering |",
+    reason:
+      "A design mock's dated rationale: it records the ordering the redesign matched at the time. The table now lives in components/show-panels/roomScope.ts.",
+  },
+  {
+    kind: "line",
+    file: "docs/superpowers/specs/parser/2026-07-04-rooms-scope-cards-redesign-mock/README.md",
+    text:
+      "(`components/admin/wizard/step3ReviewSections.tsx`). The crew-page GearSection",
+    reason:
+      "The same dated design note: it names the crew surface as it was when the mock was written.",
   },
 ];
 

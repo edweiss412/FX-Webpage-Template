@@ -9,10 +9,9 @@ import type { SearchEntry } from "@/lib/search/types";
  * run-of-show card on the server's today (lib/crew/runOfShowCard.ts, the module
  * the card's props come from, crew page redesign plan Task 10), then the home
  * body through the same rows module `HomeSection` renders from
- * (components/crew/sections/todayRows.ts): each show note's full text and the
- * Dress code card's lines. The pass is not indexed, and the quick facts sit
- * outside search coverage (each repeats a line its own section renders; plan
- * Task 11). Repeats of other sections' lines stay here and are removed at
+ * (components/crew/sections/todayRows.ts): each show note's full text. The pass
+ * is not indexed, and the quick facts sit outside search coverage (each repeats a
+ * line its own section renders; plan Task 11). Repeats of other sections' lines stay here and are removed at
  * result time (§5.5).
  *
  * The home body is one `WrappedSection`: a fault in its derivation renders the

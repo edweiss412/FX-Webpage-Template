@@ -58,7 +58,7 @@ const WALK_SELECTOR = [
   // element's first summary in `isTabStop`).
   "summary",
   // Focusable in both engines (measured, Playwright 1.59): media with controls
-  // (the Gear section's opening reel, whole-diff review R2-F3), a frame, and an
+  // (the Event details section's opening reel, whole-diff review R2-F3), a frame, and an
   // editing host. A video without controls is not.
   "video[controls]",
   "audio[controls]",

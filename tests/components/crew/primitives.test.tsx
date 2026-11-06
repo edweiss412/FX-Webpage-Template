@@ -62,6 +62,26 @@ describe("<SectionCard>", () => {
   });
 });
 
+describe("<SectionCard> headingSearchTarget", () => {
+  test("absent, the title is a group heading only", () => {
+    const { container } = render(<SectionCard title="Facilities">body</SectionCard>);
+    const heading = container.querySelector('[data-slot="section-card-title"]')!;
+    expect(heading.getAttribute("data-search-group")).toBe("");
+    expect(heading.hasAttribute("data-search-target")).toBe(false);
+  });
+
+  test("given, the title is a search line too", () => {
+    const { container } = render(
+      <SectionCard title="Diagrams" headingSearchTarget="t-diagrams">
+        body
+      </SectionCard>,
+    );
+    const heading = container.querySelector('[data-slot="section-card-title"]')!;
+    expect(heading.getAttribute("data-search-target")).toBe("t-diagrams");
+    expect(heading.getAttribute("data-search-group")).toBe("");
+  });
+});
+
 describe("<SectionCard> heading level (audit P2-4)", () => {
   // Every crew page card sits under an h2: a stacked section's heading in the
   // wide layout, the sheet's title, or the Today block's. So a card title is an

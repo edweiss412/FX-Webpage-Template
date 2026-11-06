@@ -52,7 +52,7 @@
  * [todayIso]).length > 0 || agendaSessionsForToday(...).length > 0)` — the unified
  * timeline also activates on an agenda-only show day. The live Waldorf seed
  * stores `shows_internal.run_of_show = NULL`, so Mode A cannot mount unmodified
- * (exactly the gap inv3 in crew-page.spec.ts works around for GearSection). To
+ * (the gap the retired inv3 in crew-page.spec.ts worked around for Gear). To
  * make Mode A a REAL assertion (not faked / not skipped) this suite, in
  * beforeAll, populates `shows_internal.run_of_show` with a real show-day-1
  * agenda keyed on 2026-04-21 (a member of show.dates.showDays, so the read-time
@@ -74,11 +74,8 @@ import {
   type PhantomLedgerRow,
 } from "./helpers/phantomGap";
 import { premise, premiseHolds } from "../_shared/premise";
-import {
-  CREW_SPLIT_PX,
-  expectColumnsFollowSplit,
-  splitContainerOf,
-} from "./helpers/crewSplitContainer";
+import { deleteSeededShow, seedShowWithCrew, type SeededShow } from "./helpers/seedShowWithCrew";
+import { expectColumnsFollowSplit } from "./helpers/crewSplitContainer";
 
 const SEED_DRIVE_FILE_ID = "seed-fixture:2026-04-asset-mgmt-cfo-coo-waldorf";
 
@@ -473,10 +470,11 @@ test.describe("crew layout dimensions — split-wide ratio + natural height (Tas
   // is crew-page.spec.ts's inv2, over Crew and Contacts at the same three legs.
   // Travel left it in PR B Task 9: its two columns (getting there and hotels) became
   // the Transport and Hotels sections, each a stack of cards with no split; their
-  // 390px overflow and gapped stacks are walked by T-NOPHANTOM-CREW below.
+  // 390px overflow and gapped stacks are walked by T-NOPHANTOM-CREW below. Venue left
+  // it in PR C Task 7: its second column, Diagrams, moved to Rooms, so Venue is one
+  // column at every width.
   for (const { section, columnsTestId, expectTwoColumns } of [
     { section: "schedule", columnsTestId: "schedule-column", expectTwoColumns: true },
-    { section: "venue", columnsTestId: "venue-column", expectTwoColumns: false },
   ] as const) {
     test(`${section}: split-wide 1.6 ratio + natural height in the wide column (1024px) / stacked in the sheet (1000px, 390px)`, async ({
       page,
@@ -598,7 +596,7 @@ test.describe("crew layout dimensions — split-wide ratio + natural height (Tas
   // TodaySection (crew page redesign plan Task 11), and with it the 720px
   // container split the Today block owned: the home body reads no container
   // query. The failure modes carried over are the stack and the overflow: below
-  // 1024px the home body (quick facts, show notes, Dress code card) sits under
+  // 1024px the home body (quick facts, show notes) sits under
   // the day row and the pass at the Today block's full width, and the page never
   // scrolls sideways. A POST-show server clock (2026-04-25; the Waldorf seed's
   // show days are 2026-04-21/22) keeps the run card out, as Mode B did.
@@ -848,9 +846,8 @@ test.describe("crew layout dimensions — split-wide ratio + natural height (Tas
   // any measurement, so a section that failed to render cannot report an empty
   // offender list as success. The sections differ enough to be worth the cost —
   // `today` renders the run-of-show timeline the seeded frozen clock activates,
-  // `gear` renders whatever the seed's room scope holds (an EMPTY state on the
-  // Waldorf rows, which is precisely the state this bug class lives in), and
-  // venue carries the split-wide grid that collapses to one column at 390, and
+  // `rooms` renders whatever the seed's room scope holds (a room with no discipline
+  // on the Waldorf rows, which is precisely the state this bug class lives in), and
   // hotels/transport the shared bodies Travel split into (PR B Task 9).
   test.describe("phantom gap — crew page sections", () => {
     /**
@@ -871,13 +868,13 @@ test.describe("crew layout dimensions — split-wide ratio + natural height (Tas
      * how a replacement anchor gets captured.
      *
      * WHAT THE ANCHOR DOES NOT PROVE. It proves the walk DESCENDED into the
-     * section, not that the seed rendered any particular subtree — Venue's root
-     * stays visited with its diagrams column absent, Today's with the seeded
+     * section, not that the seed rendered any particular subtree — Rooms's root
+     * stays visited with a room's scope list absent, Today's with the seeded
      * run-of-show absent, and so on. That content IS proven, for these same
      * sections at these same widths, by the sibling assertions in this file: the
      * split-wide ratio cases name each section's two columns, the Mode A case
-     * asserts the run-of-show timeline mounted, and the gear-scope describe seeds
-     * and asserts the five scope cards. Duplicating those here would couple the
+     * asserts the run-of-show timeline mounted, and the rooms describe seeds
+     * and asserts the five discipline rows. Duplicating those here would couple the
      * probe to seed shape without measuring anything new; `gotoSection` already
      * fails outright if a section does not mount with real height.
      */
@@ -894,7 +891,8 @@ test.describe("crew layout dimensions — split-wide ratio + natural height (Tas
       // inner ones a live run captured, as Crew's is.
       { section: "hotels", anchor: "crew-panel-hotel-card" },
       { section: "transport", anchor: "crew-panel-card" },
-      { section: "gear", anchor: "section-gear" },
+      // Rooms took the scope and the Diagrams in PR C Task 7.
+      { section: "rooms", anchor: "section-rooms" },
     ] as const;
 
     /**
@@ -1101,28 +1099,21 @@ test.describe("crew layout dimensions — split-wide ratio + natural height (Tas
 });
 
 /**
- * Task 10 — GEAR scope grid (Scenic/Other 5-card) real-browser layout.
+ * A room's five discipline rows, real-browser layout (PR C Task 7, spec line 309).
  *
- * The new Scenic + Other cards (spec §3.6) join the EXISTING `gear-scopes-row`
- * responsive grid (`grid grid-cols-1 gap-3 @min-crew-split:grid-cols-3`). CSS grid
- * tracks default to `align-items: stretch`, so cards in the same split row share
- * an equal height — this asserts that invariant against a live Chromium render so a
- * regression (a card no longer filling its grid cell) cannot pass jsdom unit tests.
- * The live Waldorf seed has 0/0/0 room scope, so this block seeds ONE room with all
- * five disciplines (audio/video/lighting/scenic/other) → all 5 scope cards render
- * (admin viewer: A/V/L emphasized-first, Scenic/Other neutral → audio,video,lighting
- * | scenic,other ⇒ 3 + 2 at grid-cols-3). Single-writer (mobile-safari) + restore,
- * mirroring the run_of_show seeding above.
+ * This was the Gear scope grid's 5-card stretch (Task 10): its failure mode, one
+ * discipline no longer filling the box it was given, passes jsdom. The grid retired
+ * with the cards, so the box is now the room's scope list, and the claim that every
+ * discipline fills it and none overlaps another carries over. The Waldorf room holds
+ * no discipline, so this seeds its own show with one room holding all five (admin
+ * viewer: A/V/L emphasized first, Scenic and Other neutral). The accent edge pulls an
+ * emphasized row out of the list's padding, so its chip stays in line with the others.
  */
-test.describe("crew gear scope grid — Scenic/Other 5-card stretch (Task 10)", () => {
+test.describe("rooms: a room's five discipline rows fill its scope list (Task 10)", () => {
   test.setTimeout(180_000);
   const TOL_TIGHT = 0.5;
-  const ROW_TOL = 2;
 
-  let gearSlug = "";
-  let gearShareToken = "";
-  let seededRoomId: string | null = null;
-  let roomOriginal: Record<string, string | null> | null = null;
+  let seeded: SeededShow | null = null;
 
   const SEED_SCOPE = {
     audio: "(1) QU32 (1) AB168 (17) Tabletop Mics",
@@ -1134,116 +1125,102 @@ test.describe("crew gear scope grid — Scenic/Other 5-card stretch (Task 10)", 
 
   test.beforeAll(async ({}, testInfo) => {
     if (testInfo.project.name !== "mobile-safari") return;
-    const seeded = await lookupSeededShow();
-    const rooms = await admin
-      .from("rooms")
-      .select("id, audio, video, lighting, scenic, other")
-      .eq("show_id", seeded.showId)
-      .limit(1);
-    if (rooms.error || !rooms.data?.[0]) {
-      throw new Error(
-        `Task10 gear setup: no rooms row for the Waldorf seed (run \`pnpm db:seed\`). error=${rooms.error?.message ?? "no row"}`,
-      );
-    }
-    const row = rooms.data[0] as { id: string } & Record<string, string | null>;
-    seededRoomId = row.id;
-    roomOriginal = {
-      audio: row.audio ?? null,
-      video: row.video ?? null,
-      lighting: row.lighting ?? null,
-      scenic: row.scenic ?? null,
-      other: row.other ?? null,
-    };
-    const upd = await admin.from("rooms").update(SEED_SCOPE).eq("id", seededRoomId);
-    if (upd.error)
-      throw new Error(`Task10 gear setup: room scope seed failed: ${upd.error.message}`);
+    seeded = await seedShowWithCrew({
+      title: "Rooms Five Disciplines Show",
+      rooms: [{ kind: "gs", name: "Scope Ballroom", setup: "Classroom", ...SEED_SCOPE }],
+    });
   });
 
   test.afterAll(async ({}, testInfo) => {
     if (testInfo.project.name !== "mobile-safari") return;
-    if (!seededRoomId || !roomOriginal) return;
-    const restore = await admin.from("rooms").update(roomOriginal).eq("id", seededRoomId);
-    if (restore.error) {
-      console.error(
-        `Task10 gear teardown: room scope restore failed (reseed needed): ${restore.error.message}`,
-      );
-    }
+    if (seeded !== null) await deleteSeededShow(seeded.driveFileId);
   });
 
-  test("wide column: all 5 gear-scope cards render; same-row cards are equal-height (grid stretch)", async ({
+  test("rooms: wide column: all 5 discipline rows render, each fills the room's scope list, none overlaps", async ({
     page,
   }, testInfo) => {
     if (testInfo.project.name !== "mobile-safari") return; // single-writer
-    const seeded = await lookupSeededShow();
-    gearSlug = seeded.slug;
-    gearShareToken = await lookupShareToken(seeded.showId);
     await signOut(page);
     await signInAs(page, ADMIN_FIXTURE);
 
-    // 1024px: the narrowest window with the wide column. The grid is
-    // container-relative, so below 1024px the section opens in the 480px sheet
-    // and the cards stack one per row there.
+    // 1024px: the narrowest window with the wide column.
     await page.setViewportSize({ width: 1024, height: 1000 });
-    const res = await page.goto(`/show/${gearSlug}/${gearShareToken}?s=gear`, {
+    const res = await page.goto(`/show/${seeded!.slug}/${seeded!.shareToken}?s=rooms`, {
       waitUntil: "domcontentloaded",
     });
-    expect(res?.status(), "crew gear route must render").toBe(200);
+    expect(res?.status(), "crew rooms route must render").toBe(200);
     await expect(page.getByTestId("crew-shell-sections")).toHaveAttribute(
       "data-crew-controller-ready",
       "true",
       { timeout: 30_000 },
     );
-    await expect(page.getByTestId("section-gear")).toBeVisible();
-    await expect(page.getByTestId("gear-scopes-row")).toBeVisible();
-
-    // All five discipline cards present (seeded room populates every column).
-    const ids = ["audio", "video", "lighting", "scenic", "other"];
-    for (const id of ids) {
-      await expect(
-        page.getByTestId(`gear-scope-${id}`),
-        `gear-scope-${id} card must render`,
-      ).toBeVisible();
-    }
+    await expect(page.getByTestId("section-rooms")).toBeVisible();
+    const list = page.getByTestId("crew-panel-room-0-scope");
+    await expect(list).toBeVisible();
     await expect
-      .poll(async () => (await rectOf(page.getByTestId("gear-scope-audio"))).height, {
-        timeout: 8000,
-      })
+      .poll(async () => (await rectOf(list)).height, { timeout: 8000 })
       .toBeGreaterThan(1);
 
-    const rects = [];
-    for (const id of ids)
-      rects.push({ id, ...(await rectOf(page.getByTestId(`gear-scope-${id}`))) });
+    const measured = await list.evaluate((el) => {
+      const cs = getComputedStyle(el);
+      const box = el.getBoundingClientRect();
+      return {
+        contentLeft: box.left + Number.parseFloat(cs.paddingLeft),
+        contentRight: box.right - Number.parseFloat(cs.paddingRight),
+        rows: [...el.children].map((row) => {
+          const r = row.getBoundingClientRect();
+          const key = row.querySelector('[data-testid="room-scope-key"]')!;
+          const chip = key.previousElementSibling!.getBoundingClientRect();
+          return {
+            key: key.textContent,
+            left: r.left,
+            right: r.right,
+            top: r.top,
+            bottom: r.bottom,
+            height: r.height,
+            chipLeft: chip.left,
+            emphasized: row.getAttribute("data-emphasis") === "you",
+          };
+        }),
+      };
+    });
 
-    // Group cards into visual rows by their top edge (±ROW_TOL).
-    const rows: (typeof rects)[] = [];
-    for (const r of rects) {
-      const row = rows.find((g) => Math.abs(g[0]!.top - r.top) <= ROW_TOL);
-      if (row) row.push(r);
-      else rows.push([r]);
-    }
-    // The grid's container is the wide section, past the split threshold.
-    const split = await splitContainerOf(page.getByTestId("gear-scopes-row"));
-    expect(split.testid, "gear-scopes-row's size container").toBe("crew-wide-section");
-    expect(
-      split.split,
-      `@1024px the wide section is ${split.width}px against the ${CREW_SPLIT_PX}px split threshold`,
-    ).toBe(true);
-    // grid-cols-3 when split → no row holds more than 3 cards (5 cards ⇒ 3 + 2).
-    for (const row of rows) {
+    // An admin owns the three disciplines, in the sheet's order, ahead of the other two.
+    expect(measured.rows.map((row) => row.key)).toEqual([
+      "Audio",
+      "Video",
+      "Lighting",
+      "Scenic",
+      "Other",
+    ]);
+    expect(measured.rows.map((row) => row.emphasized)).toEqual([true, true, true, false, false]);
+    const neutralChip = measured.rows.at(-1)!.chipLeft;
+    for (const [i, row] of measured.rows.entries()) {
+      expect(row.height, `${row.key} has height`).toBeGreaterThan(1);
       expect(
-        row.length,
-        `a grid-cols-3 row must hold ≤3 cards; got ${row.map((c) => c.id)}`,
-      ).toBeLessThanOrEqual(3);
-      // Stretch invariant: every card in a row fills the row's (cell) height.
-      const h0 = row[0]!.height;
-      for (const c of row) {
+        Math.abs(row.right - measured.contentRight),
+        `${row.key} right ${row.right} must fill the list's content box ${measured.contentRight}`,
+      ).toBeLessThanOrEqual(TOL_TIGHT);
+      if (row.emphasized) {
+        expect(row.left, `${row.key}'s edge sits in the list's gutter`).toBeLessThan(
+          measured.contentLeft,
+        );
+      } else {
         expect(
-          Math.abs(c.height - h0),
-          `gear-scope-${c.id} height ${c.height} must equal its row height ${h0} (grid align-items:stretch)`,
+          Math.abs(row.left - measured.contentLeft),
+          `${row.key} left ${row.left} must fill the list's content box ${measured.contentLeft}`,
         ).toBeLessThanOrEqual(TOL_TIGHT);
       }
+      expect(
+        Math.abs(row.chipLeft - neutralChip),
+        `${row.key}'s chip stays in line with the unmarked rows`,
+      ).toBeLessThanOrEqual(TOL_TIGHT);
+      if (i > 0) {
+        expect(row.top, `${row.key} stacks below the row before it`).toBeGreaterThanOrEqual(
+          measured.rows[i - 1]!.bottom - TOL_TIGHT,
+        );
+      }
     }
-    expect(rows.length, "5 cards in grid-cols-3 must wrap to 2 rows (3 + 2)").toBe(2);
   });
 });
 
@@ -1401,20 +1378,20 @@ test.describe("crew diagrams gallery — next/image variant tiers (private image
    * READINESS (a): the page-container hydration gate this file already uses for
    * every other section, before any geometry read.
    */
-  async function gotoVenue(
+  async function gotoRooms(
     page: import("@playwright/test").Page,
     ctx: GalleryContext,
   ): Promise<void> {
-    const res = await page.goto(`/show/${ctx.slug}/${ctx.shareToken}?s=venue`, {
+    const res = await page.goto(`/show/${ctx.slug}/${ctx.shareToken}?s=rooms`, {
       waitUntil: "domcontentloaded",
     });
-    expect(res?.status(), "crew venue route must render").toBe(200);
+    expect(res?.status(), "crew rooms route must render").toBe(200);
     await expect(page.getByTestId("crew-shell")).toBeVisible();
     await expect(page.getByTestId("page-container")).toBeVisible();
-    await expect(page.getByTestId("section-venue")).toBeVisible();
+    await expect(page.getByTestId("section-rooms")).toBeVisible();
     await expect(page.getByTestId("diagrams-tile")).toBeVisible();
     await expect
-      .poll(async () => (await rectOf(page.getByTestId("section-venue"))).height, {
+      .poll(async () => (await rectOf(page.getByTestId("section-rooms"))).height, {
         timeout: 8000,
       })
       .toBeGreaterThan(1);
@@ -1592,7 +1569,7 @@ test.describe("crew diagrams gallery — next/image variant tiers (private image
     // is the component's to choose and this case must not pin it.
     for (const width of [390, 1000] as const) {
       await page.setViewportSize({ width, height: 900 });
-      await gotoVenue(page, ctx);
+      await gotoRooms(page, ctx);
       const decoded = await waitForDecodedGalleryImages(page);
       // Reconciled against the SEED, not against zero. `onError` removes a failed
       // thumbnail from the DOM, so "at least one decoded" stays true while an entry
@@ -1678,14 +1655,18 @@ test.describe("crew diagrams gallery — next/image variant tiers (private image
       else if (url.includes("/api/asset/diagram/")) assetRequests.push(url);
     });
 
+    // What the phone asked for, read before the wider leg, which is no claim about a
+    // phone: the wide column's thumbnails are twice the size.
+    const phoneRequests: string[] = [];
     for (const width of [390, 1000] as const) {
       await page.setViewportSize({ width, height: 900 });
-      await gotoVenue(page, ctx);
+      await gotoRooms(page, ctx);
       premise(
         `@${width}px the gallery rendered at least one Image element`,
         await waitForDecodedGalleryImages(page),
         0,
       );
+      if (width === 390) phoneRequests.push(...assetRequests);
     }
 
     // ── AC-3: the optimizer is never involved. A `/_next/image` request would mean
@@ -1716,7 +1697,8 @@ test.describe("crew diagrams gallery — next/image variant tiers (private image
       ),
     );
     premise("the seed offers more than one tier, or a ceiling is vacuous", largestTier, 0);
-    for (const key of requestedKeys) {
+    premise("the 390px leg issued diagram asset requests", phoneRequests.length, 0);
+    for (const key of new Set(phoneRequests.map(assetKeyOf))) {
       const tier = Number(key.match(/@(\d+)\.webp$/)?.[1] ?? 0);
       expect(
         tier,
@@ -1950,7 +1932,7 @@ test.describe("crew diagrams gallery — next/image variant tiers (private image
     });
 
     await page.setViewportSize({ width: 390, height: 844 });
-    await gotoVenue(page, ctx);
+    await gotoRooms(page, ctx);
     premise(
       "the gallery rendered Image elements before the lightbox is opened",
       await waitForDecodedGalleryImages(page),
@@ -2165,7 +2147,7 @@ test.describe("crew diagrams gallery — next/image variant tiers (private image
     });
 
     await page.setViewportSize({ width: 1280, height: 800 });
-    await gotoVenue(page, ctx);
+    await gotoRooms(page, ctx);
     premise(
       "the gallery rendered Image elements before the lightbox is opened",
       await waitForDecodedGalleryImages(page),
@@ -2270,7 +2252,7 @@ test.describe("crew diagrams gallery — next/image variant tiers (private image
     await signInAs(page, ADMIN_FIXTURE);
 
     await page.setViewportSize({ width: 390, height: 844 });
-    await gotoVenue(page, ctx);
+    await gotoRooms(page, ctx);
     premise(
       "the gallery rendered Image elements before the lightbox is opened",
       await waitForDecodedGalleryImages(page),

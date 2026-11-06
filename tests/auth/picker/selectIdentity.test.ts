@@ -265,6 +265,22 @@ describe("selectIdentity FormData entry", () => {
     expect(logged).not.toHaveProperty("shareToken");
   });
 
+  test("gear alias: the claimed-row sign-in recovery carries an old s=gear as s=rooms, with no gate (PR C Task 8)", async () => {
+    rpcRow = {
+      out_show_id: null,
+      out_picker_epoch: null,
+      out_observed_at_millis: null,
+      out_rejection_code: "PICKER_IDENTITY_CLAIMED",
+    };
+    const form = formData({ slug: SLUG, shareToken: TOKEN, crewMemberId: CREW_ID });
+    form.set("s", "gear");
+    await expect(selectIdentity(form)).rejects.toMatchObject({
+      digest: expect.stringContaining(
+        `/auth/sign-in?next=${encodeURIComponent(`/show/${SLUG}/${TOKEN}?s=rooms`)};`,
+      ),
+    });
+  });
+
   test("tamper branch raises a global admin alert BEFORE the redirect", async () => {
     // BL-PICKER-TAMPER-ADMIN-ALERT: the forensic warn now also surfaces as an
     // operator-visible admin_alerts row. Placement constraints under test:

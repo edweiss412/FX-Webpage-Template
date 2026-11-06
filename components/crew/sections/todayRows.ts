@@ -3,11 +3,11 @@
  * by `HomeSection` and the Today search builder (lib/search/sections/today.ts),
  * so the page and the search index describe the same lines (spec §2.4, INV-1).
  *
- * `todayRows` returns the show notes and the Dress code card the home renders
- * below the quick facts, with each line's search target id and the search
- * entries in render order. Each card is its own search region (its
- * `data-card-id`). The home's other pieces carry their own lines: the run-of-show
- * card's come from lib/crew/runOfShowCard.ts, the pass is not indexed, and the
+ * `todayRows` returns the show notes the home renders below the quick facts, with
+ * each line's search target id and the search entries in render order. The card is
+ * its own search region (its `data-card-id`). The home's other pieces carry their
+ * own lines: the run-of-show card's come from lib/crew/runOfShowCard.ts, the pass is
+ * not indexed, and the
  * quick facts sit outside search coverage, because every fact repeats a line its
  * own section renders (crew page redesign plan Task 11, which retired Today's
  * Tonight, Where, Need something and Key times cards).
@@ -18,7 +18,6 @@
  * A non-client module: the builder runs on the server and imports from here.
  */
 import { addEntry, entrySink } from "@/components/crew/sections/scheduleRows";
-import { parseDressCodeLines } from "@/lib/crew/dressCodeLines";
 import type { ShowForViewer } from "@/lib/data/getShowForViewer";
 import type { ViewerContext } from "@/lib/data/viewerContext";
 import type { SearchEntry } from "@/lib/search/types";
@@ -31,7 +30,6 @@ export const SOURCE_CAP = 8;
 
 /** Card titles, which are also the search groups of their lines. */
 export const TODAY_TITLES = {
-  dress: "Dress code",
   showNotes: "Show notes",
 } as const;
 
@@ -115,16 +113,14 @@ export function truncateNote(text: string, max: number): { display: string; trun
 
 export type TodayModel = {
   transportVisible: boolean;
-  /** The dress code value DressCodeLines renders, with one target per line it renders. */
-  dress: { value: string; targets: (string | undefined)[] } | null;
   noteRows: (NotesEntry & { display: string; truncated: boolean; target: string | undefined })[];
   notesOverflow: number;
-  /** Every search entry of this body, in render order (show notes, then the dress code). */
+  /** Every search entry of this body, in render order. */
   entries: SearchEntry[];
 };
 
 /**
- * The home body's show notes and Dress code card, with their search entries.
+ * The home body's show notes, with their search entries.
  * `ctx` is the section's `resolveViewerContext` result (resolved outside the
  * section's error boundary, where a malformed projection throws).
  */
@@ -139,12 +135,6 @@ export function todayRows(data: ShowForViewer, ctx: ViewerContext): TodayModel {
     viewerNameAliases: data.viewerNameAliases,
     isAdmin: ctx.isAdmin,
   });
-
-  // Dress code: the single canonical `dress_code` key (M4-D1). The VALUE-level
-  // sentinel guard stays: a canonical `dress_code:"N/A"` must still reflow the
-  // card out.
-  const dressValue = data.show.event_details.dress_code ?? null;
-  const dressRaw = shouldHideGenericOptional(dressValue) ? null : dressValue;
 
   const noteEntries = aggregateNotes(data, transportVisible);
   const visibleNotes = noteEntries.slice(0, SOURCE_CAP);
@@ -162,21 +152,5 @@ export function todayRows(data: ShowForViewer, ctx: ViewerContext): TodayModel {
     }),
   }));
 
-  const dressSink = entrySink("today", "today-dress");
-  let dress: TodayModel["dress"] = null;
-  if (dressRaw !== null) {
-    const lines = parseDressCodeLines(dressRaw);
-    const targets =
-      lines === null
-        ? [addEntry(dressSink, { group: TODAY_TITLES.dress, value: dressRaw })]
-        : lines.map(({ phase, attire }) =>
-            addEntry(dressSink, { group: TODAY_TITLES.dress, label: phase, value: attire }),
-          );
-    dress = { value: dressRaw, targets };
-  }
-
-  // Render order: show notes, then the Dress code card (spec §3.2, AC-1).
-  const entries = [...notesSink.entries, ...dressSink.entries];
-
-  return { transportVisible, dress, noteRows, notesOverflow, entries };
+  return { transportVisible, noteRows, notesOverflow, entries: notesSink.entries };
 }

@@ -75,7 +75,6 @@ vi.mock("@/components/crew/sections/TransportSection", () => ({
   TransportSection: spy("transport"),
 }));
 vi.mock("@/components/crew/sections/CrewSection", () => ({ CrewSection: spy("crew") }));
-vi.mock("@/components/crew/sections/GearSection", () => ({ GearSection: spy("gear") }));
 vi.mock("@/components/crew/sections/BillingSection", () => ({ BillingSection: spy("billing") }));
 
 // Render EVERY built body. The real controller renders only the active section,

@@ -83,6 +83,11 @@ describe("picker selection redirect (plan decision 7)", () => {
     expect(digest).toBe(`NEXT_REDIRECT;replace;/show/${SLUG}/${TOKEN}?s=hotels`);
   });
 
+  test("gear alias: a selection carries an old s=gear as s=rooms and no gate (PR C Task 8)", async () => {
+    const digest = await redirectOf("gear");
+    expect(digest).toBe(`NEXT_REDIRECT;replace;/show/${SLUG}/${TOKEN}?s=rooms`);
+  });
+
   test("positive control: a current id is carried as itself, and no s at all leaves the bare URL", async () => {
     expect(await redirectOf("venue")).toBe(`NEXT_REDIRECT;replace;/show/${SLUG}/${TOKEN}?s=venue`);
     cleanup();

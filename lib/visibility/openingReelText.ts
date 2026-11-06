@@ -19,7 +19,7 @@
  *   `docs.google.com` substrings for any opening-reel cell. The rule is
  *   pinned by `tests/visibility/openingReelText.test.ts` (the
  *   URL-strip value space) and by the crew-render assertion in
- *   `tests/components/crew/sections/GearSection.test.tsx`, which fails on
+ *   `tests/components/crew/sections/EventSection.test.tsx`, which fails on
  *   any of those three substrings in the rendered section.
  *   `tests/e2e/empty-state.spec.ts` carried the AC-4.5 end-to-end variant;
  *   it was deleted 2026-08-09 (100% `describe.skip` against the retired

@@ -151,7 +151,7 @@ afterEach(() => {
   sessionStorage.clear();
 });
 
-const SECTIONS: CrewSectionId[] = ["schedule", "venue", "hotels", "crew", "gear"];
+const SECTIONS: CrewSectionId[] = ["schedule", "venue", "hotels", "crew", "rooms"];
 
 function controller(bodies: Partial<Record<SectionId, ReactNode>>) {
   return (
@@ -175,11 +175,12 @@ function controller(bodies: Partial<Record<SectionId, ReactNode>>) {
 }
 
 function openFromRow(id: CrewSectionId): HTMLElement {
-  fireEvent.click(
-    within(screen.getByTestId("crew-all-sections")).getByRole("link", {
-      name: new RegExp(`^${CREW_SECTION_LABELS[id]}\\b`),
-    }),
-  );
+  // By id, because one label starts another ("Crew", "Crew schedule").
+  const row = within(screen.getByTestId("crew-all-sections"))
+    .getAllByRole("link")
+    .find((link) => link.getAttribute("data-section") === id);
+  if (row === undefined) throw new Error(`no "All sections" row for ${id}`);
+  fireEvent.click(row);
   return screen.getByTestId("crew-section-sheet-dialog");
 }
 
@@ -281,18 +282,18 @@ describe("an open sheet keeps focus inside it when the focused content leaves (2
       onClose: () => {},
     };
     const gallery = (
-      <div data-testid="body-gear">
+      <div data-testid="body-rooms">
         <GalleryLightbox {...props} />
       </div>
     );
-    const { rerender } = render(controller({ gear: gallery }));
-    openFromRow("gear");
+    const { rerender } = render(controller({ rooms: gallery }));
+    openFromRow("rooms");
     const lightbox = screen.getAllByRole("dialog").find((d) => d.getAttribute("aria-label"))!;
     expect(lightbox, "PREMISE: the lightbox is open").toBeTruthy();
     expect(lightbox.contains(document.activeElement), "PREMISE: focus is in the lightbox").toBe(
       true,
     );
-    rerender(controller({ gear: <div data-testid="body-gear">gear</div> }));
+    rerender(controller({ rooms: <div data-testid="body-rooms">rooms</div> }));
     expect(lightbox.isConnected, "PREMISE: the lightbox left with the gallery").toBe(false);
     await settle();
     expectFocusInSheet("gallery removed");

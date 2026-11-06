@@ -23,6 +23,7 @@ import { AgendaSection } from "@/components/crew/sections/AgendaSection";
 import { ScheduleSection } from "@/components/crew/sections/ScheduleSection";
 import { VenueSection } from "@/components/crew/sections/VenueSection";
 import { DiagramsTile } from "@/components/crew/DiagramsBlock";
+import { RoomsSection } from "@/components/crew/sections/RoomsSection";
 import { makeShowForViewer } from "@/tests/fixtures/showForViewer";
 import { ledgerProp } from "./crew/sections/_ledgerProp";
 
@@ -129,9 +130,9 @@ describe("agenda removed from Venue/Diagrams (Task 15)", () => {
     expect(screen.queryByRole("button", { name: /view agenda/i })).toBeNull();
   });
 
-  test("agenda-only show (no diagrams) renders NO Diagrams block in Venue", () => {
+  test("agenda-only show (no diagrams) renders NO Diagrams block in Rooms", () => {
     render(
-      <VenueSection
+      <RoomsSection
         {...ledgerProp()}
         data={makeShowForViewer({ show: { agenda_links: AGENDA_LINKS }, diagrams: null })}
         viewer={VIEWER}

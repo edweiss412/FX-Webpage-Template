@@ -28,7 +28,7 @@
  * that is either a CARD_REGION_MAP key (→ must carry the helper-derived link) or
  * an OUT_OF_SCOPE_CARDS id (→ must carry no link).
  *
- * The nine sections are rendered REAL (synchronous Server Components resolved by
+ * The sections are rendered REAL (synchronous Server Components resolved by
  * a synchronous render — WrappedSection invokes its `render()` inline). The
  * crew client islands read matchMedia, which jsdom lacks — stub it (mirrors
  * crewShellSections.test.tsx).
@@ -38,10 +38,12 @@ import { cleanup, render } from "@testing-library/react";
 
 import { ContactsSection } from "@/components/crew/sections/ContactsSection";
 import { CrewSection } from "@/components/crew/sections/CrewSection";
+import { EventSection } from "@/components/crew/sections/EventSection";
+import { PackListSection } from "@/components/crew/sections/PackListSection";
 import { HotelsSection } from "@/components/crew/sections/HotelsSection";
 import { TransportSection } from "@/components/crew/sections/TransportSection";
 import { VenueSection } from "@/components/crew/sections/VenueSection";
-import { GearSection } from "@/components/crew/sections/GearSection";
+import { RoomsSection } from "@/components/crew/sections/RoomsSection";
 import { AgendaSection } from "@/components/crew/sections/AgendaSection";
 import { ScheduleSection } from "@/components/crew/sections/ScheduleSection";
 import { BillingSection } from "@/components/crew/sections/BillingSection";
@@ -233,7 +235,25 @@ function renderAllSections(data: ShowForViewer) {
         today={FROZEN_TODAY}
         showId="show-1"
       />
-      <GearSection
+      {/* The Event details panel holds three field cards, each a card of its own
+          nested in the panel's (PR C plan decision 4). */}
+      <EventSection
+        {...ledgerProp()}
+        data={data}
+        viewer={adminViewer}
+        today={FROZEN_TODAY}
+        showId="show-1"
+      />
+      <RoomsSection
+        {...ledgerProp()}
+        data={data}
+        viewer={adminViewer}
+        today={FROZEN_TODAY}
+        showId="show-1"
+      />
+      {/* The shell builds this only on a pack-list day; the section has no gate of its
+          own (PR C plan decision 1), so the walker sees its card on any fixture. */}
+      <PackListSection
         {...ledgerProp()}
         data={data}
         viewer={adminViewer}
@@ -292,6 +312,18 @@ afterEach(() => {
   vi.useRealTimers();
 });
 
+/**
+ * The first element under `card` matching `selector` that is the card's own: its
+ * nearest `[data-card-id]` is this card. A card can hold another (the Event details
+ * panel and its field cards, PR C plan decision 4), and the two can share a region,
+ * so a plain descendant search would let a nested card's slot satisfy its parent.
+ */
+function ownElement(card: Element, selector: string): Element | null {
+  return (
+    [...card.querySelectorAll(selector)].find((el) => el.closest("[data-card-id]") === card) ?? null
+  );
+}
+
 describe("source-link field-aware coverage walker (§8 / §12)", () => {
   // `client` is the first WARNING-ANCHOR-ONLY region: it is consumed ONLY by the
   // FIELD_LABEL_AUTOCORRECTED deep-link path (lib/drive/showDayTimeAnchors.ts:146), NOT a crew
@@ -301,7 +333,7 @@ describe("source-link field-aware coverage walker (§8 / §12)", () => {
   // renders the DATES block as its own card.
   const WARNING_ANCHOR_ONLY = new Set<string>(["client", "dates"]);
 
-  // `gear_scope` is consumed DYNAMICALLY by GearSection's runtime `scopeRegion`
+  // `gear_scope` is consumed DYNAMICALLY by RoomsSection's runtime anchor
   // selection (it prefers the `gear_scope` anchor when present, else the static
   // CARD_REGION_MAP → `rooms`), so it is intentionally NOT a static CARD_REGION_MAP
   // value and is exempt from the no-zombie-region parity check (gear-parser-fidelity Task 8).
@@ -335,15 +367,35 @@ describe("source-link field-aware coverage walker (§8 / §12)", () => {
     // near-empty render that trivially passes). Both classes must appear.
     expect(cards.length, "no data-card-id cards were discovered").toBeGreaterThan(8);
     // The home's run-of-show card is among them, with Today's card id (spec §6.4),
-    // and so are the show notes and Dress code cards the composed home kept (plan
-    // Task 11). The cards it retired (Tonight, Where, Need something, Key times)
+    // and so are the show notes card the composed home kept (plan Task 11) and the
+    // Dress code card, now a field card in Event details. The cards it retired (Tonight, Where, Need something, Key times)
     // render nowhere, and their ids left CARD_REGION_MAP: the quick facts and the
     // pass that replaced them are composites with no source link.
     const ids = cards.map((c) => c.getAttribute("data-card-id"));
-    for (const kept of ["today-run-of-show", "today-notes", "today-dress"]) {
+    for (const kept of [
+      "today-run-of-show",
+      "today-notes",
+      "today-dress",
+      "gear-tech-specs",
+      "gear-keynote",
+      "gear-opening-reel",
+      "gear-pack-list",
+      "gear-room-details",
+    ]) {
       expect(ids, kept).toContain(kept);
     }
-    for (const retired of ["today-tonight", "today-where", "today-contact", "today-key-times"]) {
+    for (const retired of [
+      "today-tonight",
+      "today-where",
+      "today-contact",
+      "today-key-times",
+      // The discipline cards: spec line 309 replaces them with rooms (plan decision 3).
+      "gear-scope-audio",
+      "gear-scope-video",
+      "gear-scope-lighting",
+      "gear-scope-scenic",
+      "gear-scope-other",
+    ]) {
       expect(ids, retired).not.toContain(retired);
       expect(Object.prototype.hasOwnProperty.call(CARD_REGION_MAP, retired), retired).toBe(false);
     }
@@ -367,9 +419,9 @@ describe("source-link field-aware coverage walker (§8 / §12)", () => {
         `card "${id}" is neither in CARD_REGION_MAP nor OUT_OF_SCOPE_CARDS`,
       ).toBe(true);
 
-      // Scope the link search to THIS card's header action slot so a sibling
-      // card's link can never satisfy a different card (anti-tautology).
-      const actionSlot = card.querySelector('[data-slot="section-card-action"]');
+      // Scope the link search to THIS card's own header action slot so a sibling or
+      // nested card's link can never satisfy a different card (anti-tautology).
+      const actionSlot = ownElement(card, '[data-slot="section-card-action"]');
       const sourceLink =
         actionSlot?.querySelector<HTMLAnchorElement>('a[data-slot="source-link"]') ?? null;
 
@@ -377,12 +429,12 @@ describe("source-link field-aware coverage walker (§8 / §12)", () => {
         sourceBackedSeen += 1;
         // `id` is a verified key of CARD_REGION_MAP (isMapped guard above), so the
         // CardId cast is sound; the lookup then yields a non-undefined RegionId.
-        // gear-scope-* cards select their region DYNAMICALLY (spec §3.6 / R4-M2):
-        // GearSection prefers the `gear_scope` anchor when present (GEAR-derived
+        // The Rooms panel selects its region DYNAMICALLY (spec §3.6 / R4-M2):
+        // RoomsSection prefers the `gear_scope` anchor when present (GEAR-derived
         // scope), else the static `rooms` region. Mirror that here so the expected
         // href matches the rendered one for both branches.
         const region =
-          id.startsWith("gear-scope-") && data.sourceAnchors["gear_scope"]
+          id === "gear-room-details" && data.sourceAnchors["gear_scope"]
             ? "gear_scope"
             : CARD_REGION_MAP[id as CardId];
         const expectedHref = buildSheetDeepLink(data.driveFileId, data.sourceAnchors[region]);
@@ -400,7 +452,7 @@ describe("source-link field-aware coverage walker (§8 / §12)", () => {
         outOfScopeSeen += 1;
         // No source link anywhere in the out-of-scope card.
         expect(
-          card.querySelector('a[data-slot="source-link"]'),
+          ownElement(card, 'a[data-slot="source-link"]'),
           `out-of-scope card "${id}" must NOT carry a source link`,
         ).toBeNull();
       }
@@ -421,8 +473,9 @@ describe("source-link field-aware coverage walker (§8 / §12)", () => {
 
     for (const card of cards) {
       const id = card.getAttribute("data-card-id")!;
-      // Scope to THIS card's subtree so a sibling's trigger can't satisfy it.
-      const hasTrigger = card.querySelector('[data-slot="card-report-trigger"]') !== null;
+      // Scope to THIS card's own elements so a sibling's or a nested card's trigger
+      // can't satisfy it.
+      const hasTrigger = ownElement(card, '[data-slot="card-report-trigger"]') !== null;
       if (Object.prototype.hasOwnProperty.call(CARD_REGION_MAP, id)) {
         expect(hasTrigger, `source-backed card "${id}" must expose a report trigger`).toBe(true);
         mappedWithTrigger += 1;
@@ -455,11 +508,11 @@ describe("source-link field-aware coverage walker (§8 / §12)", () => {
     expect(card.querySelector('a[data-slot="source-link"]')).toBeNull();
   });
 
-  it("gear-scope card keeps its dynamic gear_scope link after the CardHeaderActions migration", () => {
+  it("the Rooms panel keeps the scope cards' dynamic gear_scope link (plan decision 3)", () => {
     const data = fullFixture();
     const { container } = renderAllSections(data);
-    const card = container.querySelector('[data-card-id="gear-scope-audio"]')!;
-    const href = card.querySelector('a[data-slot="source-link"]')!.getAttribute("href");
+    const card = container.querySelector('[data-card-id="gear-room-details"]')!;
+    const href = ownElement(card, 'a[data-slot="source-link"]')!.getAttribute("href");
     // fullFixture() populates gear_scope → the card must use it, NOT rooms — proving
     // CardHeaderActions passes the call site's anchor expression through verbatim.
     expect(href).toBe(buildSheetDeepLink(data.driveFileId, data.sourceAnchors["gear_scope"]));
@@ -470,13 +523,15 @@ describe("source-link field-aware coverage walker (§8 / §12)", () => {
   // only this per-call-site assertion proves ScheduleSection actually PASSES
   // hitDirection="down" to the bare schedule-days header. A forgotten prop would
   // silently default schedule-days to "up", re-introducing the agenda bleed.
-  it("schedule-days actions grow DOWN; every other actions cluster grows UP (production wiring)", () => {
+  it("schedule-days, the opening reel's and the dress code's actions grow DOWN; every other actions cluster grows UP (production wiring)", () => {
     const { container } = renderAllSections(fullFixture());
     const clusters = Array.from(
       container.querySelectorAll<HTMLElement>('[data-slot="card-header-actions"]'),
     );
     expect(clusters.length, "no CardHeaderActions clusters rendered").toBeGreaterThan(8);
     let sawScheduleDown = false;
+    let sawReelDown = false;
+    let sawDressDown = false;
     for (const cluster of clusters) {
       const card = cluster.closest("[data-card-id]");
       const id = card?.getAttribute("data-card-id");
@@ -484,11 +539,25 @@ describe("source-link field-aware coverage walker (§8 / §12)", () => {
       if (id === "schedule-days") {
         expect(dir, "schedule-days must grow DOWN (clears the agenda above)").toBe("down");
         sawScheduleDown = true;
+      } else if (id === "gear-opening-reel") {
+        // Wrapped under the player on a phone, an upward overlay would sit on the
+        // video's controls (PR C Task 5, the browser check).
+        expect(dir, "the reel's actions must grow DOWN (clear the player above)").toBe("down");
+        sawReelDown = true;
+      } else if (id === "today-dress") {
+        // Beside a one-line keynote above it, an upward overlay took the keynote's
+        // controls and filed its reports here (PR C gate repair 3).
+        expect(dir, "the dress code's actions must grow DOWN (clear the keynote)").toBe("down");
+        sawDressDown = true;
       } else {
         expect(dir, `cluster in "${id}" must default to UP`).toBe("up");
       }
     }
     expect(sawScheduleDown, "schedule-days cluster was never rendered — assertion vacuous").toBe(
+      true,
+    );
+    expect(sawReelDown, "the reel's cluster was never rendered — assertion vacuous").toBe(true);
+    expect(sawDressDown, "the dress code's cluster was never rendered — assertion vacuous").toBe(
       true,
     );
   });

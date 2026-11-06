@@ -2,9 +2,9 @@
  * Splits an `event_details.dress_code` value into phase/attire pairs.
  *
  * The DRESS block (lib/parser/blocks/dress.ts) keeps the sheet's labels and joins
- * one line per phase with "\n": `Set/Strike: Black Pants, …` / `Show: …`. Both
- * dress renderers (crew Today card, admin step-3 review) show the phase as a
- * label over its attire instead of one undifferentiated block.
+ * one line per phase with "\n": `Set/Strike: Black Pants, …` / `Show: …`. The
+ * shared Event details body (crew section, admin step-3 review) shows the phase as
+ * a label over its attire instead of one undifferentiated block.
  *
  * Returns null unless there are at least two non-blank lines and EVERY one is
  * `<phase>: <attire>`, so free text and mixed values keep their plain

@@ -428,7 +428,10 @@ export const TAP_TARGET_CENSUS: readonly TapCensusRow[] = [
     // 4729 -> 4682 on feat/crew-page-redesign-pr-b Task 6 (CrewBreakdown's member list became one CrewBody call, its rows and their call and email anchors moved to components/show-panels/CrewBody.tsx, and one import landed, all above it); located by its own element (5-line context match).
     // 4682 -> 4601 on feat/crew-page-redesign-pr-b Task 7 (contentRows moved to components/show-panels/FieldRowList.tsx and contactBlocks with ContactsBreakdown's list and its call and email anchors to components/show-panels/ContactsBody.tsx, one import landed and the unused Avatar import left, all above it); located by its own element (5-line context match).
     // 4601 -> 4259 on feat/crew-page-redesign-pr-b Task 8 (MiniAvatar moved to components/show-panels/MiniAvatar.tsx, nightsBetween to components/show-panels/HotelCardBody.tsx, and TransportBody with its cells and contact anchors to components/show-panels/TransportBody.tsx, three lucide and four helper imports left and two imports landed, and HotelCard's markup with its date stub became one HotelCardBody call, all above it); located by its own element (5-line context match).
-    line: 4259,
+    // 4259 -> 4077 on feat/crew-page-redesign-pr-c Task 2 (EVENT_DETAIL_GROUPS moved to lib/crew/eventDetailsSpecs.ts, its boolean helpers and EventDetailsBreakdown's group list to components/show-panels/EventDetailsBody.tsx, five imports left, one landed); located by its own element (5-line context match).
+    // 4077 -> 3859 on feat/crew-page-redesign-pr-c Task 3 (the Rooms breakdown's room list moved to components/show-panels/RoomsBody.tsx and its scope rules to components/show-panels/roomScope.ts, five lucide imports left and three imports landed); located by its own element (5-line context match).
+    // 3859 -> 3736 on feat/crew-page-redesign-pr-c Task 4 (the pack list's case list moved to components/show-panels/PackListBody.tsx, arr to components/show-panels/fieldRows.ts and packItemLabel with them, and two imports left and two landed); located by its own element (5-line context match).
+    line: 3736,
     tag: "a",
     category: "full-bleed",
     reason:
@@ -555,7 +558,7 @@ export const TAP_TARGET_CENSUS: readonly TapCensusRow[] = [
   },
   {
     file: "components/crew/primitives/SourceLink.tsx",
-    line: 95,
+    line: 98,
     tag: "a",
     category: "padding-arithmetic",
     reason:
@@ -563,7 +566,7 @@ export const TAP_TARGET_CENSUS: readonly TapCensusRow[] = [
   },
   {
     file: "components/shared/CardReportTrigger.tsx",
-    line: 73,
+    line: 76,
     tag: "button",
     category: "padding-arithmetic",
     reason:

@@ -41,7 +41,6 @@ import {
   type CrewBodyProps,
 } from "@/components/show-panels/CrewBody";
 import * as crewBodyModule from "@/components/show-panels/CrewBody";
-import { CREW_MOVED_IDS } from "@/lib/crew/crewSections";
 import { createTileRenderLedger } from "@/lib/crew/tileRenderLedger";
 import type { ShowForViewer, Viewer } from "@/lib/data/getShowForViewer";
 import { showSection } from "@/lib/showSections/registry";
@@ -321,8 +320,7 @@ describe("CrewSection (crew)", () => {
     expect(card).toHaveTextContent("Pat");
   });
 
-  test("crew is a moved section: its label and glyph are the registry's (decisions 2 and 3)", () => {
-    expect(CREW_MOVED_IDS).toContain("crew");
+  test("crew's label and glyph are the registry's (decisions 2 and 3)", () => {
     expect(SECTION_ICON.crew).toBe(showSection("crew").icon);
   });
 });

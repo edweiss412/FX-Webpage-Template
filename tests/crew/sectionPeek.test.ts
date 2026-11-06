@@ -161,10 +161,12 @@ function fullShow(): ShowForViewer {
       dates: { travelIn: TRAVEL_IN, set: SET_DAY, showDays: SHOW_DAYS, travelOut: TRAVEL_OUT },
       schedule_phases: PHASES,
       agenda_links: [agendaLink("agenda-full", [agendaDay("Day 1", 2), agendaDay("Day 2", 1)])],
+      event_details: { stage_size: "8 x 24" },
     },
     hotelReservations: [reservation({})],
     transportation: transport([...CONTENT_LEGS, BLANK_LEG]),
     pullSheet: Array.from({ length: 14 }, (_, i) => ({ caseLabel: `Case ${i + 1}`, items: [] })),
+    rooms: [{ id: "r1", kind: "gs", name: "Ballroom" }],
     financials: { po: "PO-4471", proposal: null, invoice: null, invoice_notes: null },
     contacts: CONTACTS,
   });
@@ -202,7 +204,7 @@ function peek(
 function allPeeks(base: ShowForViewer, viewer: Viewer, today = middayOn(SET_DAY)) {
   const data = project(base, viewer);
   const ctx = resolveViewerContext(viewer, data);
-  return crewSectionsFor(data, ctx).map((s) => ({
+  return crewSectionsFor(data, { ...ctx, today }).map((s) => ({
     id: s.id,
     peek: sectionPeek(s.id, data, { ...ctx, today }),
   }));
@@ -267,7 +269,91 @@ describe("sectionPeek (peek, spec §4.6)", () => {
     expect(peek("contacts", one, crew("c-plain"))).toBe("1 contact");
   });
 
-  it("peek: gear counts a pack list only on the days its phase and stage gates show it", () => {
+  it("peek: event counts the fields the section shows, its own rule per key, and nothing at zero", () => {
+    const withDetails = (event_details: Record<string, string>, hasVideo = false) => {
+      const show = fullShow();
+      show.show.event_details = event_details;
+      show.openingReelHasVideo = hasVideo;
+      return show;
+    };
+    const shown = withDetails({
+      stage_size: "8 x 24",
+      keynote_requirements: "Clicker",
+      dress_code: "Show blacks",
+      opening_reel: "N/A", // the reel's rule keeps it
+      notes: "N/A", // every other field's drops it
+      internet: "SSID: Hall", // Venue's
+      power: "100-amp", // Venue's
+    });
+    expect(peek("event", shown, crew("c-plain"))).toBe("Dress code, keynote, 2 more");
+    expect(peek("event", withDetails({ stage_size: "8 x 24" }), crew("c-plain"))).toBe("1 detail");
+    // A playable video with a hidden cell is a field the section shows, under its label.
+    expect(peek("event", withDetails({}, true), crew("c-plain"))).toBe("1 detail");
+    expect(peek("event", withDetails({ opening_reel: "TBD" }, true), crew("c-plain"))).toBe(
+      "1 detail",
+    );
+    // The player does not count twice over its own text.
+    expect(peek("event", withDetails({ opening_reel: "YES" }, true), crew("c-plain"))).toBe(
+      "1 detail",
+    );
+    for (const details of [{}, { notes: "TBD" }, { internet: "SSID: Hall", power: "100-amp" }]) {
+      expect(
+        peek("event", withDetails(details), crew("c-plain")),
+        JSON.stringify(details),
+      ).toBeNull();
+    }
+  });
+
+  it("peek: event leads with the fact crew look for, on the real count", () => {
+    const withDetails = (event_details: Record<string, string>, hasVideo = false) => {
+      const show = fullShow();
+      show.show.event_details = event_details;
+      show.openingReelHasVideo = hasVideo;
+      return show;
+    };
+    const plain = crew("c-plain");
+    const dress = { dress_code: "Show blacks" };
+    const keynote = { keynote_requirements: "Clicker" };
+    const others = { stage_size: "8 x 24", fonts: "Brand Sans" };
+    expect(peek("event", withDetails({ ...dress, ...keynote, ...others }), plain)).toBe(
+      "Dress code, keynote, 2 more",
+    );
+    expect(peek("event", withDetails({ ...dress, ...others }), plain)).toBe("Dress code, 2 more");
+    expect(peek("event", withDetails({ ...keynote, ...others }), plain)).toBe("Keynote, 2 more");
+    expect(peek("event", withDetails({ ...dress, ...keynote }), plain)).toBe("Dress code, keynote");
+    expect(peek("event", withDetails(dress), plain)).toBe("Dress code");
+    // The player alone is a field the section draws, so it counts in "more".
+    expect(peek("event", withDetails(dress, true), plain)).toBe("Dress code, 1 more");
+    // A hidden value names nothing, and the rest still count.
+    expect(peek("event", withDetails({ dress_code: "TBD", ...others }), plain)).toBe("2 details");
+  });
+
+  it("peek: event reads a null event_details as no fields", () => {
+    const show = fullShow();
+    (show.show as { event_details: unknown }).event_details = null;
+    show.openingReelHasVideo = false;
+    expect(peek("event", show, crew("c-plain"))).toBeNull();
+  });
+
+  it("peek: rooms counts the rooms the section renders, every viewer alike, and nothing at zero", () => {
+    const withRooms = (rooms: unknown) => {
+      const show = fullShow();
+      (show as { rooms: unknown }).rooms = rooms;
+      return show;
+    };
+    const room = (id: string) => ({ id, kind: "breakout", name: `Room ${id}` });
+    // A room with no scope and no detail still renders its name, so it counts.
+    expect(peek("rooms", withRooms([room("a"), room("b"), room("c")]), crew("c-plain"))).toBe(
+      "3 rooms",
+    );
+    expect(peek("rooms", withRooms([room("a")]), crew("c-plain"))).toBe("1 room");
+    expect(peek("rooms", withRooms([]), crew("c-plain"))).toBeNull();
+    // Absent on a partial projection.
+    expect(peek("rooms", withRooms({ id: "not a list" }), crew("c-plain"))).toBeNull();
+    expect(peek("rooms", withRooms(null), crew("c-plain"))).toBeNull();
+  });
+
+  it("peek: packlist counts a pack list only on the days its phase and stage gates show it", () => {
     const show = fullShow();
     const cases = show.pullSheet!.length;
     for (const viewerId of ["c-plain", "c-strike", "c-set"]) {
@@ -279,7 +365,7 @@ describe("sectionPeek (peek, spec §4.6)", () => {
         expect(todayIsoInShowTimezone(show.show, today)).toBe(iso);
         const visible = isPackListVisibleToday({ show: show.show, restriction, today });
         outcomes.add(visible);
-        expect(peek("gear", show, crew(viewerId), today), `${viewerId} on ${iso}`).toBe(
+        expect(peek("packlist", show, crew(viewerId), today), `${viewerId} on ${iso}`).toBe(
           visible ? `${cases} cases` : null,
         );
       }
@@ -288,15 +374,21 @@ describe("sectionPeek (peek, spec §4.6)", () => {
     }
   });
 
-  it("peek: gear counts one case in the singular and an absent or empty pack list as nothing", () => {
+  it("peek: packlist counts one case in the singular and an absent or empty pack list as nothing", () => {
     const one = fullShow();
     one.pullSheet = [one.pullSheet![0]!];
-    expect(peek("gear", one, crew("c-plain"))).toBe("1 case");
+    expect(peek("packlist", one, crew("c-plain"))).toBe("1 case");
     for (const pullSheet of [null, []]) {
       const show = fullShow();
       show.pullSheet = pullSheet;
-      expect(peek("gear", show, crew("c-plain")), JSON.stringify(pullSheet)).toBeNull();
+      expect(peek("packlist", show, crew("c-plain")), JSON.stringify(pullSheet)).toBeNull();
     }
+  });
+
+  it("peek: packlist reads a pull sheet that is not a list as nothing", () => {
+    const show = fullShow();
+    (show as { pullSheet: unknown }).pullSheet = { caseLabel: "not a list" };
+    expect(peek("packlist", show, crew("c-plain"))).toBeNull();
   });
 
   it("peek: a transport leg never feeds the Transport peek for a viewer the transport gate excludes, and never the Hotels peek", () => {

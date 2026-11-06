@@ -6,8 +6,10 @@ import "@testing-library/jest-dom/vitest";
  * under the day row, the pass and the run-of-show card. It replaced
  * `TodaySection`; each retired Today block's successor is listed in the plan's
  * Task 11 table, and the cases that pinned a kept block moved here with their
- * failure modes (show notes, the Dress code card, the client-contact ban, the
- * admin fetch-failure blocks).
+ * failure modes (show notes, the client-contact ban, the admin fetch-failure
+ * blocks). The Dress code card left for Event details in PR C Task 5, its cases
+ * with it (tests/components/crew/sections/EventSection.test.tsx); the home keeps
+ * the case that it is gone.
  *
  * Expected values are read back from the fixture that produced them.
  */
@@ -99,18 +101,16 @@ const RETIRED_TEST_IDS = [
 ];
 
 describe("home: the composed body (spec §3.2, AC-1)", () => {
-  test("home: the body renders quick facts, then show notes, then the Dress code card, under section-today", () => {
+  test("home: the body renders quick facts, then show notes, under section-today", () => {
     const { container } = home(fullHome());
     const root = container.querySelector('[data-testid="section-today"]')!;
     expect(root).not.toBeNull();
     const facts = root.querySelector('[data-testid="crew-quick-facts"]')!;
     const notes = root.querySelector('[data-card-id="today-notes"]')!;
-    const dress = root.querySelector('[data-card-id="today-dress"]')!;
-    for (const el of [facts, notes, dress]) expect(el).not.toBeNull();
+    for (const el of [facts, notes]) expect(el).not.toBeNull();
     const follows = (a: Element, b: Element) =>
       Boolean(a.compareDocumentPosition(b) & Node.DOCUMENT_POSITION_FOLLOWING);
     expect(follows(facts, notes), "show notes follow quick facts").toBe(true);
-    expect(follows(notes, dress), "the Dress code card follows show notes").toBe(true);
     // The pass, the day row and the run card mount from the controller, never here.
     for (const id of ["crew-pass", "crew-day-row", "today-run-of-show"]) {
       expect(root.querySelector(`[data-testid="${id}"]`), id).toBeNull();
@@ -143,7 +143,7 @@ describe("home: the composed body (spec §3.2, AC-1)", () => {
     expect(ids.length).toBeGreaterThan(0);
   });
 
-  test("home: with no fact, note or dress code the body renders nothing at all", () => {
+  test("home: with no fact or note the body renders nothing at all", () => {
     const data = makeShowForViewer({ show: { venue: null }, contacts: [] });
     // PREMISE: nothing resolves.
     expect(buildQuickFacts({ data, viewer: CREW, today: TODAY })).toEqual([]);
@@ -154,16 +154,23 @@ describe("home: the composed body (spec §3.2, AC-1)", () => {
     expect(container.textContent).not.toContain("Quick facts");
   });
 
-  test("home: the notes and dress cards keep their card ids and header actions", () => {
+  test("home: the notes card keeps its card id", () => {
     const { container } = home(fullHome());
-    for (const id of ["today-notes", "today-dress"]) {
-      const card = container.querySelector(`[data-card-id="${id}"]`)!;
-      expect(card, id).not.toBeNull();
-      expect(card.getAttribute("data-testid"), id).toBe(id);
-    }
-    // The Dress code card carries the source link and the report trigger (spec §6.4).
-    const dress = container.querySelector('[data-card-id="today-dress"]')!;
-    expect(dress.querySelector('[data-slot="section-card-action"]')).not.toBeNull();
+    const card = container.querySelector('[data-card-id="today-notes"]')!;
+    expect(card).not.toBeNull();
+    expect(card.getAttribute("data-testid")).toBe("today-notes");
+  });
+
+  test("home: no Dress code card renders (spec line 316), while the quick fact still shows the value", () => {
+    const data = fullHome();
+    const dress = data.show.event_details.dress_code!;
+    const { container } = home(data);
+    const root = container.querySelector('[data-testid="section-today"]')!;
+    expect(root.querySelector('[data-card-id="today-dress"]')).toBeNull();
+    expect(root.querySelector('[data-testid="today-dress"]')).toBeNull();
+    // POSITIVE CONTROL: the value is in this render, as the quick fact.
+    const fact = root.querySelector('[data-testid="crew-quick-fact"][data-fact="dressCode"]');
+    expect(fact?.textContent).toContain(dress);
   });
 });
 
@@ -251,24 +258,6 @@ describe("home: kept blocks (spec §6.2 crew-only content)", () => {
     const { container } = home(data);
     expect(container.querySelector('[data-fact="dock"]')).toBeNull();
     expect(container.textContent).not.toContain("TBD");
-  });
-
-  test("home: the Dress code card renders each phase as a term over its attire", () => {
-    const data = makeShowForViewer({
-      show: {
-        event_details: {
-          dress_code:
-            "Set/Strike: Black Pants, Black Polo Shirt, Black Footwear\n" +
-            "Show: Black Pants, Black Long Sleeve Button Down Shirt, Black Footwear",
-        },
-      },
-    });
-    const { getByTestId } = home(data);
-    const card = within(getByTestId("today-dress"));
-    expect(card.getAllByRole("term").map((el) => el.textContent)).toEqual(["Set/Strike", "Show"]);
-    expect(card.getAllByRole("definition")[1]?.textContent).toBe(
-      "Black Pants, Black Long Sleeve Button Down Shirt, Black Footwear",
-    );
   });
 });
 

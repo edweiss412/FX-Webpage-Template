@@ -36,6 +36,14 @@ describe("OpeningReelVideo — drift placeholder", () => {
     expect(screen.queryByTestId("opening-reel-placeholder")).toBeNull();
   });
 
+  // Gate repair 12 (audit, outside the diff): a player with no name announces as "video".
+  test("the player carries an accessible name", () => {
+    render(<OpeningReelVideo showId={SHOW_ID} />);
+    expect(screen.getByTestId("opening-reel-video").getAttribute("aria-label")).toBe(
+      "Opening reel",
+    );
+  });
+
   test("Codex R25 P1: media error swaps <video> → placeholder element", () => {
     render(<OpeningReelVideo showId={SHOW_ID} />);
     const video = screen.getByTestId("opening-reel-video");

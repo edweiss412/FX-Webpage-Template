@@ -37,7 +37,6 @@ import {
 import { crewMailtoHref, crewTelHref } from "@/components/crew/sections/crewRows";
 import { ContactsBody, type ContactsBodyProps } from "@/components/show-panels/ContactsBody";
 import * as contactsBodyModule from "@/components/show-panels/ContactsBody";
-import { CREW_MOVED_IDS } from "@/lib/crew/crewSections";
 import { createTileRenderLedger } from "@/lib/crew/tileRenderLedger";
 import type { ShowForViewer, Viewer } from "@/lib/data/getShowForViewer";
 import type { ClientContact, ContactRow } from "@/lib/parser/types";
@@ -349,8 +348,7 @@ describe("ContactsSection (crew)", () => {
     expect(card).toHaveTextContent("Pat Venue");
   });
 
-  test("contacts is a moved section: its label and glyph are the registry's (decisions 2 and 3)", () => {
-    expect(CREW_MOVED_IDS).toContain("contacts");
+  test("contacts' label and glyph are the registry's (decisions 2 and 3)", () => {
     expect(SECTION_ICON.contacts).toBe(showSection("contacts").icon);
   });
 

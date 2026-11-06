@@ -188,17 +188,17 @@ export const CREW_REQUIRED_PAIRS = [
   },
   {
     title:
-      "T-NOPHANTOM-CREW [gear] @ 390: no zero-extent flex/grid item inside any gapped container",
+      "T-NOPHANTOM-CREW [rooms] @ 390: no zero-extent flex/grid item inside any gapped container",
     project: "mobile-safari",
   },
   {
     title:
-      "T-NOPHANTOM-CREW [gear] @ 1000: no zero-extent flex/grid item inside any gapped container",
+      "T-NOPHANTOM-CREW [rooms] @ 1000: no zero-extent flex/grid item inside any gapped container",
     project: "mobile-safari",
   },
   {
     title:
-      "T-NOPHANTOM-CREW [gear] @ 1280: no zero-extent flex/grid item inside any gapped container",
+      "T-NOPHANTOM-CREW [rooms] @ 1280: no zero-extent flex/grid item inside any gapped container",
     project: "mobile-safari",
   },
   // The Travel section's eyebrow cases, migrated to the Transport route legs (PR B Task 9).

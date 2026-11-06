@@ -4,7 +4,7 @@
 
 12px text needs 4.5:1. Both sites are pre-existing and outside the crew page redesign diff.
 
-The two named sites were one instance of a wider class. A sweep of all 57 mentions of `text-text-faint` found about thirty that carried real text, among them flight confirmation codes, bell panel timestamps and two input placeholders. All moved to `text-text-subtle`. `TransportBody`'s real vehicle sub lines moved up to `text-text` so sentinels stay muted, as spec 2026-10-26 line 293 requires. What stays at the faint rung is glyphs, aria-hidden separators, the OR divider, the wordmark and inactive components, each with its reason in `tests/styles/faintTextFloor.test.ts`, which fails a new site until it names one.
+The two named sites were one instance of a wider class. A sweep of all 57 mentions of `text-text-faint` found about thirty that carried real text, among them flight confirmation codes, bell panel timestamps and two input placeholders. All moved to `text-text-subtle`. `TransportBody`'s real vehicle sub lines moved up to `text-text` so sentinels stay muted, as spec 2026-10-26 line 293 requires. What stays at the faint rung is glyphs, aria-hidden separators, the OR divider, the wordmark and inactive components, each with its reason in `tests/styles/faintTextFloor.test.ts`, which fails a new site until it names one. PR #986 deleted `components/atoms/Section.tsx` before this merged, and the Diagrams heading now reads subtle through `SectionCard`.
 
 ## BL-SECTION-HEADER-VISUAL-REQUIRED-CONTEXT — promote the visual gate into branch protection's required set after soak — ✅ RESOLVED
 

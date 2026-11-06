@@ -471,6 +471,10 @@ describe("forced-colors state collapse (Arm 1)", () => {
     // 45 -> 47 on feat/crew-page-redesign-pr-b's invariant-8 gate repairs (row 17): the
     // roster's and the contacts' drawn action squares each carry the admin's arm and the
     // crew's (`actionTone`), two not-a-state rows.
+    // 47 -> 48 on feat/crew-page-redesign-pr-c's gate repair 8: the report modal's prompt
+    // carries the admin's arm and the crew's (`promptTone`), a not-a-state row.
+    // 48 -> 47 on fix/text-faint-contrast: every surface reads that prompt at the subtle
+    // tone now, so `promptTone` and its row are gone.
     expect(COLLAPSE_CENSUS).toHaveLength(COLLAPSE_ROWS);
     expect(new Set(COLLAPSE_CENSUS.map((r) => r.site)).size).toBe(COLLAPSE_ROWS);
     const repaired = COLLAPSE_CENSUS.filter((r) => r.disposition === "repaired");
@@ -704,7 +708,10 @@ describe("forced-colors state collapse (Arm 1)", () => {
       // body, components/show-panels/CrewBody.tsx, where the call, text and email
       // actions map through one anchor whose glyph is a table-read `<Icon>` (one row),
       // aria-hidden decoration inside a control the census disposes. Nothing else moved.
-    ).toBe(135);
+      // 135 -> 134 on feat/crew-page-redesign-pr-c Task 6, re-derived by running
+      // findUndecidable on the tree: the crew pack summary's `<ChevronRight>` left
+      // the Gear section for the shared body, whose chevron is already a row.
+    ).toBe(134);
     expect(
       undecidable.every((row) => /:\d+ </.test(row) || row.includes("single-path-state-variant")),
       "every cannot-decide row names a site",

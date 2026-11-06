@@ -7,7 +7,7 @@
  * `transportTileVisible`), Wi-Fi + power (event_details), COI status (the
  * `data-testid="coi-status"` AC-4.1 surface, sentinel-guarded so the span is
  * omitted entirely when hidden), venue notes, the Maps link (guarded by
- * `isParseableUrl`), and diagrams/agenda (ported DiagramsTile logic).
+ * `isParseableUrl`). Diagrams moved to Rooms (PR C Task 7).
  *
  * Covers §9 tests 24, 33 + the parking half of 17.
  */
@@ -222,16 +222,9 @@ test("the Venue panel surfaces name + city for a blank-address, city-in-name ven
   expect(lines(where)).toEqual(["Four Seasons Hotel", "Chicago"]);
 });
 
-test("the SPLIT branch hands the gallery a narrow thumbnail `sizes`; the full-width branch hands it none", () => {
-  // This call site is where the bandwidth regression actually lives: inside the
-  // split, the gallery sits in the narrow 1fr column (~92px thumbnails at
-  // 1440px), so the full-width default would make every thumbnail fetch a 1024
-  // variant where 256 suffices. Asserting only the prop plumbing further down
-  // leaves this branch free to drop the value (round-2 review finding).
-  const withLeft = makeShowForViewer({
-    show: {
-      venue: { name: "Center", address: "5 Ave", loadingDock: "Dock at rear" },
-    },
+test("Venue holds no Diagrams block and no columns: they sit in Rooms (spec line 317)", () => {
+  const data = makeShowForViewer({
+    show: { venue: { name: "Center", address: "5 Ave", loadingDock: "Dock at rear" } },
     diagrams: {
       snapshot_revision_id: "22222222-2222-4222-8222-222222222222",
       snapshot_status: "complete",
@@ -251,38 +244,54 @@ test("the SPLIT branch hands the gallery a narrow thumbnail `sizes`; the full-wi
       linkedFolderItems: [],
     },
   });
-
-  const split = render(
+  const { container } = render(
     <VenueSection
       {...ledgerProp()}
-      data={withLeft}
+      data={data}
       viewer={{ kind: "admin" }}
       today={TODAY}
       showId={SHOW_ID}
     />,
   );
-  const splitSizes = split.container.querySelector("img")?.getAttribute("sizes") ?? "";
-  expect(splitSizes.length).toBeGreaterThan(0);
-  // The value the split branch supplies is narrower than the component default,
-  // which is what makes the browser pick a smaller tier.
-  expect(splitSizes).toContain("92px");
-  cleanup();
+  // POSITIVE CONTROL: the section rendered its own cards, one after the other.
+  const root = container.querySelector('[data-testid="section-venue"]')!;
+  expect(root.querySelector('[data-testid="venue-where"]')?.parentElement).toBe(root);
+  expect(root.querySelector('[data-testid="venue-facilities"]')?.parentElement).toBe(root);
+  expect(container.querySelector('[data-testid="venue-diagrams"]')).toBeNull();
+  expect(container.querySelector('[data-testid="diagrams-tile"]')).toBeNull();
+  expect(container.querySelector('[data-testid="venue-column"]')).toBeNull();
+  expect(container.querySelector("img")).toBeNull();
+});
 
-  // No venue "left" content → no split → the gallery keeps its own default.
-  const noLeft = makeShowForViewer({
-    show: { venue: null },
-    diagrams: withLeft.diagrams,
+test("a show with diagrams and no venue details shows Venue's empty state", () => {
+  const data = makeShowForViewer({
+    show: { venue: null, coi_status: null, event_details: {} },
+    diagrams: {
+      snapshot_revision_id: "22222222-2222-4222-8222-222222222222",
+      snapshot_status: "complete",
+      linkedFolder: null,
+      embeddedImages: [
+        {
+          sheetTab: "DIAGRAMS",
+          objectId: "obj-1",
+          mimeType: "image/png",
+          sheetsRevisionId: "rev-1",
+          embeddedFingerprint: "fp",
+          recovery_disposition: "normal",
+          snapshotPath: null,
+        },
+      ],
+      linkedFolderItems: [],
+    },
   });
-  const full = render(
+  const { container } = render(
     <VenueSection
       {...ledgerProp()}
-      data={noLeft}
+      data={data}
       viewer={{ kind: "admin" }}
       today={TODAY}
       showId={SHOW_ID}
     />,
   );
-  const fullSizes = full.container.querySelector("img")?.getAttribute("sizes") ?? "";
-  expect(fullSizes).toContain("280px");
-  expect(fullSizes).not.toBe(splitSizes);
+  expect(container.querySelector('[data-testid="section-empty"]')).not.toBeNull();
 });

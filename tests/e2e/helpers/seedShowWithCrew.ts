@@ -41,7 +41,7 @@
  */
 import { execFileSync } from "node:child_process";
 import { randomBytes, randomUUID } from "node:crypto";
-import type { DateRestriction, ShowRow, StageRestriction } from "@/lib/parser/types";
+import type { DateRestriction, PullSheetCase, ShowRow, StageRestriction } from "@/lib/parser/types";
 import { psqlChildEnv, resolvePsqlTarget } from "./psqlTarget";
 import { admin } from "./supabaseAdmin";
 
@@ -77,6 +77,23 @@ export type SeedHotelReservationInput = {
   confirmationNo?: string | null;
   hotelAddress?: string | null;
   notes?: string | null;
+};
+
+/** One rooms row; omitted fields are written NULL. */
+export type SeedRoomInput = {
+  kind: "gs" | "breakout" | "additional";
+  name: string;
+  floor?: string | null;
+  dimensions?: string | null;
+  setup?: string | null;
+  setTime?: string | null;
+  showTime?: string | null;
+  strikeTime?: string | null;
+  audio?: string | null;
+  video?: string | null;
+  lighting?: string | null;
+  scenic?: string | null;
+  other?: string | null;
 };
 
 /** The show's transportation row; omitted fields are written NULL (schedule empty). */
@@ -127,7 +144,7 @@ export type SeedShowWithCrewOptions = {
    * shows.event_details jsonb (the parsed sheet's event-detail fields). Omit →
    * column left NULL, and `EventDetailsBreakdown` filters every group out, so
    * the review modal renders no event-detail section at all
-   * (components/admin/wizard/step3ReviewSections.tsx:2216-2221). Set it to
+   * (`eventDetailGroups`, lib/crew/eventDetailsSpecs.ts:75-92). Set it to
    * render real groups — e.g. the font-binding row measurement, which needs a
    * non-empty "Wardrobe & key moments" group.
    *
@@ -138,6 +155,16 @@ export type SeedShowWithCrewOptions = {
    * insert this helper already performs adds neither.
    */
   eventDetails?: ShowRow["event_details"];
+  /**
+   * The show's per-day work phases. `shows` has no such column: the projection
+   * reads `event_details.schedule_phases` when present and otherwise derives the
+   * map from `dates` (lib/data/getShowForViewer.ts), so this rides in the same
+   * jsonb on the same insert, the shape `eventDetails` above explains. Omit → the
+   * derived map. The pack list's gate reads it (`isPackListVisibleToday`).
+   */
+  schedulePhases?: ShowRow["schedule_phases"];
+  /** shows.pull_sheet jsonb, the pack list's cases. Omit → column left NULL. */
+  pullSheet?: PullSheetCase[] | null;
   crew?: SeedCrewMemberInput[];
   /**
    * shows_internal seed, written INSIDE the same locked transaction as the show
@@ -165,6 +192,17 @@ export type SeedShowWithCrewOptions = {
   hotelReservations?: SeedHotelReservationInput[];
   /** The show's transportation row, inserted in the same transaction. Omit → none. */
   transportation?: SeedTransportationInput;
+  /**
+   * rooms rows, inserted in the same locked transaction after the show, as
+   * `hotelReservations` are: the Waldorf seed's one room holds no discipline, so a
+   * Rooms case seeds its own. Omit → none.
+   */
+  rooms?: SeedRoomInput[];
+  /**
+   * shows.diagrams jsonb. Omit → column left NULL. Written by the same show insert,
+   * named only when supplied, as `venue` is.
+   */
+  diagrams?: unknown;
 };
 
 export type SeededShow = {
@@ -295,6 +333,11 @@ export async function seedShowWithCrew(options: SeedShowWithCrewOptions = {}): P
     flightInfo: c.flightInfo ?? null,
   }));
 
+  const eventDetails =
+    options.schedulePhases === undefined
+      ? (options.eventDetails ?? null)
+      : { ...options.eventDetails, schedule_phases: options.schedulePhases };
+
   // ONE locked transaction (invariant 2): purge residue, insert the show, insert
   // the crew — all under the held show lock. FK ON DELETE CASCADE clears prior
   // crew_members + show_share_tokens on the purge; the AFTER INSERT trigger mints
@@ -303,9 +346,9 @@ export async function seedShowWithCrew(options: SeedShowWithCrewOptions = {}): P
     `delete from public.shows where drive_file_id = ${sqlString(driveFileId)};`,
     `insert into public.shows
        (id, drive_file_id, slug, title, client_label, template_version,
-        published, archived, picker_epoch, dates, agenda_links, event_details${
+        published, archived, picker_epoch, dates, agenda_links, event_details, pull_sheet${
           options.venue === undefined ? "" : ", venue"
-        })
+        }${options.diagrams === undefined ? "" : ", diagrams"})
      values
        (${sqlString(showId)}::uuid, ${sqlString(driveFileId)}, ${sqlString(slug)},
         ${sqlString(options.title ?? "Picker E2E Show")},
@@ -314,9 +357,10 @@ export async function seedShowWithCrew(options: SeedShowWithCrewOptions = {}): P
         ${options.published ?? true}, ${options.archived ?? false}, ${pickerEpoch},
         ${sqlJsonbOrNull(options.dates ?? null)},
         ${sqlJsonbOrNull(options.agendaLinks ?? null)},
-        ${sqlJsonbOrNull(options.eventDetails ?? null)}${
+        ${sqlJsonbOrNull(eventDetails)},
+        ${sqlJsonbOrNull(options.pullSheet ?? null)}${
           options.venue === undefined ? "" : `, ${sqlJsonbOrNull(options.venue)}`
-        });`,
+        }${options.diagrams === undefined ? "" : `, ${sqlJsonbOrNull(options.diagrams)}`});`,
   ];
   for (const row of crewRows) {
     statements.push(
@@ -344,6 +388,19 @@ export async function seedShowWithCrew(options: SeedShowWithCrewOptions = {}): P
           ${h.checkIn == null ? "null" : `${sqlString(h.checkIn)}::date`},
           ${h.checkOut == null ? "null" : `${sqlString(h.checkOut)}::date`},
           ${sqlTextOrNull(h.notes)});`,
+    );
+  }
+  for (const r of options.rooms ?? []) {
+    statements.push(
+      `insert into public.rooms
+         (show_id, kind, name, floor, dimensions, setup, set_time, show_time, strike_time,
+          audio, video, lighting, scenic, other)
+       values
+         (${sqlString(showId)}::uuid, ${sqlString(r.kind)}, ${sqlString(r.name)},
+          ${sqlTextOrNull(r.floor)}, ${sqlTextOrNull(r.dimensions)}, ${sqlTextOrNull(r.setup)},
+          ${sqlTextOrNull(r.setTime)}, ${sqlTextOrNull(r.showTime)},
+          ${sqlTextOrNull(r.strikeTime)}, ${sqlTextOrNull(r.audio)}, ${sqlTextOrNull(r.video)},
+          ${sqlTextOrNull(r.lighting)}, ${sqlTextOrNull(r.scenic)}, ${sqlTextOrNull(r.other)});`,
     );
   }
   if (options.transportation !== undefined) {

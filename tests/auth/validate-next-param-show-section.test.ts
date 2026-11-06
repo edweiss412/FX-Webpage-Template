@@ -24,7 +24,7 @@ import { beforeEach, describe, expect, test } from "vitest";
 
 import { validateNextParamDetailed, DEFAULT_AUTH_NEXT_PATH } from "@/lib/auth/validateNextParam";
 import { CREW_SECTION_IDS, LEGACY_SECTION_ALIASES } from "@/lib/crew/resolveActiveSection";
-import { premise } from "@/tests/_shared/premise";
+import { premise, premiseHolds } from "@/tests/_shared/premise";
 
 const TOKEN = "a1b2c3d4e5f6789012345678901234567890abcdef0123456789abcdef012345";
 const SHOW = `/show/rpas-central/${TOKEN}`;
@@ -99,6 +99,18 @@ describe("validateNextParamDetailed — show-route section/gate preservation", (
     expect(validateNextParamDetailed(`${SHOW}?s=travel&gate=skip`)).toEqual({
       ok: true,
       path: `${SHOW}?s=hotels&gate=skip`,
+    });
+  });
+
+  test("gear alias: gear comes back as rooms, with and without a gate (PR C Task 8, the OAuth return)", () => {
+    premiseHolds("the aliases hold gear", Object.hasOwn(LEGACY_SECTION_ALIASES, "gear"));
+    expect(validateNextParamDetailed(`${SHOW}?s=gear`)).toEqual({
+      ok: true,
+      path: `${SHOW}?s=rooms`,
+    });
+    expect(validateNextParamDetailed(`${SHOW}?s=gear&gate=skip`)).toEqual({
+      ok: true,
+      path: `${SHOW}?s=rooms&gate=skip`,
     });
   });
 

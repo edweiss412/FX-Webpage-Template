@@ -49,7 +49,7 @@ describe("entryId", () => {
 
   it("hashes a null label as the empty string", () => {
     const fromNull = entryId(
-      "gear",
+      "event",
       "gear-keynote",
       "Keynote requirements",
       null,
@@ -57,7 +57,7 @@ describe("entryId", () => {
       new Map(),
     );
     const fromEmpty = entryId(
-      "gear",
+      "event",
       "gear-keynote",
       "Keynote requirements",
       "",
@@ -66,7 +66,7 @@ describe("entryId", () => {
     );
     expect(fromNull).toBe(fromEmpty);
     expect(fromNull).toBe(
-      `gear:gear-keynote:${fnv1a32(`Keynote requirements${US}${US}Two lavs`).toString(36)}`,
+      `event:gear-keynote:${fnv1a32(`Keynote requirements${US}${US}Two lavs`).toString(36)}`,
     );
   });
 
@@ -101,8 +101,8 @@ describe("entryId", () => {
     ["trailing whitespace", "Grand Ballroom", "Grand Ballroom "],
     ["punctuation", "Grand Ballroom", "Grand Ballroom."],
   ])("treats a %s difference as a different line", (_kind, left, right) => {
-    const a = entryId("gear", "gear-scope-video", "Video", left, "LED wall", new Map());
-    const b = entryId("gear", "gear-scope-video", "Video", right, "LED wall", new Map());
+    const a = entryId("rooms", "gear-room-details", "Video", left, "LED wall", new Map());
+    const b = entryId("rooms", "gear-room-details", "Video", right, "LED wall", new Map());
     expect(a).not.toBe(b);
   });
 
@@ -115,7 +115,7 @@ describe("entryId", () => {
 
   it("suffixes repeats in one section and region with ~2, ~3 in call order", () => {
     const seen = new Map<string, number>();
-    const args = ["gear", "gear-scope-audio", "Audio", "Breakout", "Podium mic"] as const;
+    const args = ["rooms", "gear-room-details", "Audio", "Breakout", "Podium mic"] as const;
     const first = entryId(...args, seen);
     const second = entryId(...args, seen);
     const third = entryId(...args, seen);
@@ -126,11 +126,11 @@ describe("entryId", () => {
 
   it("counts repeats per section and region, not per hash", () => {
     const seen = new Map<string, number>();
-    const inA = entryId("gear", "gear-scope-audio", "Audio", "Breakout", "Podium mic", seen);
-    const inB = entryId("gear", "gear-scope-video", "Audio", "Breakout", "Podium mic", seen);
+    const inA = entryId("rooms", "gear-room-details", "Audio", "Breakout", "Podium mic", seen);
+    const inB = entryId("rooms", "venue-diagrams", "Audio", "Breakout", "Podium mic", seen);
     const otherSection = entryId(
       "today",
-      "gear-scope-audio",
+      "gear-room-details",
       "Audio",
       "Breakout",
       "Podium mic",

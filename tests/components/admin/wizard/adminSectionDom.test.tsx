@@ -25,6 +25,12 @@
  * round 1. Their goldens were captured the same way, with `-u` on a worktree at
  * be05685ca (the unmodified admin tree), and compared here.
  *
+ * PR C moves three more bodies (event, rooms, packlist; plan
+ * docs/superpowers/plans/2026-11-05-crew-page-redesign-pr-c.md, Task 1). Their
+ * goldens were captured with `-u` at 847964cea, before any of the three moved. A
+ * scenario may carry an `act` that clicks before the capture, because the pack
+ * list's toggle is client state a first render cannot show.
+ *
  * A golden diff is a defect, never a re-baseline (plan, "Admin DOM invariant").
  * Regenerating is `-u` on purpose and is reviewable as a diff under `__golden__/`;
  * a MISSING golden fails here instead of being written, so a deleted file cannot
@@ -41,7 +47,7 @@ import { join } from "node:path";
 import { isDeepStrictEqual } from "node:util";
 import type { ComponentProps, ReactNode } from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { cleanup, render, waitFor } from "@testing-library/react";
+import { cleanup, fireEvent, render, waitFor } from "@testing-library/react";
 
 vi.mock("next/navigation", () => ({
   useRouter: () => ({ refresh: vi.fn(), push: vi.fn(), prefetch: vi.fn() }),
@@ -54,13 +60,20 @@ import { buildPublishedSectionData } from "@/components/admin/review/publishedAd
 import {
   buildStagedSectionData,
   isStaged,
+  type PublishedSectionData,
   type SectionData,
 } from "@/components/admin/review/sectionData";
 import { includesAgenda } from "@/components/admin/review/sectionInclusion";
+import { deriveArchivedOffers } from "@/components/admin/wizard/archivedTabOffer";
 import {
   CREW_CAP,
+  EVENT_DETAIL_GROUPS,
   HOTELS_CAP,
+  PACK_LIST_CASES_CAP,
+  PACK_LIST_ITEMS_CAP,
+  ROOMS_CAP,
   __resetAgendaThrottleForTests,
+  roomHasScope,
   step3Sections,
 } from "@/components/admin/wizard/step3ReviewSections";
 import { canonicalCrewKey } from "@/lib/admin/attentionItems";
@@ -74,32 +87,45 @@ import {
   EXTRACTOR_VERSION,
 } from "@/lib/agenda/constants";
 import type { AgendaExtraction } from "@/lib/agenda/types";
+import { parseDressCodeLines } from "@/lib/crew/dressCodeLines";
+import { EVENT_DETAILS_LABELS } from "@/lib/crew/eventDetailsSpecs";
 import { parseHotels } from "@/lib/parser/blocks/hotels";
 import type {
+  ArchivedPullSheetTab,
   ClientContact,
   ContactRow,
   CrewMemberRow,
   HotelReservationRow,
+  ParseResult,
   ParseWarning,
+  PersistedDiagrams,
+  PullSheetCase,
+  PullSheetItem,
+  RoomRow,
   ShowRow,
   TransportationRow,
 } from "@/lib/parser/types";
 import { newAggregator } from "@/lib/parser/warnings";
+import type { OverrideSnapshot } from "@/lib/sync/pullSheetOverride";
 import { shouldHideGenericOptional } from "@/lib/visibility/emptyState";
+import { stripOpeningReelText } from "@/lib/visibility/openingReelText";
 import type { ShowReviewSnapshot } from "@/lib/admin/readShowReviewSnapshot";
 import { premise, premiseHolds } from "@/tests/_shared/premise";
 import { buildPublishedSurfaceProps } from "@/tests/helpers/publishedSurfaceProps";
 import { sectionDataArgs, show, stagedRow } from "./_step3ReviewFixture";
 
-// ── The seven sections PR B moves (spec §6.3) ───────────────────────────────
+// ── The sections PR B and PR C move (spec §6.3) ─────────────────────────────
 
 const SHARED = [
   "venue",
+  "event",
   "crew",
   "contacts",
   "agenda",
   "hotels",
   "transport",
+  "rooms",
+  "packlist",
   "billing",
 ] as const satisfies readonly SectionId[];
 type SharedId = (typeof SHARED)[number];
@@ -139,13 +165,24 @@ function normalizeIds(html: string): string {
 
 type Billing = SectionData["billing"];
 
+/** Every label key, required. `ShowRow["event_details"]` is an open record, so a
+ *  label added later would slip past it; this type fails to compile instead. */
+type EventDetails = Record<keyof typeof EVENT_DETAILS_LABELS, string>;
+
+type Diagrams = ParseResult["diagrams"];
+
 type Content = {
   venue: ShowRow["venue"];
+  eventDetails: EventDetails | null;
   clientContact: ClientContact | null;
   contacts: ContactRow[];
   crew: CrewMemberRow[];
   hotels: HotelReservationRow[];
   transport: TransportationRow | null;
+  rooms: RoomRow[];
+  diagrams: Diagrams | null;
+  pullSheet: PullSheetCase[];
+  archivedTabs: ArchivedPullSheetTab[];
   billing: Billing;
   agendaLinks: AgendaLink[];
 };
@@ -177,6 +214,58 @@ function hotel(over: Partial<HotelReservationRow> & { ordinal: number }): HotelR
     ...over,
   };
 }
+
+function room(over: Partial<RoomRow> & { name: string }): RoomRow {
+  return {
+    kind: "gs",
+    dimensions: null,
+    floor: null,
+    setup: null,
+    set_time: null,
+    show_time: null,
+    strike_time: null,
+    audio: null,
+    video: null,
+    lighting: null,
+    scenic: null,
+    power: null,
+    digital_signage: null,
+    other: null,
+    notes: null,
+    ...over,
+  };
+}
+
+function diagramImage(over: Partial<DiagramImage> & { objectId: string }): DiagramImage {
+  return {
+    sheetTab: "DIAGRAMS",
+    mimeType: "image/png",
+    sheetsRevisionId: "sheet-rev-1",
+    embeddedFingerprint: null,
+    recovery_disposition: "normal" as const,
+    snapshotPath: null,
+    ...over,
+  };
+}
+
+function archivedTab(
+  over: Partial<ArchivedPullSheetTab> & { tabName: string },
+): ArchivedPullSheetTab {
+  return {
+    headerPreviews: ["RIA - CHICAGO, IL"],
+    fingerprint: `fingerprint-${over.tabName}`,
+    included: false,
+    contentChangedSinceAccept: false,
+    ...over,
+  };
+}
+
+const packItem = (n: number): PullSheetItem => ({
+  qty: n,
+  cat: "Audio",
+  subCat: null,
+  item: `Spare ${String(n).padStart(2, "0")}`,
+});
 
 function session(
   time: string,
@@ -236,6 +325,40 @@ function cappedExtraction(): AgendaExtraction {
   };
 }
 
+/** A key the labels do not name. The bodies render only labelled keys. */
+const OFF_LABEL_KEY = "budget_code";
+const OFF_LABEL_VALUE = "OFF-LABEL-NEVER-SHOWN";
+
+/** The last item of a case past the cap. Hidden until its toggle is clicked. */
+const PACK_TAIL_ITEM = "Spare 10";
+
+const REEL_WITH_URL = "YES - https://drive.google.com/file/d/reel-abc/view";
+
+/** Every group populated, one boolean each of Yes, No and neither, a reel value
+ *  carrying a URL and a phased dress code. */
+const EVENT_DETAILS: EventDetails = {
+  stage_size: "40ft x 24ft",
+  podium_type: "Acrylic with client logo",
+  polling: "Yes",
+  led: "12mm wall, 16x9",
+  scenic: "Black soft goods",
+  gooseneck: "2 wired",
+  digital_signage: "Four 55in screens in the foyer",
+  test_pattern: "Provided by FXAV",
+  fonts: "Gotham, supplied",
+  equipment_storage: "Room 110",
+  staff_office_room: "Room 112",
+  record: "No",
+  virtual_speaker: "Maybe, pending client",
+  virtual_audience: "yes - 200 seats",
+  notes: "Client rehearsal the night before",
+  keynote_requirements: "Confidence monitor and clicker",
+  opening_reel: REEL_WITH_URL,
+  internet: "Hardline at FOH",
+  power: "Two 200A disconnects",
+  dress_code: "Set/Strike: Black pants, black shirt\nShow: Business formal",
+};
+
 const FULL: Content = {
   venue: {
     name: "The Masonic Auditorium",
@@ -243,6 +366,13 @@ const FULL: Content = {
     city: "San Francisco, CA 94108",
     loadingDock: "Rear alley off Taylor St, 2 bays, 9ft clearance",
     googleLink: "https://maps.google.com/?q=masonic",
+  },
+  // A spread takes the off-label key past the type's excess property check. A
+  // blank value counts as no field, so "Gooseneck mics" stays out of the render.
+  eventDetails: {
+    ...EVENT_DETAILS,
+    gooseneck: "   ",
+    ...{ [OFF_LABEL_KEY]: OFF_LABEL_VALUE },
   },
   clientContact: {
     name: "Dana Client",
@@ -342,6 +472,109 @@ const FULL: Content = {
     ],
     notes: "Call the driver 30 minutes before load out.",
   },
+  rooms: [
+    room({
+      name: "Grand Ballroom",
+      dimensions: "120ft x 80ft",
+      floor: "Level 2",
+      setup: "Theater, 800",
+      set_time: "4/9 @ 8:00 AM",
+      show_time: "4/10 @ 9:00 AM",
+      strike_time: "4/11 @ 6:00 PM",
+      audio: "(2) Line array",
+      video: "(1) LED wall",
+      scenic: "Soft goods",
+      other: "Confidence monitors",
+    }),
+    // Empty disciplines listed first: the sort moves them below the real gear. Each
+    // spelling is a separate arm of the admin's emptiness test.
+    room({
+      kind: "breakout",
+      name: "Salon A",
+      setup: "   ",
+      audio: "N/A",
+      video: "(2) Projector",
+      lighting: "NA",
+      other: "Speaker timer",
+    }),
+    // No A/V at all: it renders, and the count leaves it out. Blank text counts as
+    // unparsed in the header and in the scope rows.
+    room({
+      kind: "additional",
+      name: "Storage Annex",
+      floor: "   ",
+      setup: "Hold for freight",
+      dimensions: "   ",
+      show_time: "   ",
+      audio: " not  specified ",
+      video: "   ",
+    }),
+    room({ name: "", video: "(1) Projector" }),
+    // Fillers sort after every room above in the published adapter's kind and name
+    // sort, so both modes keep the branch rooms inside ROOMS_CAP.
+    ...Array.from({ length: ROOMS_CAP - 2 }, (_, i) =>
+      room({ name: `Zed Room ${String(i + 5).padStart(2, "0")}`, video: "(1) Projector" }),
+    ),
+  ],
+  diagrams: {
+    linkedFolder: {
+      driveFolderId: "folder-full",
+      driveFolderUrl: "https://drive.google.com/drive/folders/folder-full",
+    },
+    embeddedImages: [
+      diagramImage({
+        objectId: "diagram-url",
+        alt: "Ballroom floor plan",
+        contentUrl: "https://lh3.googleusercontent.com/diagram-url",
+      }),
+      diagramImage({
+        objectId: "diagram-media",
+        mediaPartName: "xl/media/image2.png",
+        embeddedFingerprint: "fingerprint-media",
+      }),
+      // Neither mode can serve this one: staged distrusts the host, published the type.
+      diagramImage({
+        objectId: "diagram-unservable",
+        alt: "Rigging plot",
+        mimeType: "image/svg+xml",
+        contentUrl: "https://example.com/rigging.svg",
+      }),
+    ],
+    linkedFolderItems: [
+      {
+        driveFileId: "folder-item-1",
+        mimeType: "image/png",
+        drive_modified_time: "2026-04-01T12:00:00Z",
+        headRevisionId: "head-rev-1",
+        md5Checksum: "md5-1",
+        snapshotPath: null,
+      },
+    ],
+  },
+  pullSheet: [
+    {
+      caseLabel: "FOH Rack",
+      items: [
+        { qty: 2, cat: "Audio", subCat: "Mics", item: "SM58" },
+        { qty: null, cat: "Audio", subCat: null, item: "DI box" },
+        { qty: 1, cat: "TBD", subCat: "Cable", item: "XLR 25ft" },
+        { qty: null, cat: "N/A", subCat: "TBD", item: "" },
+        { qty: 3, cat: null, subCat: null, item: "   " },
+        { qty: 0, cat: null, subCat: null, item: "Gaff tape" },
+        ...[7, 8, 9, 10].map(packItem),
+      ],
+    },
+    // A blank label takes the position fallback.
+    { caseLabel: "", items: [packItem(1), packItem(2)] },
+    { caseLabel: "Empty Trunk", items: [] },
+    { caseLabel: "Video World", items: [1, 2, 3, 4, 5, 6, 7, 8, 9].map(packItem) },
+    ...Array.from({ length: PACK_LIST_CASES_CAP - 2 }, (_, i) => ({
+      caseLabel: `Overflow Case ${String(i + 5).padStart(2, "0")}`,
+      items: [packItem(1)],
+    })),
+  ],
+  // Staged only: the published adapter carries no archived tab.
+  archivedTabs: [archivedTab({ tabName: "OLD PULL SHEET" })],
   billing: {
     coiStatus: "Received",
     proposal: "P-2041",
@@ -358,6 +591,28 @@ const FULL: Content = {
 
 const SENTINEL: Content = {
   venue: { name: "TBD", address: "N/A", city: "TBA", loadingDock: "-", googleLink: "—" },
+  eventDetails: {
+    stage_size: "TBD",
+    podium_type: "N/A",
+    polling: "TBA",
+    led: "-",
+    scenic: "—",
+    gooseneck: "TBD",
+    digital_signage: "N/A",
+    test_pattern: "TBA",
+    fonts: "-",
+    equipment_storage: "—",
+    staff_office_room: "TBD",
+    record: "N/A",
+    virtual_speaker: "TBA",
+    virtual_audience: "-",
+    notes: "—",
+    keynote_requirements: "TBD",
+    opening_reel: "N/A",
+    internet: "TBA",
+    power: "-",
+    dress_code: "—",
+  },
   clientContact: {
     name: "TBD",
     phone: "N/A",
@@ -393,6 +648,29 @@ const SENTINEL: Content = {
     schedule: [{ stage: "TBD", date: "N/A", time: "TBA", assigned_names: ["-"] }],
     notes: "—",
   },
+  rooms: [
+    room({
+      name: "TBD",
+      dimensions: "N/A",
+      floor: "TBA",
+      setup: "-",
+      set_time: "—",
+      show_time: "TBD",
+      strike_time: "N/A",
+      audio: "TBA",
+      video: "-",
+      lighting: "—",
+      scenic: "TBD",
+      other: "N/A",
+    }),
+  ],
+  diagrams: {
+    linkedFolder: null,
+    embeddedImages: [diagramImage({ objectId: "diagram-sentinel", sheetTab: "TBD", alt: "N/A" })],
+    linkedFolderItems: [],
+  },
+  pullSheet: [{ caseLabel: "TBD", items: [{ qty: 1, cat: "N/A", subCat: "TBA", item: "-" }] }],
+  archivedTabs: [archivedTab({ tabName: "—", headerPreviews: ["TBD"] })],
   billing: { coiStatus: "TBD", proposal: "N/A", po: "TBA", invoice: "-", invoiceNotes: "—" },
   agendaLinks: [
     {
@@ -416,11 +694,16 @@ const SENTINEL: Content = {
 
 const EMPTY: Content = {
   venue: null,
+  eventDetails: null,
   clientContact: null,
   contacts: [],
   crew: [],
   hotels: [],
   transport: null,
+  rooms: [],
+  diagrams: null,
+  pullSheet: [],
+  archivedTabs: [],
   billing: { coiStatus: null, proposal: null, po: null, invoice: null, invoiceNotes: null },
   // One link and no extraction: the agenda section mounts and shows its
   // no-schedule state. (An empty link list removes the section; see nulldfid.)
@@ -451,6 +734,9 @@ const REQUIRED: unique symbol = Symbol("required");
 type Absent<T> = { readonly [K in keyof Required<T>]: T[K] | typeof REQUIRED };
 
 type Venue = NonNullable<Content["venue"]>;
+type DiagramFolder = NonNullable<Diagrams["linkedFolder"]>;
+type DiagramImage = Diagrams["embeddedImages"][number];
+type DiagramFolderItem = Diagrams["linkedFolderItems"][number];
 type ClientPerson = NonNullable<ClientContact["secondary"]>;
 type Transport = NonNullable<Content["transport"]>;
 type AgendaDay = AgendaExtraction["days"][number];
@@ -489,6 +775,7 @@ const POPULATED: Content = {
     notes: "Union house, 4 hour minimum",
     timezone: "America/Los_Angeles",
   },
+  eventDetails: EVENT_DETAILS,
   clientContact: {
     name: "Dana Client",
     phone: "(415) 555-0100",
@@ -555,6 +842,59 @@ const POPULATED: Content = {
     ],
     notes: "Call the driver 30 minutes before load out.",
   },
+  rooms: [
+    room({
+      name: "Grand Ballroom",
+      dimensions: "120ft x 80ft",
+      floor: "Level 2",
+      setup: "Theater, 800",
+      set_time: "4/9 @ 8:00 AM",
+      show_time: "4/10 @ 9:00 AM",
+      strike_time: "4/11 @ 6:00 PM",
+      audio: "(2) Line array",
+      video: "(1) LED wall",
+      lighting: "(24) Movers",
+      scenic: "Soft goods",
+      power: "Two 200A disconnects",
+      digital_signage: "Lobby screens",
+      other: "Confidence monitors",
+      notes: "Doors at 8",
+    }),
+  ],
+  diagrams: {
+    linkedFolder: {
+      driveFolderId: "folder-populated",
+      driveFolderUrl: "https://drive.google.com/drive/folders/folder-populated",
+    },
+    embeddedImages: [
+      diagramImage({
+        objectId: "diagram-populated",
+        alt: "Ballroom floor plan",
+        contentUrl: "https://lh3.googleusercontent.com/diagram-populated",
+        mediaPartName: "xl/media/image1.png",
+        embeddedFingerprint: "fingerprint-populated",
+      }),
+    ],
+    linkedFolderItems: [
+      {
+        driveFileId: "folder-item-1",
+        mimeType: "image/png",
+        alt: "Rigging plot",
+        drive_modified_time: "2026-04-01T12:00:00Z",
+        headRevisionId: "head-rev-1",
+        md5Checksum: "md5-1",
+        snapshotPath: null,
+      },
+    ],
+  },
+  pullSheet: [
+    {
+      caseLabel: "FOH Rack",
+      items: [{ qty: 2, cat: "Audio", subCat: "Mics", item: "SM58", rawSnippet: "2 SM58 mics" }],
+    },
+  ],
+  // Not included and no override: the offer is the state that shows a tab's fields.
+  archivedTabs: [archivedTab({ tabName: "OLD PULL SHEET", contentChangedSinceAccept: true })],
   billing: FULL.billing,
   agendaLinks: [
     {
@@ -569,11 +909,16 @@ const POPULATED: Content = {
 /** Which section reads each part of the content. */
 const CONTENT_SECTION: { readonly [K in keyof Content]-?: SharedId } = {
   venue: "venue",
+  eventDetails: "event",
   clientContact: "contacts",
   contacts: "contacts",
   crew: "crew",
   hotels: "hotels",
   transport: "transport",
+  rooms: "rooms",
+  diagrams: "rooms",
+  pullSheet: "packlist",
+  archivedTabs: "packlist",
   billing: "billing",
   agendaLinks: "agenda",
 };
@@ -582,11 +927,16 @@ const CONTENT_SECTION: { readonly [K in keyof Content]-?: SharedId } = {
  *  is left); a section's only part absent is the EMPTY scenario's case. */
 const CONTENT_ABSENT: Absent<Content> = {
   venue: null,
+  eventDetails: null,
   clientContact: null,
   contacts: [],
   crew: [],
   hotels: [],
   transport: null,
+  rooms: [],
+  diagrams: null,
+  pullSheet: [],
+  archivedTabs: [],
   billing: EMPTY.billing,
   agendaLinks: [],
 };
@@ -599,6 +949,29 @@ const VENUE_ABSENT: Absent<Venue> = {
   googleLink: null,
   notes: null,
   timezone: null,
+};
+
+const EVENT_DETAILS_ABSENT: Absent<EventDetails> = {
+  stage_size: "",
+  podium_type: "",
+  polling: "",
+  led: "",
+  scenic: "",
+  gooseneck: "",
+  digital_signage: "",
+  test_pattern: "",
+  fonts: "",
+  equipment_storage: "",
+  staff_office_room: "",
+  record: "",
+  virtual_speaker: "",
+  virtual_audience: "",
+  notes: "",
+  keynote_requirements: "",
+  opening_reel: "",
+  internet: "",
+  power: "",
+  dress_code: "",
 };
 
 const CLIENT_ABSENT: Absent<ClientContact> = {
@@ -668,6 +1041,77 @@ const LEG_ABSENT: Absent<Transport["schedule"][number]> = {
   assigned_names: [],
 };
 
+// `power`, `digital_signage` and `notes` reach no body today. They stay in the
+// cover because a body that starts showing one is what the cover exists to catch.
+const ROOM_ABSENT: Absent<RoomRow> = {
+  kind: REQUIRED,
+  name: "",
+  dimensions: null,
+  floor: null,
+  setup: null,
+  set_time: null,
+  show_time: null,
+  strike_time: null,
+  audio: null,
+  video: null,
+  lighting: null,
+  scenic: null,
+  power: null,
+  digital_signage: null,
+  other: null,
+  notes: null,
+};
+
+const DIAGRAMS_ABSENT: Absent<Diagrams> = {
+  linkedFolder: null,
+  embeddedImages: [],
+  linkedFolderItems: [],
+};
+
+const DIAGRAM_FOLDER_ABSENT: Absent<DiagramFolder> = { driveFolderId: "", driveFolderUrl: "" };
+
+const DIAGRAM_IMAGE_ABSENT: Absent<DiagramImage> = {
+  sheetTab: "",
+  objectId: REQUIRED,
+  mimeType: "",
+  alt: undefined,
+  contentUrl: null,
+  mediaPartName: undefined,
+  sheetsRevisionId: REQUIRED,
+  embeddedFingerprint: null,
+  recovery_disposition: REQUIRED,
+  snapshotPath: REQUIRED,
+};
+
+const DIAGRAM_FOLDER_ITEM_ABSENT: Absent<DiagramFolderItem> = {
+  driveFileId: REQUIRED,
+  mimeType: "",
+  alt: undefined,
+  drive_modified_time: REQUIRED,
+  headRevisionId: REQUIRED,
+  md5Checksum: REQUIRED,
+  snapshotPath: REQUIRED,
+};
+
+const PACK_CASE_ABSENT: Absent<PullSheetCase> = { caseLabel: "", items: [] };
+
+const PACK_ITEM_ABSENT: Absent<PullSheetItem> = {
+  qty: null,
+  cat: null,
+  subCat: null,
+  item: "",
+  rawSnippet: undefined,
+};
+
+// `included` picks the state, so the named pack scenarios below vary it.
+const ARCHIVED_TAB_ABSENT: Absent<ArchivedPullSheetTab> = {
+  tabName: "",
+  headerPreviews: [],
+  fingerprint: "",
+  included: REQUIRED,
+  contentChangedSinceAccept: false,
+};
+
 const BILLING_ABSENT: Absent<Billing> = {
   coiStatus: null,
   proposal: null,
@@ -708,6 +1152,7 @@ type Path = readonly (string | number)[];
 /** Every entity in POPULATED, with its table. Each entity's section is its root part's. */
 const ENTITIES: readonly { path: Path; absent: Readonly<Record<string, unknown>> }[] = [
   { path: ["venue"], absent: VENUE_ABSENT },
+  { path: ["eventDetails"], absent: EVENT_DETAILS_ABSENT },
   { path: ["clientContact"], absent: CLIENT_ABSENT },
   { path: ["clientContact", "secondary"], absent: CLIENT_PERSON_ABSENT },
   { path: ["contacts", 0], absent: CONTACT_ABSENT },
@@ -715,6 +1160,14 @@ const ENTITIES: readonly { path: Path; absent: Readonly<Record<string, unknown>>
   { path: ["hotels", 0], absent: HOTEL_ABSENT },
   { path: ["transport"], absent: TRANSPORT_ABSENT },
   { path: ["transport", "schedule", 0], absent: LEG_ABSENT },
+  { path: ["rooms", 0], absent: ROOM_ABSENT },
+  { path: ["diagrams"], absent: DIAGRAMS_ABSENT },
+  { path: ["diagrams", "linkedFolder"], absent: DIAGRAM_FOLDER_ABSENT },
+  { path: ["diagrams", "embeddedImages", 0], absent: DIAGRAM_IMAGE_ABSENT },
+  { path: ["diagrams", "linkedFolderItems", 0], absent: DIAGRAM_FOLDER_ITEM_ABSENT },
+  { path: ["pullSheet", 0], absent: PACK_CASE_ABSENT },
+  { path: ["pullSheet", 0, "items", 0], absent: PACK_ITEM_ABSENT },
+  { path: ["archivedTabs", 0], absent: ARCHIVED_TAB_ABSENT },
   { path: ["billing"], absent: BILLING_ABSENT },
   { path: ["agendaLinks", 0], absent: AGENDA_LINK_ABSENT },
   { path: ["agendaLinks", 0, "extracted"], absent: EXTRACTION_ABSENT },
@@ -859,11 +1312,16 @@ const JUDGED_HOTEL_INDEX = 1;
 
 // ── Mode projections ─────────────────────────────────────────────────────────
 
-function stagedData(c: Content, warnings: ParseWarning[] = []): SectionData {
+function stagedData(
+  c: Content,
+  warnings: ParseWarning[] = [],
+  pullSheetOverride: OverrideSnapshot = null,
+): SectionData {
   const args = sectionDataArgs(
     {
       show: show({
         venue: c.venue,
+        event_details: c.eventDetails ?? {},
         client_contact: c.clientContact,
         coi_status: c.billing.coiStatus,
         proposal: c.billing.proposal,
@@ -875,6 +1333,11 @@ function stagedData(c: Content, warnings: ParseWarning[] = []): SectionData {
       hotelReservations: c.hotels,
       transportation: c.transport,
       contacts: c.contacts,
+      rooms: c.rooms,
+      // Null keeps the fixture's parsed empty object, which is what the parser emits.
+      ...(c.diagrams === null ? {} : { diagrams: c.diagrams }),
+      pullSheet: c.pullSheet,
+      archivedPullSheetTabs: c.archivedTabs,
       warnings,
     },
     { dfid: DFID },
@@ -886,6 +1349,7 @@ function stagedData(c: Content, warnings: ParseWarning[] = []): SectionData {
     row: stagedRow(args.pr, { driveFileId: DFID }),
     wizardSessionId: WSID,
     agendaBaseline: buildAdminAgendaPreview(c.agendaLinks),
+    pullSheetOverride,
   });
 }
 
@@ -899,10 +1363,34 @@ function stagedReadyItems(c: Content): AdminAgendaItem[] {
   return buildAdminAgendaPreview(c.agendaLinks, { freshByLinkKey: fresh, validatedHrefs: true });
 }
 
+/** The parsed diagrams as Apply stores them: a snapshot path on each entry, inside
+ *  the `{ current }` wrapper `resolveCurrentDiagrams` reads. */
+function persistedDiagrams(d: Diagrams | null): { current: PersistedDiagrams } | null {
+  if (d === null) return null;
+  const pathOf = (id: string) => `diagrams/${SHOW_ID}/${id}.png`;
+  return {
+    current: {
+      snapshot_revision_id: "snapshot-rev-1",
+      snapshot_status: "complete",
+      linkedFolder: d.linkedFolder,
+      embeddedImages: d.embeddedImages.map((e) => ({ ...e, snapshotPath: pathOf(e.objectId) })),
+      linkedFolderItems: d.linkedFolderItems.map((e) => ({
+        ...e,
+        snapshotPath: pathOf(e.driveFileId),
+      })),
+    },
+  };
+}
+
 function publishedData(
   c: Content,
-  opts: { driveFileId: string | null; agendaLinks?: AgendaLink[] },
-): SectionData {
+  opts: {
+    driveFileId: string | null;
+    agendaLinks?: AgendaLink[];
+    archived?: boolean;
+    pullSheetOverride?: OverrideSnapshot;
+  },
+): PublishedSectionData {
   const snapshot: ShowReviewSnapshot = {
     show: {
       id: SHOW_ID,
@@ -916,14 +1404,15 @@ function publishedData(
         travelOut: "2026-04-12",
       },
       venue: c.venue,
-      event_details: null,
+      event_details: c.eventDetails,
       agenda_links: opts.agendaLinks ?? c.agendaLinks,
       coi_status: c.billing.coiStatus,
-      diagrams: null,
-      pull_sheet: [],
+      diagrams: persistedDiagrams(c.diagrams),
+      pull_sheet: c.pullSheet,
+      pull_sheet_override: opts.pullSheetOverride ?? null,
       source_anchors: {},
       drive_file_id: opts.driveFileId,
-      archived: false,
+      archived: opts.archived ?? false,
       published: true,
     },
     internal: {
@@ -943,7 +1432,7 @@ function publishedData(
       id: `00000000-0000-4000-8000-${String(i + 1).padStart(12, "0")}`,
       ...m,
     })),
-    rooms: [],
+    rooms: c.rooms.map((r, i) => ({ id: `room-${i + 1}`, ...r })),
     hotel_reservations: c.hotels.map((h) => ({ ...h })),
     transportation: c.transport ? [{ id: "transport-1", ...c.transport }] : [],
     contacts: c.contacts.map((x, i) => ({ id: `contact-${i + 1}`, ...x })),
@@ -966,9 +1455,17 @@ type Scenario = {
   /** Substrings the captured subtree must hold: the branch the input premise
    *  claims was in fact rendered, so the golden carries it. */
   reached: Partial<Record<`${Kind}:${SharedId}`, string[]>>;
+  /** Substrings the captured subtree must not hold, each one a value the fixture
+   *  carries or a branch another scenario reaches. */
+  omitted?: Partial<Record<`${Kind}:${SharedId}`, string[]>>;
   /** Given, the only kinds and sections this scenario captures (a field-boundary
    *  fixture captures its own section, bare). Absent: every kind, every section. */
   only?: { kinds: readonly Kind[]; sections: readonly SharedId[] };
+  /** Client interaction to run before the bare capture serializes. */
+  act?: (root: HTMLElement) => void;
+  /** Given, the scenario whose golden this one must equal. It writes no file of its
+   *  own: an interaction that ends where it began renders the state that scenario pinned. */
+  goldenOf?: string;
 };
 
 const STAGED_MOUNT: Scenario["surfaceProps"] = {
@@ -990,7 +1487,7 @@ function publishedMount(extra: Partial<Scenario["surfaceProps"]> = {}): Scenario
 const isSentinel = (v: string | null | undefined): boolean =>
   typeof v === "string" && v.trim() !== "" && shouldHideGenericOptional(v);
 
-/** Every text field the seven bodies show, read from the fixture's own inputs. */
+/** Every text field the shared bodies show, read from the fixture's own inputs. */
 function shownTextFields(c: Content): Record<SharedId, (string | null | undefined)[]> {
   const ex = c.agendaLinks
     .map((l) => l.extracted as AgendaExtraction | undefined)
@@ -1003,6 +1500,7 @@ function shownTextFields(c: Content): Record<SharedId, (string | null | undefine
       c.venue?.loadingDock,
       c.venue?.googleLink,
     ],
+    event: Object.values(c.eventDetails ?? {}),
     crew: c.crew.flatMap((m) => [m.name, m.role, m.phone, m.email]),
     contacts: [
       c.clientContact?.name,
@@ -1052,6 +1550,30 @@ function shownTextFields(c: Content): Record<SharedId, (string | null | undefine
           ...c.transport.schedule.flatMap((l) => [l.stage, l.date, l.time, ...l.assigned_names]),
         ]
       : [],
+    rooms: [
+      ...c.rooms.flatMap((r) => [
+        r.name,
+        r.dimensions,
+        r.floor,
+        r.setup,
+        r.set_time,
+        r.show_time,
+        r.strike_time,
+        r.audio,
+        r.video,
+        r.lighting,
+        r.scenic,
+        r.other,
+      ]),
+      ...(c.diagrams?.embeddedImages ?? []).flatMap((i) => [i.sheetTab, i.alt]),
+    ],
+    packlist: [
+      ...c.pullSheet.flatMap((k) => [
+        k.caseLabel,
+        ...k.items.flatMap((i) => [i.item, i.cat, i.subCat]),
+      ]),
+      ...c.archivedTabs.flatMap((t) => [t.tabName, ...t.headerPreviews]),
+    ],
     billing: [
       c.billing.coiStatus,
       c.billing.proposal,
@@ -1065,6 +1587,70 @@ function shownTextFields(c: Content): Record<SharedId, (string | null | undefine
 function fullPremises(c: Content, mode: "staged" | "published"): Scenario["inputPremises"] {
   const t = c.transport;
   return {
+    event: () => {
+      const d = c.eventDetails;
+      premiseHolds(
+        "every event group holds a field",
+        d !== null && EVENT_DETAIL_GROUPS.every((g) => g.keys.some((k) => d[k].trim() !== "")),
+      );
+      premiseHolds(
+        "a reel value that keeps text once its URL strips",
+        d !== null && !["", d.opening_reel].includes(stripOpeningReelText(d.opening_reel)),
+      );
+      premiseHolds("a phased dress code", d !== null && parseDressCodeLines(d.dress_code) !== null);
+      premiseHolds(
+        "a key outside the labels",
+        d !== null && OFF_LABEL_KEY in d && !(OFF_LABEL_KEY in EVENT_DETAILS_LABELS),
+      );
+    },
+    rooms: () => {
+      premise("rooms past ROOMS_CAP", c.rooms.length, ROOMS_CAP);
+      // Each branch room must render in both modes, and the published adapter sorts.
+      const shown =
+        mode === "staged"
+          ? c.rooms.slice(0, ROOMS_CAP)
+          : publishedData(c, { driveFileId: DFID }).rooms.slice(0, ROOMS_CAP);
+      premiseHolds(
+        "a rendered room of each kind",
+        (["gs", "breakout", "additional"] as const).every((k) => shown.some((r) => r.kind === k)),
+      );
+      premiseHolds(
+        "a rendered room with a blank name",
+        shown.some((r) => r.name === ""),
+      );
+      premiseHolds(
+        "a rendered discipline left null",
+        shown.some((r) => r.lighting === null),
+      );
+      premiseHolds(
+        "a rendered N/A discipline ahead of real gear in scope order",
+        shown.some((r) => r.audio === "N/A" && r.video !== null),
+      );
+      premiseHolds(
+        "a rendered placeholder room with no A/V",
+        shown.some((r) => !roomHasScope(r)),
+      );
+    },
+    packlist: () => {
+      premise("cases past PACK_LIST_CASES_CAP", c.pullSheet.length, PACK_LIST_CASES_CAP);
+      const shown = c.pullSheet.slice(0, PACK_LIST_CASES_CAP);
+      premise(
+        "a rendered case past PACK_LIST_ITEMS_CAP",
+        Math.max(...shown.map((k) => k.items.length)),
+        PACK_LIST_ITEMS_CAP,
+      );
+      const visible = shown.flatMap((k) => k.items.slice(0, PACK_LIST_ITEMS_CAP));
+      premiseHolds(
+        "a rendered case with no items and one with a blank label",
+        shown.some((k) => k.items.length === 0) && shown.some((k) => k.caseLabel === ""),
+      );
+      premiseHolds(
+        "a visible item with a null qty, a sentinel category and a blank name",
+        visible.some((i) => i.qty === null) &&
+          visible.some((i) => isSentinel(i.cat)) &&
+          visible.some((i) => i.item === ""),
+      );
+    },
     crew: () => premise("crew members past CREW_CAP", c.crew.length, CREW_CAP),
     hotels: () => premise("hotels past HOTELS_CAP", c.hotels.length, HOTELS_CAP),
     contacts: () =>
@@ -1112,6 +1698,13 @@ function sentinelPremises(c: Content): Scenario["inputPremises"] {
 function emptyPremises(c: Content): Scenario["inputPremises"] {
   return {
     venue: () => premiseHolds("no venue", c.venue === null),
+    event: () => premiseHolds("no event details", c.eventDetails === null),
+    rooms: () => premiseHolds("no rooms and no diagrams", !c.rooms.length && c.diagrams === null),
+    packlist: () =>
+      premiseHolds(
+        "no pack list and no archived tab",
+        !c.pullSheet.length && !c.archivedTabs.length,
+      ),
     crew: () => premiseHolds("no crew", c.crew.length === 0),
     contacts: () =>
       premiseHolds(
@@ -1133,6 +1726,44 @@ function emptyPremises(c: Content): Scenario["inputPremises"] {
   };
 }
 
+const EVENT_REACHED = [
+  ...EVENT_DETAIL_GROUPS.map((g) => g.title.replace("&", "&amp;")),
+  "Yes</span>",
+  "No</span>",
+  "Maybe, pending client",
+  ">YES<",
+  "<dl",
+];
+const EVENT_OMITTED = [OFF_LABEL_VALUE, "drive.google.com", ">Gooseneck mics<"];
+
+const ROOMS_REACHED = [
+  "…and 2 more rooms",
+  ">General session<",
+  ">Breakout<",
+  ">Additional<",
+  ">Room<",
+  ">Not specified<",
+  ">N/A<",
+  ">Storage Annex<",
+  "-diagram-tile-0",
+  "-diagram-folder-link",
+];
+
+const PACK_REACHED = [
+  "…and 2 more cases",
+  "Show all 10 items",
+  "Show all 9 items",
+  'aria-expanded="false"',
+  ">Case 2<",
+  ">Empty Trunk<",
+  "2 × SM58 (Audio / Mics)",
+  ">DI box (Audio)<",
+  "1 × XLR 25ft (Cable)",
+  "(unnamed item)",
+  "3 × (unnamed item)",
+  "0 × Gaff tape",
+];
+
 const FULL_REACHED: Scenario["reached"] = {
   "surface:crew": ["…and 2 more people", "Unnamed"],
   "bare:crew": ["…and 2 more people", "Unnamed"],
@@ -1146,6 +1777,28 @@ const FULL_REACHED: Scenario["reached"] = {
   "bare:agenda": ['data-testid="agenda-show-all"', "…and 4 more sessions"],
   "surface:venue": ['data-testid="venue-dock"', 'data-testid="venue-directions"'],
   "bare:venue": ['data-testid="venue-dock"', 'data-testid="venue-directions"'],
+  "surface:event": EVENT_REACHED,
+  "bare:event": EVENT_REACHED,
+  "surface:rooms": ROOMS_REACHED,
+  "bare:rooms": ROOMS_REACHED,
+  "surface:packlist": PACK_REACHED,
+  "bare:packlist": PACK_REACHED,
+};
+
+const FULL_OMITTED: NonNullable<Scenario["omitted"]> = {
+  "surface:event": EVENT_OMITTED,
+  "bare:event": EVENT_OMITTED,
+  "surface:packlist": [PACK_TAIL_ITEM],
+  "bare:packlist": [PACK_TAIL_ITEM],
+};
+
+const EMPTY_NEW_SECTIONS_REACHED: Scenario["reached"] = {
+  "surface:event": ["No event details parsed."],
+  "bare:event": ["No event details parsed."],
+  "surface:rooms": ["No rooms parsed."],
+  "bare:rooms": ["No rooms parsed."],
+  "surface:packlist": ["No pack list parsed."],
+  "bare:packlist": ["No pack list parsed."],
 };
 
 const FULL_STAGED_WARNINGS = [judgedHotelWarning(JUDGED_HOTEL_INDEX)];
@@ -1153,10 +1806,11 @@ const FULL_STAGED_WARNINGS = [judgedHotelWarning(JUDGED_HOTEL_INDEX)];
 const ATTENTION_ROW_NAME = "Avery Lead";
 const ATTENTION_ROW_INDEX = 3;
 
-/** Published crew attention: a section-top banner, three banners under one named
+/** Published attention. Crew: a section-top banner, three banners under one named
  *  row (two visible, one behind the "1 more" disclosure), and one banner fanned
- *  out by row index. Opaque nodes, as the modal hands them over. */
-function crewAttention(): SectionAttention {
+ *  out by row index. Event and rooms: one card on each section's content anchor.
+ *  Opaque nodes, as the modal hands them over. */
+function publishedAttention(): SectionAttention {
   const probe = (id: string): ReactNode => (
     <div key={id} data-testid={id}>
       {id}
@@ -1173,7 +1827,318 @@ function crewAttention(): SectionAttention {
     ]),
     byRowIndex: new Map([[ATTENTION_ROW_INDEX, [probe("probe-row-index-3")]]]),
   });
+  attention.set("event", {
+    sectionTop: [],
+    byAnchor: new Map([["opening_reel", [probe("probe-reel-anchor")]]]),
+  });
+  attention.set("rooms", {
+    sectionTop: [],
+    byAnchor: new Map([["diagrams", [probe("probe-diagrams-anchor")]]]),
+  });
   return attention;
+}
+
+// ── Named scenarios for what the field cover cannot reach ───────────────────
+
+const BARE_EVENT = { kinds: ["bare"], sections: ["event"] } as const;
+const BARE_PACKLIST = { kinds: ["bare"], sections: ["packlist"] } as const;
+
+function bareEventScenario(
+  name: string,
+  fields: Partial<EventDetails>,
+  rest: Pick<Scenario, "inputPremises" | "reached" | "omitted">,
+): Scenario {
+  const content = { ...POPULATED, eventDetails: { ...EVENT_DETAILS, ...fields } };
+  return {
+    name,
+    data: stagedData(content),
+    readyAgenda: [],
+    surfaceProps: STAGED_MOUNT,
+    agendaMounts: true,
+    only: BARE_EVENT,
+    ...rest,
+  };
+}
+
+const PURE_URL_REEL = "https://drive.google.com/file/d/reel-abc/view";
+const UNPHASED_DRESS = "Business casual";
+
+function eventScenarios(): Scenario[] {
+  return [
+    bareEventScenario(
+      "event-reel-pure-url",
+      { opening_reel: PURE_URL_REEL },
+      {
+        inputPremises: {
+          event: () =>
+            premiseHolds(
+              "a reel value that strips to nothing",
+              stripOpeningReelText(PURE_URL_REEL) === "",
+            ),
+        },
+        reached: { "bare:event": ["Display &amp; content", ">Fonts<"] },
+        omitted: { "bare:event": [">Opening reel<", "drive.google.com"] },
+      },
+    ),
+    bareEventScenario(
+      "event-dress-unphased",
+      { dress_code: UNPHASED_DRESS },
+      {
+        inputPremises: {
+          event: () =>
+            premiseHolds(
+              "a dress code with no phases",
+              parseDressCodeLines(UNPHASED_DRESS) === null,
+            ),
+        },
+        reached: { "bare:event": [`>${UNPHASED_DRESS}</p>`] },
+        omitted: { "bare:event": ["<dl"] },
+      },
+    ),
+    // The column is untyped JSONB, so a cell can arrive as a number or a null.
+    bareEventScenario(
+      "event-non-string-values",
+      { test_pattern: 12 as unknown as string, fonts: null as unknown as string },
+      {
+        inputPremises: {},
+        reached: { "bare:event": [">Test pattern<", ">12<"] },
+        omitted: { "bare:event": [">Fonts<"] },
+      },
+    ),
+  ];
+}
+
+const PACK_CASES: PullSheetCase[] = [
+  { caseLabel: "Current Rack", items: [{ qty: 1, cat: null, subCat: null, item: "DI box" }] },
+];
+
+const OFFER_TAB = archivedTab({ tabName: "OLD PULL SHEET", headerPreviews: ["RIA - CHICAGO, IL"] });
+const OFFER_TAB_BLANK_PREVIEW = archivedTab({ tabName: "OLD GEAR", headerPreviews: ["  "] });
+const CHANGED_TAB = archivedTab({ tabName: "OLD GEAR", contentChangedSinceAccept: true });
+const INCLUDED_TAB = archivedTab({ tabName: "OLD PULL SHEET", included: true });
+
+const snapshotOf = (t: ArchivedPullSheetTab): NonNullable<OverrideSnapshot> => ({
+  tabName: t.tabName,
+  fingerprint: t.fingerprint,
+});
+
+type PackState = {
+  name: string;
+  cases: PullSheetCase[];
+  tabs: ArchivedPullSheetTab[];
+  override: OverrideSnapshot;
+  /** What `deriveArchivedOffers` must return for these inputs. */
+  derives: { offers: number; divergent: boolean; included: boolean };
+  reached: string[];
+  omitted: string[];
+};
+
+/** The staged states `deriveArchivedOffers` separates (S1 is the empty scenarios),
+ *  and a case the state machine treats as plain cases. */
+const STAGED_PACK_STATES: PackState[] = [
+  {
+    name: "pack-s2-offers-staged",
+    cases: [],
+    tabs: [OFFER_TAB, OFFER_TAB_BLANK_PREVIEW],
+    override: null,
+    derives: { offers: 2, divergent: false, included: false },
+    reached: [
+      "Found a pull sheet on archived tab ‘OLD PULL SHEET’.",
+      "Found a pull sheet on archived tab ‘OLD GEAR’.",
+      "Case 1 header reads ‘(no header text)’.",
+    ],
+    omitted: ["No pack list parsed.", "Current Rack"],
+  },
+  {
+    name: "pack-s3-included-staged",
+    cases: PACK_CASES,
+    tabs: [INCLUDED_TAB, OFFER_TAB_BLANK_PREVIEW],
+    override: snapshotOf(INCLUDED_TAB),
+    derives: { offers: 0, divergent: false, included: true },
+    reached: ["Included from archived tab ‘OLD PULL SHEET’.", ">Revoke<", "Current Rack"],
+    omitted: ["Found a pull sheet", "pack-list-rescan-needed-"],
+  },
+  {
+    name: "pack-s4-mixed-staged",
+    cases: PACK_CASES,
+    tabs: [CHANGED_TAB],
+    override: null,
+    derives: { offers: 1, divergent: false, included: false },
+    reached: [
+      "The archived tab ‘OLD GEAR’ changed. Re-confirm before it publishes.",
+      "Current Rack",
+    ],
+    omitted: ["Found a pull sheet", "pack-list-rescan-needed-"],
+  },
+  {
+    name: "pack-s5-divergent-staged",
+    cases: [],
+    tabs: [OFFER_TAB],
+    override: snapshotOf(OFFER_TAB),
+    derives: { offers: 0, divergent: true, included: false },
+    reached: [`pack-list-rescan-needed-${DFID}`, "Your change was saved"],
+    omitted: ["Found a pull sheet", "Included from archived tab", "No pack list parsed."],
+  },
+  // A durable override with an empty preview is S5, never the S1 empty state.
+  {
+    name: "pack-s5-no-tabs-staged",
+    cases: [],
+    tabs: [],
+    override: snapshotOf(OFFER_TAB),
+    derives: { offers: 0, divergent: true, included: false },
+    reached: [`pack-list-rescan-needed-${DFID}`],
+    omitted: ["No pack list parsed."],
+  },
+  // The column is untyped JSONB: a case's items can arrive as anything.
+  {
+    name: "pack-items-not-an-array-staged",
+    cases: [{ caseLabel: "Malformed Case", items: null as unknown as PullSheetItem[] }],
+    tabs: [],
+    override: null,
+    derives: { offers: 0, divergent: false, included: false },
+    reached: [">Malformed Case<"],
+    omitted: ["<details", "No pack list parsed."],
+  },
+];
+
+function stagedPackScenario(s: PackState): Scenario {
+  const content = { ...POPULATED, pullSheet: s.cases, archivedTabs: s.tabs };
+  return {
+    name: s.name,
+    data: stagedData(content, [], s.override),
+    readyAgenda: [],
+    surfaceProps: STAGED_MOUNT,
+    agendaMounts: true,
+    only: BARE_PACKLIST,
+    inputPremises: {
+      packlist: () => {
+        const got = deriveArchivedOffers(s.tabs, true, s.override);
+        expect({
+          offers: got.offers.length,
+          divergent: got.divergent,
+          included: got.includedTab !== null,
+        }).toEqual(s.derives);
+      },
+    },
+    reached: { "bare:packlist": s.reached },
+    omitted: { "bare:packlist": s.omitted },
+  };
+}
+
+// PUBLISHED_ARCHIVED_OFFER_CAP is private to the admin module, so its value reaches
+// this file only through the overflow line `PUBLISHED_OFFER_OVERFLOW` names.
+const PUBLISHED_OFFER_TABS = ["OLD GEAR", "OLD PULL", "OLD RIG", "OLD VIDEO"];
+const PUBLISHED_OFFER_OVERFLOW = "and 1 more archived tabs. Resolve these in the sheet.";
+const PUBLISHED_OVERRIDE = { tabName: "OLD PULL SHEET", fingerprint: "fingerprint-published" };
+
+function publishedPackScenario(
+  name: string,
+  opts: { offer?: boolean; override?: boolean; canMutate: boolean; cases: PullSheetCase[] },
+  reached: string[],
+  omitted: string[],
+): Scenario {
+  const content = { ...POPULATED, pullSheet: opts.cases };
+  const base = publishedData(content, {
+    driveFileId: DFID,
+    archived: !opts.canMutate,
+    pullSheetOverride: opts.override ? PUBLISHED_OVERRIDE : null,
+  });
+  // `_showReviewModal` is the sole attach site; the adapter always emits null.
+  const data = opts.offer
+    ? { ...base, archivedTabOffer: { tabNames: PUBLISHED_OFFER_TABS, slug: SLUG } }
+    : base;
+  return {
+    name,
+    data,
+    readyAgenda: [],
+    surfaceProps: publishedMount(),
+    agendaMounts: true,
+    only: BARE_PACKLIST,
+    inputPremises: {
+      packlist: () =>
+        premiseHolds(
+          `published canMutate is ${opts.canMutate} (published, ${opts.canMutate ? "not " : ""}archived, a drive file id)`,
+          data.published && data.archived === !opts.canMutate && data.driveFileId === DFID,
+        ),
+    },
+    reached: { "bare:packlist": reached },
+    omitted: { "bare:packlist": omitted },
+  };
+}
+
+function publishedPackScenarios(): Scenario[] {
+  return [
+    publishedPackScenario(
+      "pack-offer-published",
+      { offer: true, canMutate: true, cases: PACK_CASES },
+      [...PUBLISHED_OFFER_TABS.slice(0, 3), PUBLISHED_OFFER_OVERFLOW, "Current Rack"],
+      [PUBLISHED_OFFER_TABS[3]!, "Undo"],
+    ),
+    publishedPackScenario(
+      "pack-offer-readonly-published",
+      { offer: true, canMutate: false, cases: [] },
+      [PUBLISHED_OFFER_OVERFLOW],
+      [...PUBLISHED_OFFER_TABS, "No pack list parsed."],
+    ),
+    publishedPackScenario(
+      "pack-override-published",
+      { override: true, canMutate: true, cases: PACK_CASES },
+      [PUBLISHED_OVERRIDE.tabName, ">Undo<", "Current Rack"],
+      [PUBLISHED_OFFER_OVERFLOW],
+    ),
+    publishedPackScenario(
+      "pack-override-readonly-published",
+      { override: true, canMutate: false, cases: [] },
+      [PUBLISHED_OVERRIDE.tabName],
+      [">Undo<", "No pack list parsed."],
+    ),
+  ];
+}
+
+const SHOW_ALL = /^Show all \d+ items$/;
+
+/** Clicks each pack list toggle matching `label`, and fails if there is none. */
+function clickToggles(root: HTMLElement, label: RegExp): void {
+  const toggles = [...root.querySelectorAll("button")].filter((b) =>
+    label.test(b.textContent ?? ""),
+  );
+  premise(`pack list toggles matching ${label}`, toggles.length, 0);
+  for (const toggle of toggles) fireEvent.click(toggle);
+}
+
+/** The pack list toggle's two client states. The FULL fixture's collapsed state is
+ *  `full-staged`'s own golden, so re-collapsing must land back on that file. */
+function packToggleScenarios(data: SectionData): Scenario[] {
+  const shared = {
+    data,
+    readyAgenda: [],
+    surfaceProps: STAGED_MOUNT,
+    agendaMounts: true,
+    only: BARE_PACKLIST,
+    inputPremises: fullPremises(FULL, "staged"),
+  } satisfies Partial<Scenario>;
+  return [
+    {
+      ...shared,
+      name: "pack-items-expanded",
+      act: (root) => clickToggles(root, SHOW_ALL),
+      reached: {
+        "bare:packlist": ['aria-expanded="true"', "Show fewer items", PACK_TAIL_ITEM],
+      },
+      omitted: { "bare:packlist": ['aria-expanded="false"', "Show all"] },
+    },
+    {
+      ...shared,
+      name: "pack-items-recollapsed",
+      act: (root) => {
+        clickToggles(root, SHOW_ALL);
+        clickToggles(root, /^Show fewer items$/);
+      },
+      goldenOf: "full-staged",
+      reached: { "bare:packlist": ['aria-expanded="false"', "Show all 10 items"] },
+      omitted: { "bare:packlist": ['aria-expanded="true"', PACK_TAIL_ITEM] },
+    },
+  ];
 }
 
 function buildScenarios(): Scenario[] {
@@ -1203,6 +2168,7 @@ function buildScenarios(): Scenario[] {
           );
         },
       },
+      omitted: FULL_OMITTED,
       reached: {
         ...FULL_REACHED,
         "surface:hotels": [
@@ -1216,7 +2182,7 @@ function buildScenarios(): Scenario[] {
       name: "full-published",
       data: fullPublished,
       readyAgenda: [],
-      surfaceProps: publishedMount({ sectionAttention: crewAttention() }),
+      surfaceProps: publishedMount({ sectionAttention: publishedAttention() }),
       agendaMounts: true,
       inputPremises: {
         ...fullPremises(FULL, "published"),
@@ -1243,6 +2209,7 @@ function buildScenarios(): Scenario[] {
           );
         },
       },
+      omitted: FULL_OMITTED,
       reached: {
         ...FULL_REACHED,
         "surface:crew": [
@@ -1253,6 +2220,16 @@ function buildScenarios(): Scenario[] {
           'data-testid="crew-row-menu-button-',
         ],
         "bare:crew": [...(FULL_REACHED["bare:crew"] ?? []), 'data-testid="crew-row-menu-button-'],
+        "surface:event": [
+          ...EVENT_REACHED,
+          'data-testid="event-opening-reel"',
+          'data-testid="probe-reel-anchor"',
+        ],
+        "surface:rooms": [
+          ...ROOMS_REACHED,
+          'data-testid="published-diagrams-subblock"',
+          'data-testid="probe-diagrams-anchor"',
+        ],
       },
     },
     {
@@ -1274,6 +2251,7 @@ function buildScenarios(): Scenario[] {
       reached: {
         "surface:agenda": ["No schedule detected in this PDF."],
         "bare:agenda": ["No schedule detected in this PDF."],
+        ...EMPTY_NEW_SECTIONS_REACHED,
       },
     },
     {
@@ -1286,6 +2264,7 @@ function buildScenarios(): Scenario[] {
       reached: {
         "surface:agenda": ["No schedule detected in this PDF."],
         "bare:agenda": ["No schedule detected in this PDF."],
+        ...EMPTY_NEW_SECTIONS_REACHED,
       },
     },
     {
@@ -1305,6 +2284,10 @@ function buildScenarios(): Scenario[] {
         "surface:venue": ['data-testid="wizard-step3-card--review-section-venue"'],
       },
     },
+    ...eventScenarios(),
+    ...STAGED_PACK_STATES.map(stagedPackScenario),
+    ...publishedPackScenarios(),
+    ...packToggleScenarios(fullStaged),
     ...FIELD_VARIANTS.map(
       (v): Scenario => ({
         name: v.name,
@@ -1339,7 +2322,7 @@ function kindsOf(sc: Scenario): readonly Kind[] {
 }
 
 function goldenName(sc: Scenario, kind: Kind, id: SharedId): string {
-  return `${sc.name}--${kind}--${id}.html`;
+  return `${sc.goldenOf ?? sc.name}--${kind}--${id}.html`;
 }
 
 // ── Capture ──────────────────────────────────────────────────────────────────
@@ -1424,6 +2407,7 @@ async function captureBare(sc: Scenario): Promise<Map<SharedId, string>> {
     if (!captured.has(def.id)) continue;
     const view = render(<>{def.render(sc.data)}</>);
     await settle(view.container, sc.data, id === "agenda");
+    sc.act?.(view.container);
     out.set(id, normalizeIds(view.container.innerHTML));
     view.unmount();
   }
@@ -1443,13 +2427,14 @@ async function compareGolden(name: string, html: string): Promise<void> {
   if (!existsSync(join(GOLDEN_DIR, name)) && !updatingGoldens()) {
     throw new Error(
       `golden ${name} is missing. The goldens are captured once, with -u, on the unmodified ` +
-        "admin tree (PR B plan, Task 1); a missing one is a defect, never a fresh capture.",
+        "admin tree (Task 1 of the PR B and PR C plans); a missing one is a defect, never a " +
+        "fresh capture.",
     );
   }
   await expect(`${html}\n`).toMatchFileSnapshot(`./__golden__/${name}`);
 }
 
-describe("admin section DOM golden (spec line 505, PR B invariant)", () => {
+describe("admin section DOM golden (spec line 505, PR B and PR C invariant)", () => {
   describe.each(SCENARIOS)("$name", (sc) => {
     it("mounts the agenda section exactly when its fixture says it does", () => {
       expect(includesAgenda(sc.data)).toBe(sc.agendaMounts);
@@ -1471,6 +2456,9 @@ describe("admin section DOM golden (spec line 505, PR B invariant)", () => {
         for (const needle of sc.reached[`${kind}:${id}`] ?? []) {
           premiseHolds(`the ${kind} ${id} subtree renders ${needle}`, html!.includes(needle));
         }
+        for (const needle of sc.omitted?.[`${kind}:${id}`] ?? []) {
+          premiseHolds(`the ${kind} ${id} subtree omits ${needle}`, !html!.includes(needle));
+        }
         await compareGolden(goldenName(sc, kind, id), html!);
       });
     });
@@ -1484,9 +2472,13 @@ describe("admin section DOM golden (spec line 505, PR B invariant)", () => {
   });
 
   it("the golden directory holds exactly the goldens the scenarios derive", () => {
-    const expected = SCENARIOS.flatMap((sc) =>
-      kindsOf(sc).flatMap((kind) => sectionsOf(sc).map((id) => goldenName(sc, kind, id))),
-    ).sort();
+    const expected = [
+      ...new Set(
+        SCENARIOS.flatMap((sc) =>
+          kindsOf(sc).flatMap((kind) => sectionsOf(sc).map((id) => goldenName(sc, kind, id))),
+        ),
+      ),
+    ].sort();
     premise("the scenarios derive at least one golden", expected.length, 0);
     const actual = readdirSync(GOLDEN_DIR)
       .filter((f) => f.endsWith(".html"))

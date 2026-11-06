@@ -89,10 +89,11 @@ export function deleteShowBody(driveFileId: string): string {
 
 /**
  * The jsonb columns a fixture may rewrite in place (crew page redesign plan
- * Task 12): the day set, the agenda links and the venue. Named, so a typo'd or
- * non-jsonb column is a compile error rather than a runtime SQL fault.
+ * Task 12): the day set, the agenda links, the venue and the event details, which
+ * hold the persisted work phases the pack list's gate reads (PR C Task 6). Named, so
+ * a typo'd or non-jsonb column is a compile error rather than a runtime SQL fault.
  */
-export type UpdatableShowColumn = "dates" | "agenda_links" | "venue";
+export type UpdatableShowColumn = "dates" | "agenda_links" | "venue" | "event_details";
 
 /** The in-place update body, exported for the same reason as `lockedStatement`. */
 export function updateShowBody(

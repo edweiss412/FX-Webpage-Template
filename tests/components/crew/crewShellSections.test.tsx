@@ -30,9 +30,17 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { cleanup, render, screen } from "@testing-library/react";
 import type { ShowForViewer, Viewer } from "@/lib/data/getShowForViewer";
 import { CREW_SECTION_IDS, type SectionId } from "@/lib/crew/resolveActiveSection";
+import type { WorkPhase } from "@/lib/parser/types";
 
-/** Every body a fully entitled viewer gets: the home plus every crew section. */
-const ALL_KEYS: SectionId[] = ["today", ...CREW_SECTION_IDS];
+/**
+ * Every body a fully entitled viewer gets on these fixtures: the home plus every
+ * crew section but Pack list, whose gate needs a work phase on the day and whose own
+ * block below seeds one (PR C Task 6).
+ */
+const ALL_KEYS: SectionId[] = [
+  "today",
+  ...CREW_SECTION_IDS.filter((id) => (id as string) !== "packlist"),
+];
 /**
  * What a crew lead gets on these fixtures: everything but Transport, whose gate
  * (PR B Task 9) admits an admin, a rider or a viewer with a flight, and the
@@ -131,14 +139,14 @@ vi.mock("@/components/crew/sections/TransportSection", () => ({
 vi.mock("@/components/crew/sections/CrewSection", () => ({
   CrewSection: sectionMarker("section-crew"),
 }));
-vi.mock("@/components/crew/sections/GearSection", () => ({
-  GearSection: sectionMarker("section-gear"),
-}));
 vi.mock("@/components/crew/sections/BillingSection", () => ({
   BillingSection: sectionMarker("section-billing"),
 }));
 vi.mock("@/components/crew/sections/AgendaSection", () => ({
   AgendaSection: sectionMarker("section-agenda"),
+}));
+vi.mock("@/components/crew/sections/PackListSection", () => ({
+  PackListSection: sectionMarker("section-packlist"),
 }));
 
 beforeEach(() => {
@@ -367,6 +375,90 @@ describe("CrewShell builds the Agenda body for every viewer whose dates are not 
       cleanup();
       captured.value = null;
     }
+  });
+});
+
+// ============================================================================
+// The Pack list body exists only on a day its gate admits (PR C Task 6, decision 1)
+// ============================================================================
+describe("CrewShell builds the Pack list body only for an entitled viewer (PR C Task 6)", () => {
+  /** The pinned clock's day in the show's timezone. */
+  const TODAY_ISO = "2026-05-14";
+  const onPhase = (phase: WorkPhase, stages?: WorkPhase[]) =>
+    populated({
+      show: { schedule_phases: { [TODAY_ISO]: [phase] } },
+      pullSheet: [{ caseLabel: "FOH Rack", items: [] }],
+      crewMembers: [
+        {
+          id: CREW_ID,
+          name: "Pat Packer",
+          email: null,
+          phone: null,
+          role: "",
+          roleFlags: [],
+          dateRestriction: { kind: "none" },
+          stageRestriction: stages ? { kind: "explicit", stages } : { kind: "none" },
+        },
+      ],
+    });
+  const listed = () => captured.value!.sections.map((x) => x.id);
+
+  it("pack list: on a Set day the body is built, the row carries its peek, and ?s=packlist opens it", async () => {
+    await renderShell({ data: onPhase("Set"), viewer: crewViewer, rawSection: "packlist" });
+    expect(Object.keys(captured.value!.sectionNodes)).toContain("packlist");
+    expect(captured.value!.sections.find((x) => x.id === "packlist")?.peek).toBe("1 case");
+    expect(captured.value!.initialSection).toBe("packlist");
+    expect(screen.getByTestId("section-packlist")).toBeTruthy();
+  });
+
+  it("pack list: on a Show day no body and no row are built, for crew or a plain admin, and ?s=packlist resolves home", async () => {
+    for (const viewer of [crewViewer, adminViewer]) {
+      await renderShell({ data: onPhase("Show"), viewer, rawSection: "packlist" });
+      const keys = Object.keys(captured.value!.sectionNodes);
+      // PREMISE: the rest of the page is built, so the missing key is the gate's doing.
+      expect(keys).toContain("venue");
+      expect(keys, viewer.kind).not.toContain("packlist");
+      expect(listed(), viewer.kind).not.toContain("packlist");
+      expect(captured.value!.initialSection).toBe("today");
+      cleanup();
+      captured.value = null;
+    }
+  });
+
+  it("pack list: a viewer's stages that exclude the day's phase refuse the body, and ones that hold it keep it", async () => {
+    await renderShell({
+      data: onPhase("Set", ["Strike"]),
+      viewer: crewViewer,
+      rawSection: "packlist",
+    });
+    expect(Object.keys(captured.value!.sectionNodes)).not.toContain("packlist");
+    expect(captured.value!.initialSection).toBe("today");
+    cleanup();
+    captured.value = null;
+    await renderShell({
+      data: onPhase("Set", ["Set"]),
+      viewer: crewViewer,
+      rawSection: "packlist",
+    });
+    expect(Object.keys(captured.value!.sectionNodes)).toContain("packlist");
+    expect(captured.value!.initialSection).toBe("packlist");
+  });
+
+  it("pack list: the gate reads the shell's clock, so the next day is no member", async () => {
+    nowDate.mockResolvedValueOnce(new Date("2026-05-15T15:00:00Z"));
+    await renderShell({ data: onPhase("Set"), viewer: crewViewer, rawSection: "packlist" });
+    expect(Object.keys(captured.value!.sectionNodes)).not.toContain("packlist");
+    expect(captured.value!.initialSection).toBe("today");
+  });
+
+  it("pack list: the id wires to its own section component", async () => {
+    await renderShell({ data: onPhase("Set"), viewer: adminViewer, rawSection: "today" });
+    const host = document.createElement("div");
+    document.body.appendChild(host);
+    const { unmount } = render(<>{captured.value!.sectionNodes.packlist}</>, { container: host });
+    expect(host.querySelector('[data-testid="section-packlist"]')).not.toBeNull();
+    unmount();
+    host.remove();
   });
 });
 

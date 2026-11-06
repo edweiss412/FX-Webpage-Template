@@ -74,7 +74,7 @@ const INSTANT_BY_DESIGN = [
   "components/crew/CrewAllSections.tsx", // row presence (Budget included) is server-driven
   "components/crew/CrewWideNav.tsx", // item active↔inactive and the accent bar are CSS transitions
   "components/crew/primitives/KeyTimesStrip.tsx", // present↔omitted is server render
-  "components/crew/sections/GearSection.tsx", // emphasis is a static data-emphasis attr
+  "components/crew/sections/RoomsSection.tsx", // emphasis is a static data-emphasis attr
 ] as const;
 
 afterEach(cleanup);

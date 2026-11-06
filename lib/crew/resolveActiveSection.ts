@@ -6,23 +6,28 @@
  * the loading skeleton all derive from the exports here, so no reader spells
  * its own list of ids (crew page redesign PR B plan, Task 3).
  */
+import type { ShowSectionId } from "@/lib/showSections/registry";
 
 /**
- * The crew sections, in nav order: the registry's order with `gear` in the Gear
- * group's slot (crew page redesign PR B plan, decision 2). `today` is the home,
- * not a section, so it is not one of them.
+ * The crew sections, in nav order: the registry's order (crew page redesign PR C
+ * plan, decision 2). `today` is the home, not a section, so it is not one of them.
+ * A literal, because lib/auth/validateNextParam.ts imports this module and the
+ * registry pulls in `lucide-react`; the import above is erased, and
+ * tests/showSections/registry.test.ts pins the equality.
  */
 export const CREW_SECTION_IDS = [
   "venue",
+  "event",
   "crew",
   "contacts",
   "schedule",
   "agenda",
   "hotels",
   "transport",
-  "gear",
+  "rooms",
+  "packlist",
   "billing",
-] as const;
+] as const satisfies readonly ShowSectionId[];
 
 /** A `?s=` value the page resolves: the home or a crew section. */
 export type SectionId = "today" | (typeof CREW_SECTION_IDS)[number];
@@ -39,6 +44,9 @@ export const LEGACY_SECTION_ALIASES: Readonly<Record<string, (typeof CREW_SECTIO
   // PR B plan Task 9: Travel split into Hotels and Transport; an old Travel link
   // opens Hotels, the section every viewer is listed (spec line 242).
   travel: "hotels",
+  // PR C plan Task 8: Gear's cards left for Event details, Pack list and Rooms; an old
+  // Gear link opens Rooms, the section that took its scope (spec line 242).
+  gear: "rooms",
 };
 
 /**

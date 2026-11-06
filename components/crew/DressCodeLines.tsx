@@ -1,6 +1,7 @@
 /**
  * components/crew/DressCodeLines.tsx — dress code value with phase hierarchy.
- * Shared by the crew Today dress card and the admin step-3 review row.
+ * Rendered by the shared Event details body, on the crew page and in the admin
+ * step-3 review row alike.
  *
  * A `Phase: attire` value (lib/crew/dressCodeLines.ts) renders as a <dl>: the
  * phase in semibold text-strong, the attire in regular body text at the same
@@ -11,13 +12,12 @@
  * (which outfit is mine today?) above the 7:1 sunlight bar; text-subtle was
  * 6.8:1. Anything else renders as one paragraph with its line breaks.
  *
- * Layout follows the CONTAINER, not the viewport: the admin row nests this
- * inside an 8rem label grid, so a 390px phone leaves 188px there and 316px in
- * the crew card (measured), and a 430px phone leaves 356px. Below 24rem the
- * phase stacks over its attire, so every phone stacks; at 24rem and up (tablet
- * crew card, desktop admin row) the phases share one label column (capped at
- * 40% so a long phase wraps instead of starving the attire) and the attire
- * values align, which lets a reader compare phases line by line. A 20rem
+ * Layout follows the CONTAINER, not the viewport: the shared body nests this
+ * inside an 8rem label grid, so a phone leaves it far less than the pane. Below
+ * 24rem the phase stacks over its attire, so every phone stacks; at 24rem and up
+ * (a wide crew panel, the desktop admin row) the phases share one label column
+ * (capped at 40% so a long phase wraps instead of starving the attire) and the
+ * attire values align, which lets a reader compare phases line by line. A 20rem
  * switch split phones down the middle and squeezed 402/430px attire to three
  * lines beside an empty label column.
  *
@@ -43,8 +43,8 @@ export function DressCodeLines({
 }: {
   value: string;
   /**
-   * Search target ids from the crew Today card: one per phase line, or one for
-   * the paragraph. Absent (the admin step-3 row) renders no search markers.
+   * Search target ids from the crew Event details section: one per phase line, or
+   * one for the paragraph. Absent (the admin step-3 row) renders no search markers.
    */
   searchTargets?: readonly (string | undefined)[];
 }) {

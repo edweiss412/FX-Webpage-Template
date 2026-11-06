@@ -26,7 +26,7 @@ import { describe, expect, test } from "vitest";
 
 import { buildShowReturnUrl } from "@/lib/crew/buildShowReturnUrl";
 import { CREW_SECTION_IDS, LEGACY_SECTION_ALIASES } from "@/lib/crew/resolveActiveSection";
-import { premise } from "@/tests/_shared/premise";
+import { premise, premiseHolds } from "@/tests/_shared/premise";
 
 const SLUG = "rpas-central";
 const TOKEN = "a1b2c3d4e5f6789012345678901234567890abcdef0123456789abcdef012345";
@@ -87,6 +87,14 @@ describe("buildShowReturnUrl", () => {
     expect(buildShowReturnUrl(SLUG, TOKEN, { s: "travel" })).toBe(`${BASE}?s=hotels`);
     expect(buildShowReturnUrl(SLUG, TOKEN, { s: "travel", gate: "skip" })).toBe(
       `${BASE}?s=hotels&gate=skip`,
+    );
+  });
+
+  test('gear alias: the old "gear" is written as "rooms", and a gate it was given is kept (PR C Task 8)', () => {
+    premiseHolds("the aliases hold gear", Object.hasOwn(LEGACY_SECTION_ALIASES, "gear"));
+    expect(buildShowReturnUrl(SLUG, TOKEN, { s: "gear" })).toBe(`${BASE}?s=rooms`);
+    expect(buildShowReturnUrl(SLUG, TOKEN, { s: "gear", gate: "skip" })).toBe(
+      `${BASE}?s=rooms&gate=skip`,
     );
   });
 

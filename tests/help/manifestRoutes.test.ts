@@ -18,7 +18,7 @@ describe("the route set itself is asserted, not merely the roots it derives", ()
       "/admin/show/${...}/preview/${...}",
       "/admin/needs-attention",
       "/admin/show/${...}/preview/${...}?s=today",
-      "/admin/show/${...}/preview/${...}?s=gear",
+      "/admin/show/${...}/preview/${...}?s=rooms",
       "/admin/show/${...}/preview/${...}?s=schedule",
     ]);
   });

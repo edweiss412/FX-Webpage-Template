@@ -60,7 +60,17 @@ export const REQUIRED = {
   // route-fit case at 320, 390 and 768 (no text in the eight-leg route paints over
   // another; the driver's phone and email each hold one line). Re-derived from the
   // wiring guard's live Playwright resolution (47).
-  "crew-section-toggle.spec.ts": 47,
+  // 48 since PR C's Task 5 added the "event details" case (?s=event opens the sheet
+  // on initial load). Re-derived from the wiring guard's live Playwright resolution
+  // (48). 54 since PR C's Task 6 added six "pack list" cases (the Set day and ?s=packlist,
+  // the Show day's gate and payload, a refresh off a pack-list phase, a member with no
+  // pull sheet, a stage-restricted viewer, the layout at each phone width). Re-derived
+  // from `playwright test --list` (54).
+  // 56 since PR C's Task 7 added two "rooms" cases (?s=rooms, and Diagrams in the
+  // Rooms sheet and not in Venue). Re-derived from --list.
+  // 58 since PR C's Task 8 added two "gear alias" cases (?s=gear opens Rooms, and Back
+  // then Forward over an entry carrying it). Re-derived from --list.
+  "crew-section-toggle.spec.ts": 58,
   "picker-flow.spec.ts": 7,
   "alert-action-links.spec.ts": 4,
   // 3 SFS-1 cases + 3 seeded agenda-fold cases.
@@ -106,8 +116,9 @@ export const REQUIRED = {
   // (the day row at 4 and at 5 or more buttons, the pass's fact grid, the quick
   // facts at three and four tiles, the sheet). The observed local run executed
   // 39: inv3 skipped itself at runtime because the local shared seed rendered no
-  // gear scope cards (the same seed state that fails crew-layout-dimensions'
-  // 5-card gear case locally and on origin/main), so the row is that run plus inv3.
+  // gear scope cards, so the row is that run plus inv3. (inv3 retired with the scope
+  // cards in PR C Task 7; the Rooms cases seed their own rooms, so neither it nor
+  // the 5-card case reads that seed state any more.)
   // 42 since the UI-gate fixes: the pass sizing case (no time, label or role is
   // cut, X1) and the pass floor case (a set day and after the show, review R4-F7).
   // Re-derived from the wiring guard's live Playwright resolution (42).
@@ -123,7 +134,20 @@ export const REQUIRED = {
   // 800px ("venue"). Counted from the observed mobile-safari run.
   // 56 since Task 6 added the roster role-line case, one case over 390px and 320px
   // ("crew"). Re-derived from the wiring guard's live Playwright resolution (56).
-  "crew-page.spec.ts": 56,
+  // 60 since PR C's Task 5 added four "event details" cases on a seeded show (the
+  // dress code in the sheet and off the home, the reel strip in the DOM and the
+  // payload, the field card's wrap, Venue's two fields). Re-derived from the wiring
+  // guard's live Playwright resolution (60).
+  // 68 since PR C's Task 7: ten "rooms" cases joined on a seeded show (the emphasis
+  // for an Audio and a Video viewer, no flags, the page width at 320 and 390, and the
+  // accent edge at five widths), and inv3 and the venue row of inv7 retired with the
+  // scope grid and the split. Re-derived from --list.
+  // 86 since PR C's invariant-8 gate repairs added eighteen: nine "event details" (a
+  // long-form row at 320, 390, 430 and 768, the track at 1024 and 1280, a short fact
+  // under page zoom, the dress code's lead, the overlay hit test) and nine "rooms" (the
+  // stacked row at six widths, the three tracks at 1280, the gallery's slots, the
+  // neutral chips). Re-derived from --list.
+  "crew-page.spec.ts": 86,
   // The crew page's wide layout (crew page redesign plan PR A, Task 6): eight cases,
   // desktop-chromium ALONE (its testMatch; the wide layout begins at 1024px). Nine
   // since Task 7 added the wide header case (search between title and chip).
@@ -153,8 +177,20 @@ export const REQUIRED = {
   // Counted from the observed desktop-chromium run. Thirty-two since PR B's Task 10
   // added two "agenda" cases (the wide nav's order and labels, and the crossing into
   // wide with an unlisted Agenda open from a scrolled page). Re-derived from the
-  // wiring guard's live Playwright resolution (32).
-  "crew-wide-nav.spec.ts": 32,
+  // wiring guard's live Playwright resolution (32). Thirty-four since PR C's Task 5
+  // added two "event details" cases (?s=event lands on the stacked section, and the
+  // Dress code card sits there and not in the Today block). Re-derived from the
+  // wiring guard's live Playwright resolution (34). Thirty-eight since PR C's Task 6
+  // added four "pack list" cases (?s=packlist lands on the stacked section, a Show day
+  // has neither item nor section, an open sheet crossing into wide, the layout at
+  // 1280). Re-derived from `playwright test --list` (38).
+  // 39 since PR C's Task 7 added the "rooms" deep link. Re-derived from --list.
+  // 40 since PR C's Task 8 added the "gear alias" landing. Re-derived from --list.
+  // 45 since PR C's Task 9 added five "registry groups" cases (the full nav, a non-lead's
+  // Show day, the copy, the dimensional case, the short window). Re-derived from --list.
+  // 46 since PR C's invariant-8 gate repair 7 added the full nav's fit at 1280x800.
+  // Re-derived from --list.
+  "crew-wide-nav.spec.ts": 46,
   // 9, and the number is the MATRIX rather than a multiple (plan
   // 2026-08-09-quick-wins-2 "e2e harness readiness"). theme-toggle runs two arms:
   //   arm (a) — 4 standalone-toggle cases, BOTH projects            = 8
@@ -199,8 +235,11 @@ export const REQUIRED = {
   // adding or removing a case. 12 since review repair R1-F1 added two cases at each
   // viewport (a Today run-of-show result reveals its line after the viewer picked
   // another day, and after the device clock passed midnight). 14 since PR B's Task 9
-  // added one at each viewport (a hotel-name result reveals its line in Hotels).
-  "crew-search.spec.ts": 14,
+  // added one at each viewport (a hotel-name result reveals its line in Hotels). 16
+  // since PR C's Task 5 added one at each viewport (a dress code result reveals its
+  // line in Event details).
+  // 18 since PR C's Task 7 added the diagram name result at each width.
+  "crew-search.spec.ts": 18,
   // The census, across mobile-safari + desktop-chromium. The checker enforces
   // `executed >= min`, so THE NUMBER IS THE GUARD: a row of 1 would let every
   // case but one skip while CI stayed green, which is exactly what the registry
