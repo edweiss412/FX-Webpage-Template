@@ -1,0 +1,124 @@
+# Crew panel follow-ups: implementation plan
+
+**Spec:** `docs/superpowers/specs/2026-11-07-crew-panel-followups-design.md` (sections cited as §). **Branch:** `feat/crew-panel-followups`, a worktree off `origin/main` at `9054c83c1`. **Implementer:** Opus / Claude Code (UI work, AGENTS.md routing hard rule).
+
+Line numbers were read at `9054c83c1`. They are locators; the file and symbol are the anchor.
+
+## Acceptance coverage
+
+Spec §11's criteria, by task: AC-1, AC-2, AC-3 and AC-10 in Task 1 (AC-3 re-runs in every task's commit gate), AC-4, AC-5 and AC-11 in Task 2, AC-6 in Task 3, AC-7 and AC-8 in Task 4, AC-9 in Task 5.
+
+## Meta-test inventory
+
+Creates one guard, tests/styles/crewSectionTypeScale.test.ts (new; the static size walk, AC-10). It walks `components/show-panels` and `components/crew` from disk, so a new file is covered by default. Extends none. `tests/components/show-panels/_metaShowPanelsBoundary.test.ts` still applies to `PanelCard` and is re-run in Task 2.
+
+## Commit gate (every task)
+
+`pnpm typecheck`, `pnpm exec eslint` on the touched files, `pnpm format:check` on them, the task's `red=` command green, and `pnpm vitest run tests/components/admin/wizard/adminSectionDom.test.tsx` green with `git status --short tests/components/admin/wizard/__golden__` empty (AC-3). No commit in the same shell chain as a transform.
+
+## E2E harness rules
+
+Server: the Playwright config's own production build on port 3100 path, as `pnpm test:e2e` boots it. Readiness: the spec files' existing helpers (`load`, `loadWide`, `gotoSection`) await `data-crew-controller-ready=true`, never `networkidle`. Every `page.evaluate` here reads and returns in one call, so nothing outlives its element. Full runs go through `pnpm heavy`.
+
+## Reader sweep
+
+Run at plan time, against `9054c83c1`. Command, with goldens and the `SectionCard` and marker primitives' own tests left out because neither markup changes there:
+
+```bash
+grep -rnE 'section-card|panel-card-(chip|header)' tests --include='*.ts' --include='*.tsx' | grep -vE '__golden__|tests/components/crew/primitives.test|tests/search/primitiveMarkers'
+```
+
+| File and lines | Disposition |
+| --- | --- |
+| `tests/components/crew/diagramsBlock.test.tsx` 210 | Task 3: reads the panel chip |
+| `tests/components/crew/runOfShowCard.test.tsx` 610 | none: the home's run card keeps `SectionCard` |
+| `tests/components/crew/sections/AgendaSection.test.tsx` 198 | Task 2: untitled, reads no chip |
+| `tests/components/crew/sections/CrewSection.test.tsx` 152, 153 | Task 2: untitled |
+| `tests/components/crew/sections/EventSection.test.tsx` 78, 94 | Task 2: untitled |
+| `tests/components/crew/sections/PackListSection.test.tsx` 128, 152 | Task 2: untitled |
+| `tests/components/crew/sections/RoomsSection.test.tsx` 184, 222 | Task 2 and Task 3: panel untitled, Diagrams panel-titled |
+| `tests/components/crew/sections/ScheduleSection.test.tsx` 159 to 190 | Task 3: the times card is an untitled `crew-panel-card` |
+| `tests/components/crew/sections/TransportSection.test.tsx` 493, 501 | Task 2 and Task 3: the flight card is titled, the panel titled only under it |
+| `tests/components/crew/sections/VenueSection.test.tsx` 181 | Task 2: untitled |
+| `tests/components/crew/sourceLinkCoverage.test.tsx` 16, 424 | Task 3: its action-slot walk reads `section-card-action`, which `PanelCard` keeps; only its comments move |
+| `tests/components/show-panels/contactsBody.test.tsx` 347, `crewBody.test.tsx` 319, `eventDetailsBody.test.tsx` 328 to 593, `venueBody.test.tsx` 192 | Task 2: read the new header |
+| `tests/e2e/crew-layout-dimensions.spec.ts` 545 | none: the home's run card title |
+| `tests/e2e/crew-page.spec.ts` 1276, 4699 | Task 3: the ancestor is `crew-panel-card` |
+| `tests/e2e/crew-page.spec.ts` 3417 | Task 2: reads titled cards only |
+| `tests/e2e/crew-page.spec.ts` 3794, 3795, 3888, 3889, 3891 | Task 2: pin the header on a titled card, Facilities, since Billing has no chip now |
+| `tests/e2e/crew-page.spec.ts` 4152, 4226 | none on the action slot, which stays; the heading read beside 4152 moves to level 3 in Task 2 |
+| `tests/e2e/crew-wide-nav.spec.ts` 215, 216, 235 | Task 2: walks both card types |
+| `tests/e2e/source-link-dimensional.spec.ts` 95 to 153 | Task 3: its dev page keeps `SectionCard`; no change expected, confirmed by running it |
+| `tests/e2e/wifi-password-row.layout.spec.ts` 235 | Task 3: reads `crew-panel-card` |
+
+Tests that read a title by role or text rather than these hooks surface in each task's own run and in Closeout's full suite.
+
+## Transition audit
+
+Spec §9 has three rows, all instant. Task 4 adds no `AnimatePresence`, ternary or conditional beyond the slot's existing `runCard ?` render, and the slot's `empty:hidden` is its exit. The breakpoint crossing rows are the existing `compound:` cases in `tests/e2e/crew-wide-nav.spec.ts:750` and following, re-run in Task 4.
+
+<!-- tasks: depth=2 -->
+
+## Task 1: Section type scale
+
+<!-- task: red=`pnpm vitest run tests/styles/crewSectionTypeScale.test.ts` ac=AC-1,AC-2,AC-3,AC-10 -->
+
+RED: tests/styles/crewSectionTypeScale.test.ts (new). It reads `app/globals.css`, takes the `[data-crew-section-type]` rule set, walks both directories with `fs`, and collects every `text-[<n>px]` and `text-[<n>rem]` literal below 12px. Fails today: no such rule set exists, so the production defect is the missing rule. It states its premise with `premise` from `tests/_shared/premise.ts`: the walk saw `components/show-panels/FieldRowList.tsx` and at least one literal. A second case runs the matcher on a planted string, so the guard's own recognizer is shown to fire.
+
+GREEN: §3's rule set in §3's order, placed after the last `@layer` block of `app/globals.css`. `data-crew-section-type=""` on `crew-section-sheet-body` (`components/crew/CrewSectionSheet.tsx:480`) and on `crew-wide-section` (`components/crew/CrewSections.tsx:1020`).
+
+Browser: a case in `tests/e2e/crew-section-toggle.spec.ts` opens each section the seeded viewer has at 390 and walks text nodes under the attribute, asserting computed size 12px or more, with a premise that at least one `.uppercase` node and one `text-sm` node were seen. The same walk runs over `crew-wide-stack` in `tests/e2e/crew-wide-nav.spec.ts` at 1280. AC-2's samples read one `.uppercase`, one `.text-xs` and one `.text-sm` node in a section, and one `.text-xs` and `.text-sm` node on the home, deriving nothing from the CSS file. AC-11's size half reads a schedule `DayCard` weekday at 12px, which fails if the two rules swap. Failure caught: a rule dropped by a build, or a class a body uses that the rule set does not reach.
+
+Mutants, before the commit: delete the label rule (browser walk fails); swap the two rules (the weekday case fails); drop `.text-\[9px\]` from it (static walk fails); remove the attribute from the sheet body (browser walk's premise fails). `scripts/check-crew-e2e-executed.mjs` counts move with the cases added.
+
+## Task 2: One title per section
+
+<!-- task: red=`pnpm vitest run tests/components/show-panels/panelCardParity.test.tsx tests/components/show-panels/venueBody.test.tsx` ac=AC-4,AC-5,AC-11 -->
+
+RED: `tests/components/show-panels/panelCardParity.test.tsx` gains: `sectionId` alone renders no chip and no `h3`, and exactly one `[data-search-group][hidden]` holding the label; with `actions`, the header holds only the action slot; with neither, no `header`; `titled` prints the label in an `h3`; `title` and `icon` print them and `titleSearchTarget` lands on the `h3`. The box and chip class parity cases keep passing on a titled render. `tests/components/show-panels/venueBody.test.tsx` gains `nameLabel: false` omits the label and the default keeps it. Both fail today because `PanelCard` always prints its title (`components/show-panels/PanelCard.tsx:33-34`) and `VenueBody` has no such prop.
+
+GREEN: §4's `PanelCard` props. `VenueBody` takes `nameLabel`; `components/crew/sections/VenueSection.tsx` passes false. `components/crew/sections/TransportSection.tsx` passes `titled` when the flight card renders. §4's heading levels: `titleAs` and `nameAs` accept `"h3"`, `AgendaScheduleBlock` takes `dayHeadingAs`, and `components/crew/sections/EventSection.tsx:112`, `components/crew/sections/RoomsSection.tsx:130` and `components/crew/sections/AgendaSection.tsx:97` pass `"h3"`. `tests/components/show-panels/eventDetailsBody.test.tsx` and the Rooms and Agenda section tests assert the crew's `h3` and the default's unchanged element.
+
+Tests that read the old header move per the reader sweep below, each to the new shape, none deleted.
+
+Browser (AC-11): `tests/e2e/crew-wide-nav.spec.ts:185`'s outline walk already fails a skipped level, and it now also walks `crew-panel-card`; its `cards` premise counts `h3`s inside either card type, since only two home cards keep the old title.
+
+Browser (AC-4): a case in `tests/e2e/crew-section-toggle.spec.ts`, per section, removes `hidden` elements from a clone of the body and asserts no leaf text equals the sheet's `h2` text, case-insensitive, with a premise that the clone holds text. Search parity runs unchanged: `pnpm vitest run tests/search`.
+
+Mutants: give the hidden span no `hidden` (unit fails); print the `h3` when `titled` is false (AC-4 case fails); pass `titled={false}` under the flight card (Transport test fails).
+
+## Task 3: One card header
+
+<!-- task: red=`pnpm vitest run tests/components/crew/sections/VenueSection.test.tsx tests/components/crew/sections/ScheduleSection.test.tsx tests/components/crew/sections/TransportSection.test.tsx tests/components/crew/diagramsBlock.test.tsx` ac=AC-6 -->
+
+RED: each file asserts its crew-only card renders `crew-panel-card` with its title in an `h3`, and no `section-card`: Facilities, Venue status, Your flight, Diagrams, and the schedule's times card untitled with its hidden group. Fails today: all five are `SectionCard`s.
+
+GREEN: §5. `components/crew/sections/VenueSection.tsx:222`, `components/crew/sections/VenueSection.tsx:242`, `components/crew/sections/TransportSection.tsx:135`, `components/crew/DiagramsBlock.tsx:72`, `components/crew/sections/ScheduleSection.tsx:297`. Every `action` becomes `actions`; `headingSearchTarget` becomes `titleSearchTarget`; glyph elements become component references.
+
+`tests/e2e/_wifiPasswordRowLiveEntry.tsx:58` takes `PanelCard` and a `data-crew-section-type` wrapper, so the standalone Wi-Fi harness measures what production draws. Its reader moves per the sweep below.
+
+## Task 4: Wide Today block
+
+<!-- task: red=`pnpm vitest run tests/components/crew/crewSections.test.tsx` ac=AC-7,AC-8 -->
+
+RED: `tests/components/crew/crewSections.test.tsx` asserts the run card sits in `crew-today-run`, the lead's next sibling, and that the block's children read lead, run slot, home body. Fails today: the card is inside the lead (`components/crew/CrewSections.tsx:998`).
+
+GREEN: §6.
+
+Browser (AC-7): one case in `tests/e2e/crew-wide-nav.spec.ts` at 1280 on a show with a run of show. For each of §6's eight states it removes the absent nodes from the live DOM (`crew-quick-facts`, `today-notes`, the slot's child) and reads rects, since every rule reads the live DOM through has and empty selectors. Expected row and column come from a table in the test keyed by state; widths compare to the block within 0.5px, and rows by top order. AC-8: at 390, tops ascend in the order day row, pass, run, quick facts, notes.
+
+Mutants: gate `TODAY_PACKED` back on `runCard === null` (state 1 fails); drop `empty:hidden` (a no-run state gains a gap); drop `lg:flex-wrap` (state 5 fails).
+
+## Task 5: Docs and overflow
+
+<!-- task: red=`pnpm vitest run tests/styles/designMdCrewType.test.ts` ac=AC-9 -->
+
+RED: tests/styles/designMdCrewType.test.ts (new) asserts `DESIGN.md` §2 names `data-crew-section-type` and the three sizes. GREEN: the `DESIGN.md` note, and §12 and §13's "crew panel card" text brought to the new title rule.
+
+AC-9: `tests/e2e/crew-section-toggle.spec.ts` gains a width sweep at 320, 390 and 768, and `tests/e2e/crew-wide-nav.spec.ts` at 1024 and 1280, asserting `scrollWidth` equals `clientWidth` on the document and on the sheet body for each section.
+
+<!-- tasks: end -->
+
+## Closeout
+
+Run in order: the full unit suite and the crew e2e specs through `pnpm heavy`; the invariant-8 UI gate on the diff; whole-diff cross-model review; delete the moved help screenshots and regenerate them through `screenshots-regen.yml`; move the three `CREWPANEL-` rows to `DEFERRED-archive.md`, removing their in-progress markers, in the last commit; mark question 2 answered in the PR C plan; push; real CI green; merge; fast-forward `main`.
