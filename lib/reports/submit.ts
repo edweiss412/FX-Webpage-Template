@@ -12,6 +12,7 @@ import {
   type FoundIssue,
 } from "@/lib/github/issues";
 import { acquireReportLease, type ReportLeaseDb } from "@/lib/reports/leaseProtocol";
+import { offlineIssueLines, type OfflineFields } from "@/lib/reports/offlineMeta";
 import { enforceQuota, type QuotaResult, type ReportQuotaKind } from "@/lib/reports/rateLimit";
 import { canonicalize } from "@/lib/email/canonicalize";
 import { createSupabaseServiceRoleClient } from "@/lib/supabase/server";
@@ -38,6 +39,10 @@ export type RequestBody = {
   lastSyncTimestamp?: string | null;
   staleTier?: string | null;
   rightNowState?: Record<string, unknown> | null;
+  /** Set by the route after validation, for a report written with no signal. */
+  offline?: OfflineFields | null;
+  /** The author's viewer key. The route checks it; it is never stored. */
+  writer?: string | null;
 };
 
 export type ReportAuthContext =
@@ -225,7 +230,8 @@ async function readExistingReport(
   return (rows[0] as ExistingReportRow | undefined) ?? null;
 }
 
-function reportContext(body: RequestBody): Record<string, unknown> {
+// not-subject-to-meta: pure object builder; no Supabase, database, or GitHub call.
+export function reportContext(body: RequestBody): Record<string, unknown> {
   return {
     surface: body.surface ?? null,
     crewPreview: body.crewPreview ?? null,
@@ -237,6 +243,7 @@ function reportContext(body: RequestBody): Record<string, unknown> {
     lastSyncTimestamp: body.lastSyncTimestamp ?? null,
     staleTier: body.staleTier ?? null,
     rightNowState: body.rightNowState ?? null,
+    ...(body.offline ? { offline: body.offline } : {}),
   };
 }
 
@@ -432,6 +439,7 @@ export function buildAdminIssueBody(
     "",
     quoteMessage(body.message),
     "",
+    ...offlineIssueLines(body.offline),
     "**Raw snippet:**",
     "",
     "```",
@@ -469,6 +477,7 @@ export function buildCrewIssueBody(
     "",
     quoteMessage(body.message),
     "",
+    ...offlineIssueLines(body.offline),
     "**Page state at submission:**",
     "",
     `- Right Now state: ${formatValue(body.rightNowState).replaceAll("\n", " ")}`,
@@ -902,17 +911,21 @@ async function expiredLeaseRetry(
     );
   }
 
+  // The send that files the issue owns the stored offline fields: this row was
+  // reserved by an earlier request, so `reportContext` never saw this body's.
   const retryLeaseHolder = randomUUID();
   const { rows: claimRows } = await db.query(
     `UPDATE reports
         SET processing_lease_until = now() + interval '90 seconds',
-            lease_holder = $2::uuid
+            lease_holder = $2::uuid,
+            context = CASE WHEN $3::jsonb IS NULL THEN context
+                           ELSE context || jsonb_build_object('offline', $3::jsonb) END
       WHERE idempotency_key = $1::uuid
         AND (processing_lease_until IS NULL OR processing_lease_until <= now())
         AND github_issue_url IS NULL
         AND created_at >= now() - interval '24 hours'
       RETURNING id, lease_holder`,
-    [body.idempotency_key, retryLeaseHolder],
+    [body.idempotency_key, retryLeaseHolder, body.offline ?? null],
   );
 
   if (claimRows.length === 0) {
