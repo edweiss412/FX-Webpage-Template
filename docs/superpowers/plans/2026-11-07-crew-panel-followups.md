@@ -125,9 +125,9 @@ Browser, now that no repeated title or old card remains:
 
 ## Task 4: Wide Today block
 
-<!-- task: red=`pnpm vitest run tests/components/crew/crewSections.test.tsx` ac=AC-7,AC-8 -->
+<!-- task: red=`pnpm vitest run tests/components/crew/runOfShowCard.test.tsx` ac=AC-7,AC-8 -->
 
-RED: `tests/components/crew/crewSections.test.tsx` asserts the run card sits in `crew-today-run`, the lead's next sibling, and that the block's children read lead, run slot, home body. Fails today: the card is inside the lead (`components/crew/CrewSections.tsx:998`).
+RED: `tests/components/crew/runOfShowCard.test.tsx`, which already mounts the controller with a run card, asserts the card sits in `crew-today-run`, the lead's next sibling, and that the block's children read lead, run slot, home body. Fails today: the card is inside the lead (`components/crew/CrewSections.tsx:998`).
 
 GREEN: §6.
 

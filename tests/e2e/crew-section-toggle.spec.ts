@@ -852,6 +852,24 @@ test.describe("crew compact home and section sheet (spec §5.2)", () => {
     }
   });
 
+  test("overflow: no section scrolls sideways at 320, 390 and 768", async ({ page }) => {
+    for (const width of [320, 390, 768]) {
+      await page.setViewportSize({ width, height: 844 });
+      for (const id of ADMIN_SECTIONS) {
+        await load(page, `?s=${id}`);
+        await settleOpen(page);
+        const r = await page.evaluate(() => {
+          const body = document.querySelector('[data-testid="crew-section-sheet-body"]')!;
+          return {
+            page: document.documentElement.scrollWidth - document.documentElement.clientWidth,
+            sheet: body.scrollWidth - body.clientWidth,
+          };
+        });
+        expect(r, `${id} at ${width}px`).toEqual({ page: 0, sheet: 0 });
+      }
+    }
+  });
+
   test("type scale: section sizes step up, the home's do not, and a schedule weekday is a label", async ({
     page,
   }) => {

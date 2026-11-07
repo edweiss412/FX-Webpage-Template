@@ -414,6 +414,17 @@ describe("run card: cap and Full schedule (spec §4.4, §9.1)", () => {
     );
   }
 
+  it("run card: it sits in its own slot after the lead, so the wide grid can span it across both columns", () => {
+    renderController(showData({ runOfShow: { [DAY1]: scheduleDay(many(2)) } }));
+    const block = screen.getByTestId("crew-today-block");
+    const slot = screen.getByTestId("crew-today-run");
+    expect(slot).toContainElement(card());
+    expect(screen.getByTestId("crew-today-lead")).not.toContainElement(card());
+    // Document order is the phone's reading order: the lead, the run card, the home body.
+    const order = [...block.children].map((el) => el.getAttribute("data-testid"));
+    expect(order.filter(Boolean)).toEqual(["crew-today-lead", "crew-today-run", "body-today"]);
+  });
+
   it(`run card: more than ${SPEC_ROW_CAP} rows renders ${SPEC_ROW_CAP} and a Full schedule link that opens Schedule through the controller`, () => {
     const entries = many(SPEC_ROW_CAP + 2);
     const pushSpy = vi.spyOn(window.history, "pushState");
