@@ -39,7 +39,7 @@
 import { ChevronRight } from "lucide-react";
 
 import type { ViewerAgendaDays } from "@/lib/crew/agendaViewerDays";
-import type { JSX } from "react";
+import { createElement, type JSX } from "react";
 
 import { structuredAgenda, type AgendaBlockSearch } from "@/components/crew/agendaScheduleRows";
 import { driftNote } from "@/lib/agenda/agendaPaint";
@@ -80,7 +80,7 @@ type AgendaScheduleBlockProps = {
 export function AgendaScheduleBlock({
   extraction,
   label = null,
-  dayHeadingAs: DayHeading = "h4",
+  dayHeadingAs = "h4",
   viewerDays: _viewerDays = { kind: "all" },
   search,
 }: AgendaScheduleBlockProps): JSX.Element | null {
@@ -136,7 +136,11 @@ export function AgendaScheduleBlock({
                 outline, so a screen-reader user navigating by heading lost the day labels
                 entirely. A heading inside a summary keeps BOTH: the disclosure role and its
                 expanded state come from <details>/<summary>, the outline entry from the heading. */}
-            <DayHeading className="min-w-0 font-medium wrap-break-word">{day.dayLabel}</DayHeading>
+            {createElement(
+              dayHeadingAs,
+              { className: "min-w-0 font-medium wrap-break-word" },
+              day.dayLabel,
+            )}
             {day.date ? (
               <span className="max-w-[12ch] shrink-0 truncate font-normal normal-case tabular-nums text-text-subtle">
                 {day.date}

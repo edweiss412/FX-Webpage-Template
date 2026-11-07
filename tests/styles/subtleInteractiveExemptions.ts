@@ -253,7 +253,8 @@ export const SUBTLE_INTERACTIVE_EXEMPTIONS: readonly SubtleExemption[] = [
     // 117 -> 122, and the file from components/crew/ to components/show-panels/ (crew page
     // redesign PR B, Task 10: the block became a shared body, its header comment five lines
     // longer). Same `<summary>`, same token.
-    line: 122,
+    // 122 -> 128 on feat/crew-panel-followups: the crew's `dayHeadingAs` prop above it.
+    line: 128,
     tag: "summary",
     token: "text-text-subtle",
     family: "summary-disclosure",
