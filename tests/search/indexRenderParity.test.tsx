@@ -757,7 +757,7 @@ describe("rooms", () => {
         thumbnails(root).length === 2,
       ),
     roomFallbacks: (root) => {
-      const headings = [...root.querySelectorAll('[data-card-id="gear-room-details"] h4')].map(
+      const headings = [...root.querySelectorAll('[data-card-id="gear-room-details"] h3')].map(
         (h) => squash(h.textContent),
       );
       premiseHolds(
@@ -768,7 +768,7 @@ describe("rooms", () => {
     roomForms: (root) =>
       premiseHolds(
         "roomForms renders the kind's label for a nameless room",
-        [...root.querySelectorAll('[data-card-id="gear-room-details"] h4')].some(
+        [...root.querySelectorAll('[data-card-id="gear-room-details"] h3')].some(
           (h) => h.textContent === "Additional",
         ),
       ),

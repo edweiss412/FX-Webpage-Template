@@ -63,6 +63,11 @@ export type VenueBodyProps = {
   layout?: "viewport" | "container";
   /** "subtle" (the default, admin): the address lines muted. "text" (crew): body text. */
   addressTone?: "subtle" | "text";
+  /**
+   * Print the "Venue" label over the name. true (the default, admin). false on the crew
+   * page, where the section's heading already says it (crew panel follow-ups spec §4).
+   */
+  nameLabel?: boolean;
   /** Search targets (crew). Given, the eyebrow, which repeats the card's title, is skipped. */
   targets?: VenueBodyTargets;
 };
@@ -83,6 +88,7 @@ export function VenueBody({
   bleed,
   layout = "viewport",
   addressTone = "subtle",
+  nameLabel = true,
   targets,
 }: VenueBodyProps) {
   const nameLine = shown(name, sentinels);
@@ -113,12 +119,14 @@ export function VenueBody({
               : "flex min-w-0 flex-1 flex-col gap-1"
           }
         >
-          <span
-            className={CELL_EYEBROW_CLASS}
-            {...(targets === undefined ? {} : { "data-search-skip": "" })}
-          >
-            Venue
-          </span>
+          {nameLabel ? (
+            <span
+              className={CELL_EYEBROW_CLASS}
+              {...(targets === undefined ? {} : { "data-search-skip": "" })}
+            >
+              Venue
+            </span>
+          ) : null}
           {nameLine ? (
             <span
               data-search-target={targets?.name}

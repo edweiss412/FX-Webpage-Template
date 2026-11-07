@@ -147,9 +147,9 @@ describe("CrewSection", () => {
       />,
     );
     expectSingleRosterCard(container);
-    // Mock `.card-head .ico` parity: the card carries its leading glyph in the crew
-    // panel card's chip (PR B Task 6), and no other card is left in the section.
-    expect(container.querySelectorAll('[data-slot="panel-card-chip"] svg').length).toBe(1);
+    // The section's h2 names it, so the card draws no chip (crew panel follow-ups spec
+    // §4), and no other card is left in the section.
+    expect(container.querySelectorAll('[data-slot="panel-card-chip"] svg').length).toBe(0);
     expect(container.querySelectorAll('[data-slot="section-card-icon"] svg').length).toBe(0);
   });
 

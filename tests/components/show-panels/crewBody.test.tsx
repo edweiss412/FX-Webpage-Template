@@ -46,6 +46,7 @@ import type { ShowForViewer, Viewer } from "@/lib/data/getShowForViewer";
 import { showSection } from "@/lib/showSections/registry";
 import { premise, premiseHolds } from "@/tests/_shared/premise";
 import { makeShowForViewer } from "@/tests/fixtures/showForViewer";
+import { expectUntitledPanel } from "@/tests/components/show-panels/_panelCardAssert";
 
 afterEach(() => {
   cleanup();
@@ -311,10 +312,7 @@ describe("CrewSection (crew)", () => {
     renderCrew([member("c1", { name: "Pat" })]);
     const card = rosterCard();
     premiseHolds("the roster renders the panel card", card !== null);
-    // Exact text, and visible: a suffixed or hidden title fails, not only a missing one.
-    const title = within(card!).getByRole("heading", { level: 3 });
-    expect(title.textContent).toBe(showSection("crew").label);
-    expect(title).toBeVisible();
+    expectUntitledPanel(card!, showSection("crew").label);
     expect(showSection("crew").label).toBe("Crew");
     expect(card!.querySelector('[data-slot="section-card-action"]')).not.toBeNull();
     expect(card).toHaveTextContent("Pat");

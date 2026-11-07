@@ -41,8 +41,8 @@
  */
 import type { JSX } from "react";
 
+import { PanelCard } from "@/components/show-panels/PanelCard";
 import { DayCard } from "@/components/crew/primitives/DayCard";
-import { SectionCard } from "@/components/crew/primitives/SectionCard";
 import { CardHeaderActions } from "@/components/crew/primitives/CardHeaderActions";
 import { DEFAULT_CARD_REPORT, type CardReportContext } from "@/lib/crew/cardReportContext";
 import { CARD_REGION_MAP } from "@/lib/sheet-links/buildSheetDeepLink";
@@ -294,10 +294,13 @@ export function ScheduleSection({
                     entries, not just call times.) */}
                 {hasTimesCard ? (
                   <div data-card-id="schedule-call-times">
-                    <SectionCard
-                      icon={<ClockIcon />}
+                    <PanelCard
+                      icon={ClockIcon}
                       title={SCHEDULE_CALL_TIMES_TITLE}
-                      action={
+                      // The section heading already says it; the title stays the
+                      // hidden group these lines name (spec §4).
+                      titled={false}
+                      actions={
                         <CardHeaderActions
                           cardId="schedule-call-times"
                           driveFileId={data.driveFileId}
@@ -308,7 +311,7 @@ export function ScheduleSection({
                       }
                     >
                       <KeyTimesStrip anchors={anchors} searchTargets={callTimes.targets} />
-                    </SectionCard>
+                    </PanelCard>
                   </div>
                 ) : null}
                 {roomsFetchFailed ? <SectionTileError domain="rooms" /> : null}

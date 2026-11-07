@@ -1050,7 +1050,10 @@ export function scanCandidates(): Candidate[] {
       // was a fault branch; 79 kept. Re-derived by running the guard.
       //
       // 787 -> 788 on feat/crew-dress-tile-link: the Dress code tile's link adds one.
-      // Probed: 788 such ternaries under the derived roots, 79 on a
+      //
+      // 788 -> 791 on feat/crew-panel-followups Task 2: PanelCard's title and header
+      // conditionals add two and VenueBody's label one. None is a fault branch; 79 kept.
+      // Probed: 791 such ternaries under the derived roots, 79 on a
       // fault-vocabulary guard and unclassifiable. 69 of those 79 sit in
       // `"use client"` files, where the guard is interaction state -- `errorCode`,
       // `state.kind === "error"`, `switchStatus === "error"` -- and not a server-render

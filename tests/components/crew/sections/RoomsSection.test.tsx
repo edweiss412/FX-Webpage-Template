@@ -31,6 +31,7 @@ import { showSection } from "@/lib/showSections/registry";
 import { premise, premiseHolds } from "@/tests/_shared/premise";
 import { makeShowForViewer } from "@/tests/fixtures/showForViewer";
 import { ledgerProp } from "./_ledgerProp";
+import { expectUntitledPanel } from "@/tests/components/show-panels/_panelCardAssert";
 
 const SHOW_ID = "11111111-1111-4111-8111-111111111111";
 const REV = "22222222-2222-4222-8222-222222222222";
@@ -133,17 +134,17 @@ describe("rooms: the panel card", () => {
     expect(card).not.toBeNull();
     expect(section!.contains(card)).toBe(true);
     expect(card!.getAttribute("data-testid")).toBe("crew-panel-card");
-    expect(within(card!).getByRole("heading", { level: 3 })).toHaveTextContent(ROOMS_LABEL);
+    expectUntitledPanel(card!, ROOMS_LABEL);
     expect(root.textContent ?? "").not.toMatch(/Room details|Gear/);
   });
 
-  test("rooms: each name is an h4, and no room carries the admin's rail anchor", () => {
+  test("rooms: each name is an h3, and no room carries the admin's rail anchor", () => {
     const root = renderRooms(
       withRooms([room({ id: "r1" }), room({ id: "r2", kind: "breakout", name: "Salon 1" })]),
     );
     expect(
       within(panel(root)!)
-        .getAllByRole("heading", { level: 4 })
+        .getAllByRole("heading", { level: 3 })
         .map((h) => h.textContent),
     ).toEqual(["Grand Ballroom", "Salon 1"]);
     expect(root.querySelector("[data-room-nav]")).toBeNull();
@@ -151,7 +152,7 @@ describe("rooms: the panel card", () => {
 
   test("rooms: a nameless room reads its kind, the crew's label, never the admin's Room", () => {
     const root = renderRooms(withRooms([room({ id: "r1", name: "", audio: "QU32" })]));
-    expect(within(panel(root)!).getByRole("heading", { level: 4 })).toHaveTextContent(
+    expect(within(panel(root)!).getByRole("heading", { level: 3 })).toHaveTextContent(
       "General Session",
     );
   });
@@ -167,7 +168,7 @@ describe("rooms: the panel card", () => {
     );
     expect(
       within(panel(root)!)
-        .getAllByRole("heading", { level: 4 })
+        .getAllByRole("heading", { level: 3 })
         .map((h) => h.textContent),
     ).toEqual(["Zebra Ballroom", "Salon A", "Salon B", "Green Room"]);
     // The card at each place holds that room's own setup line, so the sort reaches

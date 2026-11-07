@@ -690,7 +690,14 @@ describe("the scanner's population is pinned against resolver drift", () => {
     // Same rooms `tile-errors` row, still marked. Nothing joined or left: membership is
     // still 34, and mapping that ONE row back reproduces f6a41bec... byte-for-byte
     // (recomputed from scanCandidates()).
-    expect(digest).toBe("b4a293463ac88a2ce76e087a909bab4faa75281c30f50888257717cf8351604d");
+    // Regenerated for feat/crew-panel-followups Task 2, to the same bar. EXACTLY ONE input
+    // changed, a line number:
+    //   components/crew/sections/ScheduleSection.tsx 314 -> 317 (+3: the panel card's
+    //   `titled` prop and its comment above the rooms fetch-failure row)
+    // Same rooms `tile-errors` row, still marked. Nothing joined or left: membership is
+    // still 34, and mapping that ONE row back reproduces b4a29346... byte-for-byte
+    // (recomputed from scanCandidates()).
+    expect(digest).toBe("b8b5319728cb75efafba75d53e4b20a335e6c3bf4ce8025b56db86ef5455fbd7");
   });
 });
 

@@ -177,8 +177,8 @@ test("the Venue panel renders the name, the street and the city as separate line
     />,
   );
   const where = container.querySelector('[data-testid="venue-where"]')!;
-  // Mock `.card-head .ico` parity: the panel card carries its leading glyph.
-  expect(where.querySelector('[data-slot="panel-card-chip"] svg')).not.toBeNull();
+  // The section's h2 names it, so the panel card draws no chip (follow-ups spec §4).
+  expect(where.querySelector('[data-slot="panel-card-chip"] svg')).toBeNull();
   // The street only: the city/state tail is stripped (no double-print).
   expect(lines(where)).toEqual(["Center", "350 Fifth Ave", "New York"]);
 });

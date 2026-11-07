@@ -26,6 +26,7 @@ import type { DateRestriction, TransportationRow } from "@/lib/parser/types";
 import { showSection } from "@/lib/showSections/registry";
 import { premise, premiseHolds } from "@/tests/_shared/premise";
 import { makeShowForViewer } from "@/tests/fixtures/showForViewer";
+import { expectUntitledPanel } from "@/tests/components/show-panels/_panelCardAssert";
 
 afterEach(() => {
   cleanup();
@@ -487,7 +488,7 @@ describe("transport: ground-transport gate and fields (moved from the Travel sec
     expect(leg).toHaveTextContent("Lee");
   });
 
-  test("transport: driver and vehicle facts render as cells of the Transport card, which carries its glyph", () => {
+  test("transport: driver and vehicle facts render as cells of the Transport card", () => {
     // Was "driver/vehicle facts render as travelrows (not vertical KeyValueRows)", read
     // through the retired `travelrow` and `travel-getting-there` test ids, with the card
     // glyph at `[data-slot="section-card-icon"] svg`. Kept: the driver's name and the
@@ -498,7 +499,8 @@ describe("transport: ground-transport gate and fields (moved from the Travel sec
     premiseHolds("the Transport card rendered", panel !== null);
     expect(transportCell(panel!, "Driver")).toHaveTextContent("Pat Driver");
     expect(transportCell(panel!, "Vehicle")).toHaveTextContent("Sprinter Van");
-    expect(panel!.querySelector('[data-slot="panel-card-chip"] svg')).not.toBeNull();
+    // No flight above it here, so the section's h2 is the only title (follow-ups spec §4).
+    expectUntitledPanel(panel!, showSection("transport").label);
   });
 
   test("transport: the Load-out contact shows its name, phone and email in its own cell; the Driver cell is unaffected", () => {

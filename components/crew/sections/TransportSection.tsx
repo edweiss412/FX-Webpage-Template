@@ -271,6 +271,8 @@ export function TransportSection({
               {panel !== null && hasTransport ? (
                 <PanelCard
                   sectionId="transport"
+                  // Under "Your flight" the title tells the two cards apart (spec §4).
+                  titled={showFlight}
                   cardId={TRANSPORT_CARD_ID}
                   actions={
                     <CardHeaderActions

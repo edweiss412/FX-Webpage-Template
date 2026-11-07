@@ -99,6 +99,7 @@ export function AgendaSection({
                         label: block.label,
                         search: block.search,
                         viewerDays: block.viewerDays,
+                        dayHeadingAs: "h3",
                       })}
                     </Fragment>
                   ),

@@ -50,8 +50,8 @@ export type EventDetailsBodyProps = {
   reelCards?: readonly ReactNode[];
   /** "show" (the default, admin): a sentinel renders muted. "hide": its row is omitted. */
   sentinels?: "show" | "hide";
-  /** The group title's element: "span" (the default, admin), or "h4" (crew, plan decision 8). */
-  titleAs?: "span" | "h4";
+  /** The group title's element: "span" (the default, admin), or "h3" (crew, plan decision 8). */
+  titleAs?: "span" | "h3";
   /** Maps a group's title for display (plan decision 7). The default is identity. */
   groupTitle?: (title: string) => string;
   /** Per key, the card a row keeps (plan decision 4). Rows only: a chip carries none. */

@@ -18,6 +18,7 @@ import { makeShowForViewer } from "@/tests/fixtures/showForViewer";
 import { todayIsoInShowTimezone } from "@/lib/visibility/packList";
 import type { StageRestriction } from "@/lib/parser/types";
 import { ledgerProp } from "./_ledgerProp";
+import { expectUntitledPanel } from "@/tests/components/show-panels/_panelCardAssert";
 
 // Task 12 per-day-meta helpers. `adminViewer` matches the none-restriction admin
 // posture; `at(iso)` freezes the clock to noon UTC of an ISO date (the show TZ is
@@ -156,15 +157,13 @@ test("anchors present → right column renders a 'Crew Schedule' SectionCard wra
       showId={SHOW_ID}
     />,
   );
-  // The right column is a SectionCard (data-testid="section-card") titled "Crew Schedule".
+  // The right column is a panel card. The section's h2 names it, so its "Crew Schedule"
+  // title stays only as the hidden group its search lines name (follow-ups spec §4).
   const timesColumn = container.querySelector('[data-schedule-column="times"]')!;
   expect(timesColumn).not.toBeNull();
-  const card = timesColumn.querySelector('[data-testid="section-card"]')!;
+  const card = timesColumn.querySelector('[data-testid="crew-panel-card"]')!;
   expect(card).not.toBeNull();
-  const titleNode = card.querySelector('[data-slot="section-card-title"]');
-  expect(titleNode?.textContent).toContain("Crew Schedule");
-  // Mock `.card-head .ico` parity: the card carries its leading glyph.
-  expect(card.querySelector('[data-slot="section-card-icon"] svg')).not.toBeNull();
+  expectUntitledPanel(card, "Crew Schedule");
   // The key-times strip lives INSIDE the card, with its present anchors.
   const strip = card.querySelector('[data-testid="key-times-strip"]');
   expect(strip).not.toBeNull();
@@ -172,8 +171,6 @@ test("anchors present → right column renders a 'Crew Schedule' SectionCard wra
   // Layout is the 2-track split-wide grid when the right column has content.
   const grid = container.querySelector('[data-testid="schedule-grid"]')!;
   expect(grid.className).toContain("grid-cols-[1.6fr_1fr]");
-  // The "Crew Schedule" text comes from the SectionCard title, not loose prose.
-  expect(titleNode!.closest('[data-slot="section-card-title"]')).not.toBeNull();
 });
 
 test("all anchors absent + no rooms error → NO card AND the grid collapses to a single full-width column", () => {
@@ -187,7 +184,7 @@ test("all anchors absent + no rooms error → NO card AND the grid collapses to 
     />,
   );
   // No empty "Crew Schedule" shell (scoped to THIS render's container).
-  expect(container.querySelector('[data-slot="section-card-title"]')).toBeNull();
+  expect(container.querySelector('[data-testid="crew-panel-card"]')).toBeNull();
   expect(container.textContent).not.toContain("Crew Schedule");
   expect(container.querySelector('[data-testid="key-times-strip"]')).toBeNull();
   // The wrapper is NOT the 2-track split grid — it collapses to single full-width.

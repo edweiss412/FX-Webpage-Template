@@ -210,6 +210,7 @@ export function VenueSection({
                   // the section container's threshold, the address in body text.
                   layout: "container",
                   addressTone: "text",
+                  nameLabel: false,
                 })}
               </PanelCard>
             )}

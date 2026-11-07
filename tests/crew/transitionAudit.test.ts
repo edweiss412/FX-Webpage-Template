@@ -906,7 +906,12 @@ const CONDITIONAL_RENDERS: Record<string, { presences: number; renders: Conditio
   },
   [PANEL_CARD]: {
     presences: 0,
-    renders: [{ match: "{actions !== undefined ? (", treatment: T.serverPresence }],
+    renders: [
+      { match: "{showTitle ? null : (", treatment: T.serverPresence },
+      { match: "{showTitle || actions !== undefined ? (", treatment: T.serverPresence },
+      { match: "{showTitle ? (", treatment: T.serverPresence },
+      { match: "{actions !== undefined ? (", treatment: T.serverPresence },
+    ],
   },
   [FIELD_ROWS]: {
     presences: 0,
@@ -928,6 +933,7 @@ const CONDITIONAL_RENDERS: Record<string, { presences: number; renders: Conditio
   [VENUE_BODY]: {
     presences: 0,
     renders: [
+      { match: "{nameLabel ? (", treatment: T.serverPresence },
       { match: "{nameLine ? (", treatment: T.serverPresence },
       { match: "{addressLine || cityLine ? (", treatment: T.serverPresence },
       { match: "{addressLine ? (", treatment: T.serverPresence },
