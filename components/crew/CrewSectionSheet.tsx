@@ -478,6 +478,7 @@ function SheetFrame({
           <div
             ref={bodyRef}
             data-testid="crew-section-sheet-body"
+            data-crew-section-type=""
             className="@container min-h-0 flex-1 overflow-y-auto overscroll-contain px-4 pt-4 pb-[calc(env(safe-area-inset-bottom)+1.5rem)]"
           >
             <CrewSectionTransition sectionId={section.id}>{children}</CrewSectionTransition>

@@ -1018,6 +1018,7 @@ export function CrewSections({
                         }}
                         id={`crew-section-${s.id}`}
                         data-testid="crew-wide-section"
+                        data-crew-section-type=""
                         data-section={s.id}
                         aria-labelledby={`crew-section-heading-${s.id}`}
                         className="@container flex scroll-mt-(--crew-scroll-clearance) flex-col gap-4"

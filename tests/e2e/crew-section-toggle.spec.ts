@@ -48,6 +48,7 @@ import { updateShowLocked } from "./helpers/lockedShowCopy";
 import { deleteSeededShow, seedShowWithCrew } from "./helpers/seedShowWithCrew";
 import { signInAs, signOut } from "./helpers/signInAs";
 import { expectClearOfStickyChrome } from "./helpers/stickyClearance";
+import { readSectionTextSizes } from "./helpers/sectionTextSizes";
 import { admin } from "./helpers/supabaseAdmin";
 import { TEST_AUTH_SECRET } from "./helpers/testAuthConfig";
 
@@ -798,6 +799,54 @@ test.describe("crew compact home and section sheet (spec §5.2)", () => {
     expect(await row(page, "venue").evaluate((el) => getComputedStyle(el).transitionDuration)).toBe(
       "0s",
     );
+  });
+
+  // ── Crew panel follow-ups, spec §3 ──────────────────────────────────────
+  // The body's sizes are read off the rendered page: a rule a build dropped, or a
+  // class the rule set does not reach, leaves small text a phone cannot show well.
+  test("type scale: no text in any section sits below 12px at 390", async ({ page }) => {
+    await page.setViewportSize({ width: 390, height: 844 });
+    let labels = 0;
+    let values = 0;
+    for (const id of ADMIN_SECTIONS) {
+      await load(page, `?s=${id}`);
+      await settleOpen(page);
+      const report = await readSectionTextSizes(page, '[data-testid="crew-section-sheet-body"]');
+      expect(report.nodes, `${id} has visible text`).toBeGreaterThan(0);
+      expect(report.offenders, `${id}: ${JSON.stringify(report)}`).toEqual([]);
+      labels += report.labels;
+      values += report.values;
+    }
+    // PREMISE: the walk reached both rules, not only text they leave alone.
+    expect(labels).toBeGreaterThan(0);
+    expect(values).toBeGreaterThan(0);
+  });
+
+  test("type scale: section sizes step up, the home's do not, and a schedule weekday is a label", async ({
+    page,
+  }) => {
+    await page.setViewportSize({ width: 390, height: 844 });
+    const px = (selector: string, within: string) =>
+      page.evaluate(
+        ([sel, root]) => {
+          const el = document.querySelector(`${root} ${sel}`);
+          return el === null ? null : parseFloat(getComputedStyle(el).fontSize);
+        },
+        [selector, within] as const,
+      );
+    await load(page, "");
+    const HOME = '[data-testid="crew-today-block"]';
+    expect(await px(".text-xs:not(.uppercase)", HOME)).toBe(12);
+    expect(await px(".text-sm:not(.uppercase)", HOME)).toBe(14);
+
+    await load(page, "?s=schedule");
+    await settleOpen(page);
+    const BODY = '[data-testid="crew-section-sheet-body"]';
+    expect(await px(".text-xs:not(.uppercase)", BODY)).toBe(13);
+    expect(await px(".text-sm:not(.uppercase)", BODY)).toBe(15);
+    expect(await px(".uppercase.text-xs", BODY)).toBe(12);
+    // Carries `text-[11px]` and `uppercase`: the label rule has to win.
+    expect(await px(".uppercase.text-\\[11px\\]", BODY)).toBe(12);
   });
 });
 

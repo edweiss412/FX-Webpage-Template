@@ -74,6 +74,7 @@ import {
 } from "./helpers/stickyClearance";
 import { admin } from "./helpers/supabaseAdmin";
 import { TEST_AUTH_SECRET } from "./helpers/testAuthConfig";
+import { readSectionTextSizes } from "./helpers/sectionTextSizes";
 
 const SEED_DRIVE_FILE_ID = "seed-fixture:2026-04-asset-mgmt-cfo-coo-waldorf";
 const SHOW_DAY_N_INSTANT = "2026-04-21T12:00:00Z";
@@ -277,6 +278,15 @@ test.describe("crew wide nav (spec §5.3)", () => {
     expect(r.notes.top - Math.max(r.lead.bottom, r.facts.bottom), at).toBeLessThanOrEqual(24 + TOL);
     // The block ends with the notes, not with a column of air.
     expect(r.block.bottom - r.notes.bottom, at).toBeLessThanOrEqual(TOL + 1);
+  });
+
+  test("type scale: no text in the stacked sections sits below 12px", async ({ page }) => {
+    await load(page, "?s=today");
+    const report = await readSectionTextSizes(page, '[data-testid="crew-wide-section"]');
+    expect(report.offenders, JSON.stringify(report)).toEqual([]);
+    // PREMISE: the walk reached both rules, not only text they leave alone.
+    expect(report.labels).toBeGreaterThan(0);
+    expect(report.values).toBeGreaterThan(0);
   });
 
   test("wide nav: ?s=today loads at the top of the page", async ({ page }) => {
