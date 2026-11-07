@@ -228,6 +228,29 @@ describe("keeping up with the queue", () => {
     list.mockRestore();
   });
 
+  test("a read that settles after unmount touches nothing", async () => {
+    const queue = await import("@/lib/reports/offlineQueue");
+    await mounted();
+    sender.noteQueued.mockClear();
+    let release: (() => void) | null = null;
+    const real = queue.listReports;
+    const list = vi.spyOn(queue, "listReports").mockImplementation(async () => {
+      const answer = await real();
+      await new Promise<void>((resolve) => (release = resolve));
+      return answer;
+    });
+    await act(async () => {
+      await enqueueReport(report(1));
+      await vi.waitFor(() => expect(release).not.toBeNull());
+    });
+    cleanup();
+    (release as (() => void) | null)?.();
+    await new Promise((resolve) => setTimeout(resolve, 20));
+    expect(list).toHaveBeenCalled();
+    expect(sender.noteQueued).not.toHaveBeenCalled();
+    list.mockRestore();
+  });
+
   test("a report queued in another document starts an empty page's count and timer", async () => {
     vi.useFakeTimers({ toFake: ["setInterval", "clearInterval"] });
     await mounted();

@@ -57,6 +57,7 @@ export function ReportQueueStatus({
   }, []);
 
   useEffect(() => {
+    let live = true;
     const unsubscribe = subscribeQueue(() => void refresh());
     const sendNow = (): void => {
       void reportSender.send();
@@ -68,9 +69,14 @@ export function ReportQueueStatus({
     };
     window.addEventListener("online", sendNow);
     document.addEventListener("visibilitychange", onVisibility);
-    void refresh().then(() => setReady(true));
+    void refresh().then(() => {
+      if (live) setReady(true);
+    });
     sendNow();
     return () => {
+      live = false;
+      // A read still in flight belongs to a component that is gone.
+      lastRead.current += 1;
       unsubscribe();
       window.removeEventListener("online", sendNow);
       document.removeEventListener("visibilitychange", onVisibility);
