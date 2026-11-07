@@ -142,7 +142,7 @@ States of the modal this plan adds or touches, and of the queue status. Nothing 
 | count N | count 0 | Instant; visual rows unmount, the status region stays mounted and empties |
 | count N | count M | Instant text change |
 
-Compound: a record sent by the sender while the failed-record modal is open changes the waiting count behind the scrim, with no effect on the modal. A failed record removed by another tab while its modal is open: Send again lands on `stale`, Discard is a no-op that closes.
+Compound: a modal closed and reopened during a hold mounts straight into `submitting` and joins it, then goes to `queued` or `failed-retryable`, all instant. A record sent by the sender while the failed-record modal is open changes the waiting count behind the scrim, with no effect on the modal. A failed record removed by another tab while its modal is open: Send again lands on `stale`, Discard is a no-op that closes.
 
 ## 7. Tasks
 
