@@ -77,13 +77,16 @@ type ExistingReportRow = {
   id: string;
   github_issue_url: string | null;
   lease_live: boolean;
+  reported_by_kind: string;
+  reported_by: string;
 };
 
 type ReservationResult =
   | { state: "claimed"; leaseHolder: string }
   | { state: "duplicate"; url: string }
   | { state: "in_flight" }
-  | { state: "expired_pending_recovery" };
+  | { state: "expired_pending_recovery" }
+  | { state: "other_reporter" };
 
 export type ReportShowContext = {
   title: string;
@@ -193,8 +196,19 @@ function successBody(
   return { ok: true, status };
 }
 
-function dispatchExisting(row: ExistingReportRow | null): ReservationResult | null {
+/**
+ * A key belongs to the reporter who reserved it. Anyone else presenting it is
+ * refused before anything is read or filed: a retry against someone else's
+ * reservation would file their text, or this text under their name.
+ */
+function dispatchExisting(
+  row: ExistingReportRow | null,
+  reporter: ReturnType<typeof reporterFor>,
+): ReservationResult | null {
   if (!row) return null;
+  if (row.reported_by_kind !== reporter.reportedByKind || row.reported_by !== reporter.reportedBy) {
+    return { state: "other_reporter" };
+  }
   if (row.github_issue_url) return { state: "duplicate", url: row.github_issue_url };
   if (row.lease_live) return { state: "in_flight" };
   return { state: "expired_pending_recovery" };
@@ -222,7 +236,9 @@ async function readExistingReport(
   const { rows } = await db.query(
     `SELECT id,
             github_issue_url,
-            (processing_lease_until > now()) AS lease_live
+            (processing_lease_until > now()) AS lease_live,
+            reported_by_kind,
+            reported_by
        FROM reports
       WHERE idempotency_key = $1::uuid`,
     [idempotencyKey],
@@ -518,10 +534,10 @@ async function reserveReport(
   auth: ReportAuthContext,
   body: RequestBody,
 ): Promise<ReservationResult> {
-  const existing = dispatchExisting(await readExistingReport(db, body.idempotency_key));
+  const reporter = reporterFor(auth);
+  const existing = dispatchExisting(await readExistingReport(db, body.idempotency_key), reporter);
   if (existing) return existing;
 
-  const reporter = reporterFor(auth);
   const leaseHolder = randomUUID();
   const acquired = await acquireReportLease(db, {
     idempotencyKey: body.idempotency_key,
@@ -536,7 +552,9 @@ async function reserveReport(
 
   if (!acquired.acquired) {
     return (
-      dispatchExisting(await readExistingReport(db, body.idempotency_key)) ?? { state: "in_flight" }
+      dispatchExisting(await readExistingReport(db, body.idempotency_key), reporter) ?? {
+        state: "in_flight",
+      }
     );
   }
 
@@ -1091,6 +1109,9 @@ export async function submitReport(
         throw cause;
       }
 
+      if (reservation.state === "other_reporter") {
+        return { status: 401, body: { ok: false } };
+      }
       if (reservation.state === "duplicate") {
         return { status: 200, body: successBody(auth, "duplicate", reservation.url) };
       }

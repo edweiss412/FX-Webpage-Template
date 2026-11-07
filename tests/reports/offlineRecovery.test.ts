@@ -31,6 +31,8 @@ const showId = "018f2f4c-3333-4333-9333-000000000061";
 const key = "018f2f4c-8f54-4c28-9f56-f0f1b2c3d561";
 const adminIdentity = "offline-recovery@example.com";
 const auth = { kind: "admin", email: adminIdentity } as const;
+const otherIdentity = "offline-recovery-other@example.com";
+const otherAuth = { kind: "admin", email: otherIdentity } as const;
 
 const ordinary = { idempotency_key: key, show_id: showId, message: "Dock B moved", surface: "crew" };
 const T1 = {
@@ -75,7 +77,7 @@ describe("offline fields on an existing reservation", () => {
   });
 
   afterEach(() => {
-    cleanupReportFixtures(showId, [adminIdentity]);
+    cleanupReportFixtures(showId, [adminIdentity, otherIdentity]);
   });
 
   test("an ordinary POST whose answer was lost, retried from the queue, gains the fields", async () => {
@@ -133,5 +135,44 @@ describe("offline fields on an existing reservation", () => {
 
     expect(githubMock.createIssue).toHaveBeenCalledTimes(1);
     expect(storedContext()).toEqual(before);
+  });
+
+  describe("a key belongs to the reporter who reserved it", () => {
+    function storedReporter(): string {
+      return runPsql(
+        `select reported_by from public.reports where idempotency_key = ${sqlString(key)}::uuid;`,
+      );
+    }
+
+    test("another reporter cannot complete an expired reservation", async () => {
+      githubMock.createIssue.mockRejectedValueOnce(new Error("GitHub 5xx after reservation"));
+      expect((await submitReport(auth, ordinary)).status).toBe(502);
+      const before = storedContext();
+      expireLease();
+
+      const refused = await submitReport(otherAuth, { ...ordinary, offline: T1 });
+
+      expect(refused).toEqual({ status: 401, body: { ok: false } });
+      expect(githubMock.createIssue).toHaveBeenCalledTimes(1);
+      expect(githubMock.findIssueByMarker).not.toHaveBeenCalled();
+      expect(storedContext()).toEqual(before);
+      expect(storedReporter()).toBe(adminIdentity);
+    });
+
+    test("another reporter does not learn a finished report's issue", async () => {
+      githubMock.createIssue.mockResolvedValueOnce(ISSUE);
+      expect((await submitReport(auth, ordinary)).status).toBe(201);
+
+      expect(await submitReport(otherAuth, ordinary)).toEqual({ status: 401, body: { ok: false } });
+    });
+
+    test("the same reporter still recovers its own reservation", async () => {
+      githubMock.createIssue
+        .mockRejectedValueOnce(new Error("GitHub 5xx after reservation"))
+        .mockResolvedValueOnce(ISSUE);
+      await submitReport(auth, ordinary);
+      expireLease();
+      expect((await submitReport(auth, ordinary)).status).toBe(201);
+    });
   });
 });

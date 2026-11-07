@@ -45,7 +45,7 @@ function seedExpiredUnknownOutcomeRow() {
       ${sqlString(key)}::uuid,
       ${sqlString(showId)}::uuid,
       'admin',
-      'admin',
+      'admin.com',
       'A1',
       '{}'::jsonb,
       'Recovered unknown outcome',
@@ -79,6 +79,6 @@ describe("unknown-outcome recovery", () => {
     expect(githubMock.findIssueByMarker).toHaveBeenCalledTimes(1);
     expect(githubMock.findIssueByMarker.mock.calls[0]?.[0]).toBe(key);
     expect(githubMock.createIssue).not.toHaveBeenCalled();
-    expect(reportRows(key)).toEqual([`admin:admin:A1:${recoveredUrl}`]);
+    expect(reportRows(key)).toEqual([`admin:admin.com:A1:${recoveredUrl}`]);
   });
 });

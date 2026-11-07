@@ -55,7 +55,7 @@ function seedExpiredUnknownOutcomeRow() {
       ${sqlString(key)}::uuid,
       ${sqlString(showId)}::uuid,
       'admin',
-      'admin',
+      'admin.com',
       '{}'::jsonb,
       'Concurrent retry',
       now() - interval '1 minute',
@@ -104,6 +104,6 @@ describe("concurrent expired-lease retries", () => {
 
     expect([firstResult.status, second.status].sort()).toEqual([201, 409]);
     expect(githubMock.createIssue).toHaveBeenCalledTimes(1);
-    expect(reportRows(key)).toEqual([`admin:admin::${retryUrl}`]);
+    expect(reportRows(key)).toEqual([`admin:admin.com::${retryUrl}`]);
   });
 });
