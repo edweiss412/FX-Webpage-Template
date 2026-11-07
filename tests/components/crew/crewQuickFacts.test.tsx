@@ -130,10 +130,13 @@ describe("quick facts: layout (spec §4.5, §8 invariant 3)", () => {
   });
 
   it("quick facts: the Dress code tile links to Event details, outside search", () => {
-    render(<CrewQuickFacts facts={facts(["dressCode", "dock", "parking", "wifi"])} />);
+    render(<CrewQuickFacts facts={facts(["dressCode", "dock", "address", "wifi"])} />);
     const link = screen.getByRole("link", { name: "Full dress code" });
     expect(link).toHaveAttribute("href", "/show/slug/token?s=event&gate=skip");
     expect(link).toHaveClass("min-h-tap-min");
+    // A phone has no hover: the link is underlined at rest, as Directions is.
+    expect(link).toHaveClass("underline");
+    expect(screen.getByRole("link", { name: /Directions/ })).toHaveClass("underline");
     // The chip is a route, not sheet data: search must not index its text.
     expect(link.closest("[data-search-skip]")).not.toBeNull();
     // It sits in the tile it belongs to, and is the only section link in the block.
@@ -141,10 +144,13 @@ describe("quick facts: layout (spec §4.5, §8 invariant 3)", () => {
     expect(screen.getAllByTestId("section-chip-link")).toHaveLength(1);
   });
 
-  it("quick facts: a half tile cannot hold the dress code link, so it spans where the grid is narrow", () => {
+  // A pill's fixed width overflowed a half tile on a phone, and spanning the tile broke
+  // the paired rows `crew-page.spec.ts` pins at 390. The link wraps instead.
+  it("quick facts: the dress code link leaves the tile a half tile at every width", () => {
     const NARROW = "@max-quick-pair/facts:col-span-2";
-    render(<CrewQuickFacts facts={facts(["wifi", "dressCode", "dock", "parking"])} />);
-    expect(tiles().map((t) => t.classList.contains(NARROW))).toEqual([true, true, false, false]);
+    render(<CrewQuickFacts facts={facts(["wifi", "hotel", "dock", "dressCode"])} />);
+    expect(tiles().map((t) => t.classList.contains(NARROW))).toEqual([false, false, false, false]);
+    expect(screen.getByRole("link", { name: "Full dress code" })).not.toHaveClass("shrink-0");
   });
 
   it("quick facts: one tile spans both columns", () => {

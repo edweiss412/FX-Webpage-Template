@@ -3089,6 +3089,23 @@ test.describe("dimensional invariants, compact (crew page redesign Task 13)", ()
       ).toBeLessThanOrEqual(TOL);
     }
     expectClamped(four, at);
+
+    // The dress code link stays inside its half tile at a 44px target on both phone
+    // widths: a pill overflowed here, and the link wraps instead.
+    for (const width of [390, 320]) {
+      await page.setViewportSize({ width, height: 844 });
+      const link = page
+        .locator('[data-fact="dressCode"]')
+        .getByRole("link", { name: "Full dress code" });
+      const fit = await link.evaluate((el) => {
+        const r = el.getBoundingClientRect();
+        const tile = el.closest('[data-fact="dressCode"]')!.getBoundingClientRect();
+        return { right: r.right, tileRight: tile.right, height: r.height };
+      });
+      at = `dress link at ${width} ${JSON.stringify(fit)}`;
+      expect(fit.right, at).toBeLessThanOrEqual(fit.tileRight + TOL);
+      expect(fit.height, at).toBeGreaterThanOrEqual(44 - TOL);
+    }
   });
 
   test("dimensional: sheet: at most 90dvh tall with a header that never shrinks, and the body scrolls inside it", async ({

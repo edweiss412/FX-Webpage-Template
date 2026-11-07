@@ -46,7 +46,7 @@ import {
   ShirtIcon,
   WifiIcon,
 } from "@/components/crew/icons/sectionIcons";
-import { SectionChipLink } from "@/components/crew/SectionChipLink";
+import { SectionChipLink, TILE_TEXT_LINK } from "@/components/crew/SectionChipLink";
 import { NewTabHint } from "@/components/shared/NewTabHint";
 import { usePrefersReducedMotion } from "@/lib/a11y/usePrefersReducedMotion";
 import type { QuickFact, QuickFactAction, QuickFactId, QuickFactLine } from "@/lib/crew/quickFacts";
@@ -97,18 +97,12 @@ function contactLinks(fact: QuickFact): ContactAction[] {
 /**
  * Tiles that span both columns while the grid is narrower than
  * `--container-quick-pair` (UI-gate re-run P3-3 / critique N3). A half-width
- * tile there cannot hold three 44px actions on one row, or a section link's chip,
- * so a tile with either spans; so does any half-width tile that would then sit
- * alone on its row, found by walking the two-column flow. Every tile that spans
- * anyway still does.
+ * tile there cannot hold three 44px actions on one row, so a tile with all three
+ * spans; so does any half-width tile that would then sit alone on its row, found
+ * by walking the two-column flow. Every tile that spans anyway still does.
  */
 function narrowSpans(facts: readonly QuickFact[]): boolean[] {
-  const span = facts.map(
-    (fact, i) =>
-      spans(i, facts.length) ||
-      contactLinks(fact).length >= 3 ||
-      fact.actions.some((a) => a.kind === "section"),
-  );
+  const span = facts.map((fact, i) => spans(i, facts.length) || contactLinks(fact).length >= 3);
   let open = -1; // a half-width tile waiting for its row's second column
   span.forEach((full, i) => {
     if (!full) {
@@ -320,15 +314,16 @@ function Tile({ fact, onCopy }: { fact: QuickFact; onCopy: (value: string) => vo
           href={directions.href}
           target="_blank"
           rel="noopener noreferrer"
-          className="mt-auto inline-flex min-h-tap-min items-center self-start text-sm font-semibold text-accent-on-bg underline-offset-4 transition-colors duration-fast hover:underline"
+          className={cn("mt-auto", TILE_TEXT_LINK)}
         >
           Directions <NewTabHint />
         </a>
       ) : null}
-      {/* A route to the full text, not sheet data, so outside search. */}
       {sectionLink ? (
-        <div data-search-skip="" className="mt-auto flex pt-1">
-          <SectionChipLink section={sectionLink.section}>{sectionLink.label}</SectionChipLink>
+        <div className="mt-auto flex">
+          <SectionChipLink section={sectionLink.section} appearance="text">
+            {sectionLink.label}
+          </SectionChipLink>
         </div>
       ) : null}
     </div>

@@ -406,7 +406,9 @@ export const CENSUS: readonly CensusRow[] = [
   // merged file by tag, not added up from the two sides.
   { file: "components/agenda/AgendaEmbed.tsx", line: 95 },
   { file: "components/agenda/AgendaPdfViewer.tsx", line: 198 },
-  { file: "components/crew/SectionChipLink.tsx", line: 48 },
+  // :48 until feat/crew-dress-tile-link, which added the `appearance` prop and the
+  // shared tile link style above the tag.
+  { file: "components/crew/SectionChipLink.tsx", line: 67 },
   // :196 and :213 until feat/crew-show-search-impl, which added the react import,
   // the `searchTarget` field and the `IdentityLine` wrapper tags above both anchors.
   // :203 and :220 until feat/crew-show-search Task 7, which lifted the render

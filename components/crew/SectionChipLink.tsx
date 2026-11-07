@@ -31,6 +31,15 @@ import { buildSectionHref } from "@/lib/crew/sectionHref";
 import type { SectionId } from "@/lib/crew/resolveActiveSection";
 import { cn } from "@/lib/ui/cn";
 
+/**
+ * A quick facts tile's text link, which Directions shares. Underlined at rest: this
+ * surface is a phone, where a hover cue never fires (PR B invariant-8 gate, row 18).
+ */
+export const TILE_TEXT_LINK = cn(
+  "inline-flex min-h-tap-min items-center self-start text-sm font-semibold text-accent-on-bg",
+  "underline underline-offset-4 transition-colors duration-fast hover:decoration-2",
+);
+
 type SectionChipLinkProps = {
   /** Destination crew section. */
   section: SectionId;
@@ -38,9 +47,19 @@ type SectionChipLinkProps = {
   icon?: ReactNode;
   /** Visible label = the accessible name. */
   children: ReactNode;
+  /**
+   * `text` is the quick facts tile's link: it reads as Directions does there and
+   * wraps, where a pill's fixed width would overflow a half tile on a phone.
+   */
+  appearance?: "chip" | "text";
 };
 
-export function SectionChipLink({ section, icon, children }: SectionChipLinkProps) {
+export function SectionChipLink({
+  section,
+  icon,
+  children,
+  appearance = "chip",
+}: SectionChipLinkProps) {
   const pathname = usePathname();
   const searchParams = useSearchParams();
 
@@ -50,15 +69,19 @@ export function SectionChipLink({ section, icon, children }: SectionChipLinkProp
       prefetch={false}
       data-testid="section-chip-link"
       data-section={section}
-      className={cn(
-        "inline-flex min-h-tap-min shrink-0 items-center gap-2 rounded-pill",
-        "border border-text-faint bg-surface px-3.5 text-xs font-semibold text-text",
-        "transition-colors duration-fast",
-        "hover:bg-surface-sunken hover:text-accent-on-bg",
-        "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring",
-        "focus-visible:ring-offset-2 focus-visible:ring-offset-bg",
-        "[&_svg]:size-4 [&_svg]:text-text-subtle hover:[&_svg]:text-accent-on-bg",
-      )}
+      className={
+        appearance === "text"
+          ? TILE_TEXT_LINK
+          : cn(
+              "inline-flex min-h-tap-min shrink-0 items-center gap-2 rounded-pill",
+              "border border-text-faint bg-surface px-3.5 text-xs font-semibold text-text",
+              "transition-colors duration-fast",
+              "hover:bg-surface-sunken hover:text-accent-on-bg",
+              "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring",
+              "focus-visible:ring-offset-2 focus-visible:ring-offset-bg",
+              "[&_svg]:size-4 [&_svg]:text-text-subtle hover:[&_svg]:text-accent-on-bg",
+            )
+      }
     >
       {icon}
       {children}

@@ -2690,7 +2690,7 @@ From the impeccable audit of `feat/a11y-privacy-cluster` (P2). The new rotation 
 
 ### CREWPANEL-DRESS-TILE-LINK-1 — impeccable critique P1, part: the home's clamped dress code tile has no link to the full text (2026-11-06) — CLOSED 2026-11-06 (`feat/crew-dress-tile-link`)
 
-**Resolution:** the product owner approved the link. The tile now carries a "Full dress code" chip to the `event` section, spec line 216 carries the dated amendment, and the tile spans both columns where a half tile cannot hold the chip.
+**Resolution:** the product owner approved the link. The tile now carries a "Full dress code" link to the `event` section, and spec line 216 carries the dated amendment.
 
 **Effort:** S
 
