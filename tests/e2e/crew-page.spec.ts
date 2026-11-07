@@ -3443,8 +3443,9 @@ test.describe("quick facts and card titles on the seeded show (moved from crew-l
         expect(cut(titles), `${width}px ${section}: ${JSON.stringify(titles)}`).toEqual([]);
       }
     }
-    // PREMISE: the Rooms panel rendered, so its title was among those read.
-    expect(roomsAt320).toEqual(expect.arrayContaining([showSection("rooms").label]));
+    // PREMISE: the Rooms section rendered a titled card, so a title was read there. Its
+    // panel prints none (the section's h2 says it), so that card is Diagrams.
+    expect(roomsAt320).toEqual(expect.arrayContaining(["Diagrams"]));
     for (const width of [1024, 1280]) {
       await page.setViewportSize({ width, height: 900 });
       await gotoSection(page, "today");
@@ -3452,8 +3453,9 @@ test.describe("quick facts and card titles on the seeded show (moved from crew-l
       seen += titles.length;
       expect(cut(titles), `${width}px: ${JSON.stringify(titles)}`).toEqual([]);
     }
-    // PREMISE: the walk read real titles, the ones that were cut among them.
-    expect(seen).toBeGreaterThan(20);
+    // PREMISE: the walk read real titles, the ones that were cut among them. Most sections
+    // print none now, so this counts the crew-only cards and the section-less home ones.
+    expect(seen).toBeGreaterThan(10);
   });
 });
 
@@ -3843,6 +3845,7 @@ test.describe("billing: the crew panel card's header geometry (PR B Task 4)", ()
         travelOut: "2026-04-23",
       },
       crew: [{ name: "Panel Lead", role: "TD", roleFlags: ["LEAD"] }],
+      eventDetails: { power: "(2) Power Drops from Engineering" },
       internal: {
         financials: {
           po: "PO-PANEL-1180",

@@ -346,11 +346,12 @@ test.describe("crew layout dimensions — split-wide ratio + natural height (Tas
       "true",
       { timeout: 30_000 },
     );
-    await expect(page.getByTestId(`section-${section}`)).toBeVisible();
+    // At wide widths the home body is `display: contents` (its cards are the Today grid's
+    // items), so it has no box of its own: Today's is the block's.
+    const body = page.getByTestId(section === "today" ? "crew-today-block" : `section-${section}`);
+    await expect(body).toBeVisible();
     await expect
-      .poll(async () => (await rectOf(page.getByTestId(`section-${section}`))).height, {
-        timeout: 8000,
-      })
+      .poll(async () => (await rectOf(body)).height, { timeout: 8000 })
       .toBeGreaterThan(1);
   }
 
@@ -696,8 +697,9 @@ test.describe("crew layout dimensions — split-wide ratio + natural height (Tas
     const vline = metaCard.locator("span.self-stretch").first();
     const vlineRect = await rectOf(vline);
     // The vline must fill the full row height (Tailwind v4 .flex ≠ items-stretch;
-    // self-stretch is the guarantee). Account for the card's p-3 (12px each side).
-    expect(Math.abs(vlineRect.height - (cardRect.height - 24))).toBeLessThanOrEqual(0.5);
+    // self-stretch is the guarantee). Account for the card's p-3 (12px each side) and its
+    // 1px border, which the card's own rect includes.
+    expect(Math.abs(vlineRect.height - (cardRect.height - 26))).toBeLessThanOrEqual(0.5);
   });
 
   // ── §5.5 date badge is the fixed 50px (w-12.5) column regardless of meta ──
@@ -951,9 +953,12 @@ test.describe("crew layout dimensions — split-wide ratio + natural height (Tas
           // a container the section genuinely renders, so a section that failed to
           // mount, or a walk that stopped at the page shell, fails here rather
           // than reporting an empty offender list as success.
+          // At wide widths the home body is `display: contents`, so the gapped container
+          // holding Today's cards is the block's grid.
+          const named = wide && section === "today" ? "crew-today-block" : anchor;
           expect(
-            anchorHits(found.visited, anchor),
-            `the walk reached ${anchor} inside section-${section} [@ ${width}] —` +
+            anchorHits(found.visited, named),
+            `the walk reached ${named} inside section-${section} [@ ${width}] —` +
               ` gapped containers visited: ${JSON.stringify(found.visited)}`,
           ).not.toEqual([]);
 

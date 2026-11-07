@@ -1141,6 +1141,7 @@ test.describe("the composed home, wide (crew page redesign Task 11)", () => {
       return {
         block: box('[data-testid="crew-today-block"]'),
         dayRow: box('[data-testid="crew-day-row"]'),
+        lead: box('[data-testid="crew-today-lead"]'),
         pass: box('[data-testid="crew-pass"]'),
         run: box('[data-testid="today-run-of-show"]'),
         facts: box('[data-testid="crew-quick-facts"]'),
@@ -1169,7 +1170,7 @@ test.describe("the composed home, wide (crew page redesign Task 11)", () => {
     const TOL = 0.5;
     // Row 1: the quick facts sit beside the day row and the pass.
     expect(r.facts!.left, JSON.stringify(r)).toBeGreaterThanOrEqual(r.pass!.right - TOL);
-    expect(Math.abs(r.facts!.top - r.dayRow!.top), JSON.stringify(r)).toBeLessThanOrEqual(TOL);
+    expect(Math.abs(r.facts!.top - r.lead!.top), JSON.stringify(r)).toBeLessThanOrEqual(TOL);
     expect(r.pass!.top).toBeGreaterThanOrEqual(r.dayRow!.bottom - TOL);
     // Rows 2 and 3: the run of show, then the notes, across both columns.
     for (const row of [r.run!, r.notes!]) {
@@ -1179,7 +1180,7 @@ test.describe("the composed home, wide (crew page redesign Task 11)", () => {
     // One 16px row gap each, read on the visible card: a margin left on its slot's child
     // would count inside the slot and pass there.
     const ROW_GAP = 16;
-    const rowOne = Math.max(r.pass!.bottom, r.facts!.bottom);
+    const rowOne = Math.max(r.lead!.bottom, r.facts!.bottom);
     expect(Math.abs(r.run!.top - rowOne - ROW_GAP), JSON.stringify(r)).toBeLessThanOrEqual(TOL);
     expect(Math.abs(r.notes!.top - r.run!.bottom - ROW_GAP), JSON.stringify(r)).toBeLessThanOrEqual(
       TOL,
