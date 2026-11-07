@@ -1955,9 +1955,13 @@ test.describe("pack list: the Pack list section, wide (PR C Task 6)", () => {
         .getByRole("link", { name: "Full dress code" })
         .click();
       await expect.poll(() => new URL(page.url()).searchParams.get("s")).toBe("event");
-      await expect(
-        page.locator('[data-testid="crew-wide-section"][data-section="event"]').getByText(TAIL),
-      ).toBeInViewport();
+      // Whole and unclipped: `toBeInViewport` alone passes on any intersection, and a
+      // paragraph clamped by CSS still matches `getByText`.
+      const dress = page
+        .locator('[data-testid="crew-wide-section"][data-section="event"]')
+        .getByText(TAIL);
+      await expect(dress).toBeInViewport({ ratio: 1 });
+      expect(await dress.evaluate((el) => el.scrollHeight - el.clientHeight)).toBeLessThan(2);
     } finally {
       await deleteSeededShow(seeded.driveFileId);
     }

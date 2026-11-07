@@ -2316,7 +2316,11 @@ test.describe("pack list: the Pack list section, compact (PR C Task 6)", () => {
           .getByRole("link", { name: "Full dress code" })
           .click();
         await expect(sheetDialog(page)).toHaveAttribute("data-section", "event");
-        await expect(sheetDialog(page).getByText(TAIL)).toBeInViewport();
+        // Whole and unclipped: `toBeInViewport` alone passes on any intersection, and a
+        // paragraph clamped by CSS still matches `getByText`.
+        const dress = sheetDialog(page).getByText(TAIL);
+        await expect(dress).toBeInViewport({ ratio: 1 });
+        expect(await dress.evaluate((el) => el.scrollHeight - el.clientHeight)).toBeLessThan(2);
         const url = new URL(page.url());
         expect(url.searchParams.get("s")).toBe("event");
         // It stays on the route it started on: a preview never lands on the share link.
