@@ -29,14 +29,16 @@ One rule set in `app/globals.css`, outside every `@layer`, so it beats Tailwind'
   --text-xs: 0.8125rem;
   --text-sm: 0.9375rem;
 }
+[data-crew-section-type] .text-\[11px\] {
+  font-size: 0.8125rem;
+}
 [data-crew-section-type]
   :is(.uppercase, .text-\[8px\], .text-\[9px\], .text-\[10px\], .text-\[10\.5px\], .text-\[0\.625rem\]) {
   font-size: 0.75rem;
 }
-[data-crew-section-type] .text-\[11px\] {
-  font-size: 0.8125rem;
-}
 ```
+
+The order matters. Both rules have equal specificity and `components/crew/primitives/DayCard.tsx:88` carries `text-[11px]` and `uppercase` together, so the label rule comes last and that weekday is a 12px label.
 
 | Text | Now | After |
 | --- | --- | --- |
@@ -86,6 +88,8 @@ type PanelCardProps = PanelCardHeading & {
 
 The schedule's card is the same defect and was found by the probe below: `SCHEDULE_CALL_TIMES_TITLE` is "Crew Schedule" (`components/crew/sections/scheduleRows.ts:141`) under the section's "Crew schedule" (`lib/showSections/registry.ts:54`). It passes `title` rather than `sectionId` so the hidden group keeps the constant the search entries name.
 
+**Heading levels.** An untitled card has no `h3`, so a heading inside it moves up one level and the outline stays `h2` to `h3` with no skip (`tests/e2e/crew-wide-nav.spec.ts:228-232` reads the rendered outline). Three headings do this: the Event details group title (`components/crew/sections/EventSection.tsx:112`, `titleAs`), the room name (`components/crew/sections/RoomsSection.tsx:130`, `nameAs`) and the agenda day label (`components/show-panels/AgendaScheduleBlock.tsx:133`, a literal `h4` today). `titleAs` and `nameAs` widen to accept `"h3"` (`components/show-panels/EventDetailsBody.tsx:54`, `components/show-panels/RoomsBody.tsx:59`), `AgendaScheduleBlock` takes `dayHeadingAs?: "h3" | "h4"`, default `"h4"`, and the crew passes `"h3"` to all three. Every default is the admin's output, so its DOM does not change. No other `h4` sits in a section body: the sweep is `grep -rnE '<h[3-6]\b|"h[3-6]"' components/show-panels components/crew/sections`.
+
 Venue prints a third copy, its 10px "Venue" label (`components/show-panels/VenueBody.tsx:117-122`). `VenueBody` takes `nameLabel?: boolean`, default true, and the crew passes false. The admin's output does not change.
 
 Probe, every section at 390 on the seeded show, leaf elements whose text equals the sheet's `h2`: Venue 2, Event details 1, Crew 1, Contacts 1, Crew schedule 1, Agenda 1, Hotels 1, Rooms 1, Billing 1, Transport 0 (the panel card absent for this viewer). Pack list was gated out that day.
@@ -93,6 +97,8 @@ Probe, every section at 390 on the seeded show, leaf elements whose text equals 
 ## 5. One card header
 
 Facilities and Venue status (`components/crew/sections/VenueSection.tsx:222`, `components/crew/sections/VenueSection.tsx:242`), "Your flight" (`components/crew/sections/TransportSection.tsx:135`), Diagrams (`components/crew/DiagramsBlock.tsx:72`) and the schedule's times card (`components/crew/sections/ScheduleSection.tsx:297`) move from `SectionCard` to `PanelCard`. Their `data-card-id` wrappers stay, so `cardId` is omitted and region lookups read the same element. Every header action moves with its card (spec line 328).
+
+Tests that read these cards move with them, including the geometry and outline readers: `tests/e2e/crew-page.spec.ts:1276` and `tests/e2e/crew-page.spec.ts:4699` look for a `section-card` ancestor, `tests/e2e/crew-wide-nav.spec.ts:215` walks `section-card` and asserts more than three titles, and `tests/e2e/crew-page.spec.ts:3888` measures Billing's chip and `h3`, which no longer exist. `tests/e2e/_wifiPasswordRowLiveEntry.tsx:58` is a standalone harness of the Facilities card, so it takes `PanelCard` and the `data-crew-section-type` attribute, or it measures a card production no longer draws; `tests/e2e/wifi-password-row.layout.spec.ts:235` reads it. The plan lists every reader by command.
 
 `SectionCard` stays for the home (`components/crew/CrewRunOfShowCard.tsx:160`, `components/crew/sections/HomeSection.tsx:102`) and the dev page. The glyphs in `components/crew/icons/sectionIcons.tsx` already take `className` (`components/crew/icons/sectionIcons.tsx:183`), so `PanelCard` draws them at the registry icons' `size-4`.
 
@@ -150,6 +156,7 @@ Compound: the run card's day crossfade (`components/crew/CrewRunOfShowCard.tsx:1
 | --- | --- | --- | --- | --- |
 | `PanelCard.titled` | none, a prop | the table in section 4 | `PanelCard` | prints or hides chip and `h3` |
 | `VenueBody.nameLabel` | none, a prop | `components/crew/sections/VenueSection.tsx` | `VenueBody` | prints or omits the "Venue" label |
+| `AgendaScheduleBlock.dayHeadingAs` | none, a prop | `components/crew/sections/AgendaSection.tsx:97` | `AgendaScheduleBlock` | the day label's element, `h3` on the crew page |
 | `data-crew-section-type` | none, an attribute | sheet body, wide section | `app/globals.css` | the type scale |
 
 ## 11. Acceptance criteria
@@ -164,6 +171,7 @@ Compound: the run card's day crossfade (`components/crew/CrewRunOfShowCard.tsx:1
 - AC-8: at compact widths the block's DOM and visual order is day row, pass, run of show, quick facts, show notes.
 - AC-9: no horizontal overflow at 320, 390, 768, 1024 and 1280.
 - AC-10: the static size walk fails when a literal below 12px is added to a section component without a rule.
+- AC-11: the rendered outline on the wide page skips no level, and a schedule weekday computes 12px.
 
 ## 12. Documented limits
 
