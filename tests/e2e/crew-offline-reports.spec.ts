@@ -472,6 +472,16 @@ test("the counts and the failed sheet hold on a small screen and at a short one"
   expect(overflow).toBeLessThanOrEqual(0);
   const trigger = await crewPage.getByTestId("report-button-trigger").boundingBox();
   expect((trigger?.x ?? 0) + (trigger?.width ?? 0)).toBeLessThanOrEqual(320);
+  // Just past the small breakpoint the band is still one row, so 200% text there
+  // is where the counts and the fine print would collide.
+  await crewPage.setViewportSize({ width: 680, height: 800 });
+  const finePrint = await crewPage.getByTestId("page-footer-fine-print").boundingBox();
+  const count = await failed(crewPage).boundingBox();
+  premiseHolds("both boxes measured", finePrint !== null && count !== null);
+  const apart =
+    (finePrint?.x ?? 0) + (finePrint?.width ?? 0) <= (count?.x ?? 0) ||
+    (finePrint?.y ?? 0) + (finePrint?.height ?? 0) <= (count?.y ?? 0);
+  expect(apart, "the counts never paint over the fine print").toBe(true);
   await crewPage.evaluate(() => {
     document.documentElement.style.fontSize = "";
   });

@@ -581,6 +581,10 @@ export function ReportModal(props: ReportModalProps) {
 
   /** Send again: the new key goes on the phone first, and the sender does the rest. */
   async function resendFailed(current: QueuedReport): Promise<void> {
+    // A resend ends any armed Discard: a refusal must not come back one tap from deleting.
+    if (discardTimer.current !== null) clearTimeout(discardTimer.current);
+    setDiscardArmed(false);
+    setDiscardExpired(false);
     setStatus("submitting");
     setError(null);
     setRefusedAgain(false);
@@ -833,7 +837,7 @@ export function ReportModal(props: ReportModalProps) {
     isKnownCode(record.errorCode)
       ? copyForCode(record.errorCode, surface)
       : null;
-  const showFailedNotice = record !== null && canSubmit;
+  const showFailedNotice = record !== null && canSubmit && status !== "succeeded";
 
   // POLISH-D1/D3: errorCopy is always a string (possibly empty) when error
   // is set. Null in the catalog (e.g., a code with null facing-for-surface)

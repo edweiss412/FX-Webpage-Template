@@ -130,7 +130,7 @@ export async function Footer({
     reportSurfaceIdOverride ?? (showSlug ? `footer-crew-${showSlug}` : "footer-crew");
   return (
     <footer data-testid="page-footer" className="mt-auto border-t border-border bg-surface-raised">
-      <div className="mx-auto flex w-full max-w-300 flex-wrap items-center gap-3 p-4 text-xs text-text-subtle sm:flex-nowrap sm:gap-6 sm:px-8 sm:py-5">
+      <div className="mx-auto flex w-full max-w-300 flex-wrap items-center gap-3 p-4 text-xs text-text-subtle md:flex-nowrap sm:gap-6 sm:px-8 sm:py-5">
         {/*
           The wrapping text cell. `min-w-0` is load-bearing on a flex child: a
           flex item's default `min-width: auto` refuses to shrink below its

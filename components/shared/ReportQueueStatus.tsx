@@ -121,7 +121,7 @@ export function ReportQueueStatus({
         {announcement}
       </p>
       {waiting > 0 || failed.length > 0 ? (
-        <div className="order-last flex min-w-0 basis-full flex-wrap items-center gap-2 sm:order-none sm:shrink-0 sm:basis-auto sm:flex-col sm:items-end sm:gap-1">
+        <div className="order-last flex min-w-0 basis-full flex-wrap items-center gap-2 md:order-none md:shrink-0 md:basis-auto md:flex-col md:items-end md:gap-1">
           {waiting > 0 ? (
             <span
               aria-hidden="true"

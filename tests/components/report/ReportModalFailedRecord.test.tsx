@@ -211,6 +211,15 @@ describe("Send again", () => {
     expect(await listReports()).toEqual([]);
   });
 
+  test("once delivered, the failure notice is gone and no longer describes the dialog", async () => {
+    fetchMock.mockResolvedValueOnce(created());
+    render(modal(record));
+    sendAgain();
+    await waitFor(() => expect(state()).toBe("succeeded"));
+    expect(screen.queryByTestId("report-modal-failed-notice")).toBeNull();
+    expect(screen.getByTestId("report-modal-root").getAttribute("aria-describedby")).toBeNull();
+  });
+
   test("a page with no writer keeps the record's own, and the server decides", async () => {
     plant({ disposition: "purge", showId: SHOW });
     fetchMock.mockResolvedValueOnce(created());
@@ -452,6 +461,40 @@ describe("Discard", () => {
     expect(screen.getByRole("status").textContent).toBe(ARM_EXPIRED_ANNOUNCEMENT);
     vi.useRealTimers();
     expect(await listReports()).toHaveLength(1);
+  });
+
+  test("Send again disarms Discard, so a refusal never leaves one tap from deleting", async () => {
+    fetchMock.mockResolvedValueOnce(answer(401, { ok: false }));
+    render(modal(record));
+    fireEvent.click(discard());
+    premiseHolds("Discard was armed", discard().textContent === "Tap again to discard");
+    sendAgain();
+    await waitFor(() => expect(state()).toBe("composing"));
+    await waitFor(() =>
+      expect(screen.getByRole("status").textContent).toContain("couldn't be sent"),
+    );
+    expect(discard().textContent).toBe("Discard");
+    fireEvent.click(discard());
+    expect(await listReports()).toHaveLength(1);
+  });
+
+  test("a refusal after the arm expired is spoken as a refusal", async () => {
+    vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
+    fetchMock.mockResolvedValueOnce(answer(401, { ok: false }));
+    render(modal(record));
+    fireEvent.click(discard());
+    act(() => {
+      vi.advanceTimersByTime(ARM_REVERT_MS);
+    });
+    premiseHolds(
+      "the expiry was announced",
+      screen.getByRole("status").textContent === ARM_EXPIRED_ANNOUNCEMENT,
+    );
+    vi.useRealTimers();
+    sendAgain();
+    await waitFor(() =>
+      expect(screen.getByRole("status").textContent).toContain("couldn't be sent"),
+    );
   });
 
   test("the timer goes with the modal", () => {
