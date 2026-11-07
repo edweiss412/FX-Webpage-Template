@@ -64,6 +64,7 @@ import { messageFor } from "@/lib/messages/lookup";
 import type { ClearIdentityResult } from "@/lib/auth/picker/clearIdentity";
 import { postToWorker } from "@/lib/offline/client/messaging";
 import { useOnlineStatus } from "@/lib/offline/client/online";
+import { reportSender } from "@/lib/reports/offlineSender";
 
 /** The name substituted for a blank one, so the trigger is never unnamed. */
 export const CREW_MEMBER_FALLBACK = "Crew member";
@@ -75,6 +76,13 @@ export const CREW_MEMBER_FALLBACK = "Crew member";
  * save that started in between.
  */
 const PURGE_ACK_WAIT_MS = 500;
+
+/**
+ * How long the switch waits for queued reports to go out (crew offline spec
+ * 2026-10-26 §5.1). They are checked against the person who wrote them, so a
+ * report still queued after the switch is refused and shows as failed.
+ */
+const REPORT_FLUSH_WAIT_MS = 3_000;
 
 /**
  * What the status region says once the watchdog has re-enabled the row.
@@ -201,6 +209,10 @@ export function AvatarMenu({ name, role, slug, shareToken, showId, clearAction }
   const onSwitchSubmit = (formData: FormData): void => {
     const attempt = switchAttempt.current;
     startSwitch(async () => {
+      // Null when nothing is held, so the clear still starts inside the tap.
+      const flush = reportSender.flush(REPORT_FLUSH_WAIT_MS);
+      if (flush !== null) await flush;
+
       // THE PURGE BRACKET (saved-copy spec §4.6). A copy of this show saved
       // for the person leaving must not survive the switch, and a save that
       // starts before the clear completes still carries their cookies. So the

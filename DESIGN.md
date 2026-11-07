@@ -823,6 +823,7 @@ realtime reconnect backoff.
 | `timer(5000)` | 5000 | `components/admin/wizard/step3ReviewSections.tsx` |
 | `AGENDA_RETRY_FALLBACK_MS` | 5000 | `components/admin/wizard/step3ReviewSections.tsx` |
 | `PURGE_ACK_WAIT_MS` | 500 | `components/auth/AvatarMenu.tsx` |
+| `REPORT_FLUSH_WAIT_MS` | 3000 | `components/auth/AvatarMenu.tsx` |
 | `CROSSFADE_SECONDS` | 0.22 | `components/crew/CrewPass.tsx` |
 | `CROSSFADE_SECONDS` | 0.22 | `components/crew/CrewRunOfShowCard.tsx` |
 | `duration(0.22)` | 0.22 | `components/crew/CrewSectionSheet.tsx` |
