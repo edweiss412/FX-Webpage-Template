@@ -75,6 +75,7 @@ const REGISTRY: Row[] = [
   L("components/shared/ReportModal.tsx", 2),
   L("components/shared/ReportModal.tsx", 3),
   L("components/shared/ReportModal.tsx", 4),
+  L("components/shared/ReportModal.tsx", 5),
   L("app/admin/error.tsx", 0),
   L("app/admin/settings/admins/AddAdminForm.tsx", 0),
   L("app/admin/settings/admins/AddAdminForm.tsx", 1),

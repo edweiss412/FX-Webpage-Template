@@ -41,6 +41,13 @@ import { useDialogFocus } from "@/lib/a11y/dialogFocus";
 import { isMessageCode, messageFor, type MessageCode } from "@/lib/messages/lookup";
 import { HelpAffordance } from "@/components/admin/HelpAffordance";
 import { NewTabHint } from "@/components/shared/NewTabHint";
+import {
+  enqueueReport,
+  pageSlug,
+  readPageIdentity,
+  type HoldResult,
+  type QueuedReport,
+} from "@/lib/reports/offlineQueue";
 
 /**
  * Accept-set rule (2026-08-09 spec §2.2): crew behavior iff
@@ -101,6 +108,7 @@ type ModalStatus =
   | "failed-retryable"
   | "succeeded"
   | "expired"
+  | "queued"
   | "new-report-warning";
 
 type PersistedState = {
@@ -117,6 +125,10 @@ type PersistedState = {
    * acceptable graceful degradation rather than crash.
    */
   errorCode?: string | null;
+  /** The page's viewer key when this was written. Absent reads as null. */
+  writer?: string | null;
+  /** The attempt that owns this row. A remount rewrites it without one. */
+  attemptId?: number | null;
 };
 
 type ErrorState = { kind: "code"; code: MessageCode } | { kind: "network" } | null;
@@ -154,6 +166,61 @@ function clearPersisted(surfaceId: string) {
   window.sessionStorage.removeItem(storageKeyFor(surfaceId));
 }
 
+/**
+ * A row on the crew surface belongs to the person it was written for. The
+ * surface scope outlives a name switch and the key may already hold a
+ * reservation in that person's name, so another person's modal starts clean.
+ */
+function readOwnPersisted(
+  surfaceId: string,
+  surface: ReportSurface,
+  writer: string | null,
+): PersistedState | null {
+  const row = readPersisted(surfaceId);
+  if (row === null || surface !== "crew") return row;
+  return (row.writer ?? null) === writer ? row : null;
+}
+
+/** A monotonic ordinal: an attempt id that can alias would be no proof of ownership. */
+let lastAttemptId = 0;
+
+type RunningHold = { attemptId: number; write: Promise<HoldResult> };
+
+/**
+ * The storage writes in progress, by surface and writer. The row stays in place
+ * while one runs, and a modal that mounts for the same person takes that write's
+ * result rather than opening a second draft of the same report.
+ */
+const runningHolds = new Map<string, RunningHold>();
+
+function holdKey(surfaceId: string, writer: string): string {
+  return `${surfaceId}\n${writer}`;
+}
+
+/** Starts holding `report`, or answers null when this attempt no longer owns its row. */
+function startHold(report: QueuedReport, attemptId: number): Promise<HoldResult> | null {
+  const { surfaceId, writer } = report;
+  if (writer === null || readPersisted(surfaceId)?.attemptId !== attemptId) return null;
+  const key = holdKey(surfaceId, writer);
+  const running: RunningHold = {
+    attemptId,
+    write: enqueueReport(report).then((result) => {
+      if (runningHolds.get(key) === running) runningHolds.delete(key);
+      if (result === "held" && readPersisted(surfaceId)?.attemptId === attemptId) {
+        clearPersisted(surfaceId);
+      }
+      return result;
+    }),
+  };
+  runningHolds.set(key, running);
+  return running.write;
+}
+
+/** A failed JSON parse is an answer from something. Anything else broke off or stalled. */
+function isBodyLost(cause: unknown): boolean {
+  return (cause as { name?: unknown } | null)?.name !== "SyntaxError";
+}
+
 function isKnownCode(code: unknown): code is MessageCode {
   // Catalog MEMBERSHIP, not messageFor() truthiness: messageFor() now
   // returns an all-null fallback entry for unknown codes (lookup.ts), so
@@ -168,6 +235,9 @@ function copyForCode(code: MessageCode, surface: ReportSurface): string | null {
   const entry = messageFor(code);
   return surface === "crew" ? entry.crewFacing : entry.dougFacing;
 }
+
+const QUEUED_LEAD = "Saved on your phone.";
+const QUEUED_REST = "It will send by itself when you have signal.";
 
 const HEADING: Record<ReportSurface, string> = {
   crew: "Something looks wrong?",
@@ -225,11 +295,26 @@ export function ReportModal(props: ReportModalProps) {
     submitTimeoutMs = 30_000,
   } = props;
 
+  // Whose report this is, read once. A refresh can turn the page under an open
+  // modal into another person's, and text typed for one person must not acquire
+  // the other's key: this one goes out and the server refuses it.
+  const [pageIdentity] = useState(readPageIdentity);
+  const [slug] = useState(pageSlug);
+  const writer = surface === "crew" ? pageIdentity.writer : null;
+
+  // A storage write already running for this person, on this surface.
+  const [joinedHold] = useState<RunningHold | null>(() =>
+    writer === null ? null : (runningHolds.get(holdKey(surfaceId, writer)) ?? null),
+  );
+
   // Hydrate from sessionStorage on mount. The initial state of each
   // hook is computed lazily so SSR + first-paint stay stable; subsequent
   // open/close cycles re-hydrate via useEffect (below) so multiple opens
   // within one page render still pick up persisted state.
-  const persistedAtMount = useMemo(() => readPersisted(surfaceId), [surfaceId]);
+  const persistedAtMount = useMemo(
+    () => readOwnPersisted(surfaceId, surface, writer),
+    [surfaceId, surface, writer],
+  );
 
   const [idempotencyKey, setIdempotencyKey] = useState<string>(() => {
     if (persistedAtMount?.idempotencyKey) return persistedAtMount.idempotencyKey;
@@ -239,6 +324,7 @@ export function ReportModal(props: ReportModalProps) {
   const [draft, setDraft] = useState<string>(() => persistedAtMount?.draft ?? "");
 
   const [status, setStatus] = useState<ModalStatus>(() => {
+    if (joinedHold) return "submitting";
     // Resume banner is shown when the persisted status was nonterminal
     // AND not bare "composing" (a partial-typed-but-never-submitted draft
     // hydrates the textarea silently — no resume banner).
@@ -345,12 +431,34 @@ export function ReportModal(props: ReportModalProps) {
     };
   }, []);
 
+  // The attempt this modal runs. A remount starts with none, or with the one it
+  // joined, so its first persist takes the row from any attempt it did not join.
+  const attemptRef = useRef<number | null>(joinedHold?.attemptId ?? null);
+
   useEffect(() => {
     // Don't persist terminal states — they're cleared on transition.
-    if (status === "succeeded" || status === "expired") return;
+    if (status === "succeeded" || status === "expired" || status === "queued") return;
     const errorCode = error?.kind === "code" ? error.code : null;
-    writePersisted({ idempotencyKey, draft, status, surfaceId, errorCode });
-  }, [idempotencyKey, draft, status, surfaceId, error]);
+    writePersisted({
+      idempotencyKey,
+      draft,
+      status,
+      surfaceId,
+      errorCode,
+      writer,
+      attemptId: attemptRef.current,
+    });
+  }, [idempotencyKey, draft, status, surfaceId, error, writer]);
+
+  // Done replaces the control that had focus, so focus moves to it by hand.
+  const doneRef = useRef<HTMLButtonElement | null>(null);
+  useEffect(() => {
+    if (status === "queued") doneRef.current?.focus();
+  }, [status]);
+
+  useEffect(() => {
+    if (joinedHold) void showHoldResult(joinedHold.write);
+  }, [joinedHold]);
 
   // Cross-mount sessionStorage hydration is handled by the `useState` lazy
   // initializers above (which run on every fresh mount). Parents render
@@ -360,7 +468,22 @@ export function ReportModal(props: ReportModalProps) {
   // lazy initializer is the single hydration path. This avoids the
   // react-hooks/set-state-in-effect anti-pattern.
 
+  /** What a storage write means for whichever modal is on screen when it settles. */
+  async function showHoldResult(write: Promise<HoldResult>): Promise<void> {
+    const result = await write;
+    if (!mountedRef.current) return;
+    if (result === "held") {
+      setStatus("queued");
+      setMountedFromResume(false);
+      return;
+    }
+    setStatus("failed-retryable");
+    setError({ kind: "network" });
+  }
+
   if (!open) return null;
+
+  const canSubmit = status !== "submitting" && status !== "queued";
 
   function handleDraftChange(event: React.ChangeEvent<HTMLTextAreaElement>) {
     setDraft(event.target.value);
@@ -379,20 +502,63 @@ export function ReportModal(props: ReportModalProps) {
   function handleTextareaKeyDown(event: React.KeyboardEvent<HTMLTextAreaElement>) {
     if (event.key === "Enter" && (event.metaKey || event.ctrlKey)) {
       event.preventDefault();
-      if ((!messageOptional && draft.trim().length === 0) || status === "submitting") return;
+      if ((!messageOptional && draft.trim().length === 0) || !canSubmit) return;
       void submitOnce();
     }
   }
 
+  /** The report to hold if this attempt loses its signal, or null when it cannot be held. */
+  function heldReportFor(writtenAt: string, context: Record<string, unknown>): QueuedReport | null {
+    // A report no page can name an author for is never held: at send time it
+    // would take the name of whoever happened to be signed in.
+    if (surface !== "crew" || showId === null || writer === null) return null;
+    return {
+      id: idempotencyKey,
+      showId,
+      slug,
+      surface,
+      surfaceId,
+      context,
+      message: draft,
+      writtenAt,
+      pageRenderedAt: pageIdentity.pageRenderedAt,
+      writer,
+      status: "queued",
+      errorCode: null,
+    };
+  }
+
+  /** The end of an attempt that got no answer: held when it can be, the failure otherwise. */
+  async function loseSignal(held: QueuedReport | null, attemptId: number): Promise<void> {
+    const write = held === null ? null : startHold(held, attemptId);
+    if (write !== null) {
+      await showHoldResult(write);
+      return;
+    }
+    if (!mountedRef.current) return;
+    setStatus("failed-retryable");
+    setError({ kind: "network" });
+  }
+
   async function submitOnce(): Promise<void> {
+    // The tap, not the failure: a hung POST can take its whole timeout to give up.
+    const writtenAt = new Date().toISOString();
+    lastAttemptId += 1;
+    const attemptId = lastAttemptId;
+    attemptRef.current = attemptId;
+    writePersisted({
+      idempotencyKey,
+      draft,
+      status: "submitting",
+      surfaceId,
+      errorCode: null,
+      writer,
+      attemptId,
+    });
     setStatus("submitting");
     setError(null);
     setSuccess(null);
-    const body = {
-      idempotency_key: idempotencyKey,
-      show_id: showId,
-      message: draft,
-      surface,
+    const context = {
       ...(autocapture ?? {}),
       // M8 R1 H2: client-only autocapture fields the server-side page
       // can't pre-bake. userAgent is always present in a browser context;
@@ -401,6 +567,21 @@ export function ReportModal(props: ReportModalProps) {
       ...(typeof navigator !== "undefined" && !autocapture?.userAgent
         ? { userAgent: navigator.userAgent }
         : {}),
+    };
+    const held = heldReportFor(writtenAt, context);
+    if (held !== null && navigator.onLine === false) {
+      await loseSignal(held, attemptId);
+      return;
+    }
+    const body = {
+      idempotency_key: idempotencyKey,
+      show_id: showId,
+      message: draft,
+      surface,
+      ...context,
+      // Checked on the request that reserves the key, not only on the sender's
+      // later one, so a key can only be reserved under the name on the page.
+      ...(writer === null ? {} : { writer }),
     };
     // 30s default timeout (configurable via submitTimeoutMs prop) — a
     // hung connection cannot leave the modal stuck in `submitting`.
@@ -416,18 +597,29 @@ export function ReportModal(props: ReportModalProps) {
         body: JSON.stringify(body),
         signal: controller.signal,
       });
-      clearTimeout(timeoutId);
       // Detached mid-flight: leave every shared surface untouched. Checked
       // after EVERY await, not just the first: the response can arrive with its
       // body still streaming, so `response.json()` is a second suspension point
       // and an unmount inside it would otherwise reach the terminal branches
-      // below (diff review R4 F1).
-      if (!mountedRef.current) return;
+      // below (diff review R4 F1). An attempt that can be held reads the body
+      // anyway, to learn whether it broke off.
+      if (!mountedRef.current && held === null) {
+        clearTimeout(timeoutId);
+        return;
+      }
       let parsed: { ok?: boolean; code?: string; status?: string; github_issue_url?: string } = {};
+      let bodyLost = false;
       try {
         parsed = (await response.json()) as typeof parsed;
-      } catch {
+      } catch (cause) {
         parsed = {};
+        bodyLost = isBodyLost(cause);
+      }
+      // Armed through the body: headers can arrive and the rest never does.
+      clearTimeout(timeoutId);
+      if (bodyLost) {
+        await loseSignal(held, attemptId);
+        return;
       }
       if (!mountedRef.current) return;
 
@@ -470,9 +662,7 @@ export function ReportModal(props: ReportModalProps) {
       }
     } catch {
       clearTimeout(timeoutId);
-      if (!mountedRef.current) return;
-      setStatus("failed-retryable");
-      setError({ kind: "network" });
+      await loseSignal(held, attemptId);
     }
   }
 
@@ -515,7 +705,7 @@ export function ReportModal(props: ReportModalProps) {
     setStatus("failed-retryable");
   }
 
-  const submitDisabled = (!messageOptional && draft.trim().length === 0) || status === "submitting";
+  const submitDisabled = (!messageOptional && draft.trim().length === 0) || !canSubmit;
   const showResumeBanner = mountedFromResume && status === "failed-retryable";
   const showStartFreshWarning = status === "new-report-warning";
 
@@ -583,7 +773,9 @@ export function ReportModal(props: ReportModalProps) {
             ? "Report sent."
             : status === "expired"
               ? (errorCopy ?? "This report attempt has expired.")
-              : ""}
+              : status === "queued"
+                ? `${QUEUED_LEAD} ${QUEUED_REST}`
+                : ""}
       </p>
 
       {/* Backdrop. Tap-outside-to-close preserves the key (handleClose). */}
@@ -754,7 +946,7 @@ export function ReportModal(props: ReportModalProps) {
                 onKeyDown={handleTextareaKeyDown}
                 placeholder={placeholder}
                 rows={6}
-                readOnly={status === "submitting"}
+                readOnly={!canSubmit}
                 autoFocus
                 className="block w-full resize-y rounded-sm border border-text-faint bg-bg px-3 py-2 text-base text-text placeholder:text-text-subtle focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring disabled:opacity-60"
                 style={{ maxHeight: "40vh" }}
@@ -777,10 +969,42 @@ export function ReportModal(props: ReportModalProps) {
                   Sending…
                 </p>
               ) : null}
+              {status === "queued" ? (
+                <div
+                  data-testid="report-modal-queued"
+                  className="mt-2 flex items-start gap-2 rounded-sm bg-info-bg px-3 py-2 text-sm text-text-strong"
+                >
+                  <svg
+                    aria-hidden="true"
+                    viewBox="0 0 24 24"
+                    className="mt-0.5 size-4 shrink-0"
+                    fill="none"
+                    stroke="currentColor"
+                    strokeWidth="2.4"
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                  >
+                    <path d="M5 12.5l4.5 4.5L19 7.5" />
+                  </svg>
+                  <p>
+                    <span className="font-semibold">{QUEUED_LEAD}</span> {QUEUED_REST}
+                  </p>
+                </div>
+              ) : null}
             </div>
 
             <div className="flex items-center justify-end gap-2 border-t border-border px-4 py-3 sm:px-6">
-              {status === "failed-retryable" && !mountedFromResume ? (
+              {status === "queued" ? (
+                <button
+                  type="button"
+                  ref={doneRef}
+                  data-testid="report-modal-done"
+                  onClick={handleClose}
+                  className="inline-flex min-h-tap-min items-center rounded-sm bg-accent px-4 py-2 font-medium text-accent-text transition-colors duration-fast hover:bg-accent-hover focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring focus-visible:ring-offset-2 focus-visible:ring-offset-surface"
+                >
+                  Done
+                </button>
+              ) : status === "failed-retryable" && !mountedFromResume ? (
                 <button
                   type="button"
                   data-testid="report-modal-retry"
