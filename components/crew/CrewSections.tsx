@@ -322,14 +322,15 @@ const TODAY_PACKED = cn(
   "lg:has-data-[testid=crew-quick-facts]:gap-y-4",
   "lg:has-data-[testid=crew-quick-facts]:*:data-[testid=section-today]:contents",
   "lg:has-data-[testid=crew-quick-facts]:*:data-[testid=crew-today-lead]:col-start-1",
-  // The lead's last margin spaced it from the home body; the row gap does here.
-  "lg:has-data-[testid=crew-quick-facts]:[&>[data-testid=crew-today-lead]>:last-child]:mb-0",
+  // The lead's and the run card's own margins spaced them on the phone; at lg the
+  // row or column gap does, in the grid and in the flex rows alike (invariant-8 gate:
+  // without quick facts the margin and the gap stacked to 40px).
+  "lg:[&>[data-testid=crew-today-lead]>:last-child]:mb-0",
+  "lg:[&>[data-testid=crew-today-run]>*]:mb-0",
   "lg:has-data-[testid=crew-quick-facts]:[&>[data-testid=section-today]>[data-testid=crew-quick-facts]]:col-start-2",
   "lg:has-data-[testid=crew-quick-facts]:[&>[data-testid=section-today]>[data-card-id]]:col-span-2",
   "lg:has-data-[testid=crew-quick-facts]:[&>[data-testid=section-today]>[data-testid^=section-tile-error]]:col-span-2",
   "lg:has-data-[testid=crew-quick-facts]:*:data-[testid=crew-today-run]:col-span-2",
-  // The card's own margin spaced it on the phone; the row gap does here.
-  "lg:has-data-[testid=crew-quick-facts]:[&>[data-testid=crew-today-run]>*]:mb-0",
 );
 
 type RevealRun = { frame: number; deadline: number };

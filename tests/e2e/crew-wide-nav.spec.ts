@@ -1246,6 +1246,10 @@ test.describe("the composed home, wide (crew page redesign Task 11)", () => {
             expect(item.width, at).toBeLessThan(r.block.width / 2 + TOL);
           }
         }
+        // No oversized gap: rows sit one row or column gap apart, never a margin on top.
+        if (above !== -Infinity) {
+          expect(items[0]!.top - above, at).toBeLessThanOrEqual(24 + TOL);
+        }
         above = Math.max(...items.map((item) => item.bottom));
       }
     });
