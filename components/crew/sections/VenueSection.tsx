@@ -65,6 +65,7 @@ import {
   venueWhereProps,
 } from "@/components/crew/sections/venueRows";
 import { NewTabHint } from "@/components/shared/NewTabHint";
+import { showSection } from "@/lib/showSections/registry";
 import { PanelCard } from "@/components/show-panels/PanelCard";
 import { VenueBody } from "@/components/show-panels/VenueBody";
 import { BuildingIcon, InfoIcon } from "@/components/crew/icons/sectionIcons";
@@ -180,6 +181,7 @@ export function VenueSection({
                     anchor={data.sourceAnchors[CARD_REGION_MAP[WHERE_CARD_ID]]}
                     showId={showId}
                     cardReport={cardReport}
+                    label={showSection("venue").label}
                   />
                 }
               >
@@ -229,6 +231,7 @@ export function VenueSection({
                 anchor={data.sourceAnchors[CARD_REGION_MAP[FACILITIES_CARD_ID]]}
                 showId={showId}
                 cardReport={cardReport}
+                label={FACILITIES_TITLE}
               />
             }
           >
@@ -249,6 +252,7 @@ export function VenueSection({
                 anchor={data.sourceAnchors[CARD_REGION_MAP[STATUS_CARD_ID]]}
                 showId={showId}
                 cardReport={cardReport}
+                label={STATUS_TITLE}
               />
             }
           >

@@ -196,8 +196,9 @@ export const REQUIRED = {
   // 47 since the home's Dress code tile links to Event details. Re-derived from --list.
   // 59 since the crew panel follow-ups added the type scale's walk, one case per Today
   // layout state (8), the crossing case, the 390 order and the width sweep.
+  // Re-derived from --list. 60 since the invariant-8 gate's keyboard order case.
   // Re-derived from --list.
-  "crew-wide-nav.spec.ts": 59,
+  "crew-wide-nav.spec.ts": 60,
   // 9, and the number is the MATRIX rather than a multiple (plan
   // 2026-08-09-quick-wins-2 "e2e harness readiness"). theme-toggle runs two arms:
   //   arm (a) — 4 standalone-toggle cases, BOTH projects            = 8

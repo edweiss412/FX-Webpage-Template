@@ -704,7 +704,14 @@ describe("the scanner's population is pinned against resolver drift", () => {
     // Same transportation `tile-errors` rows, still marked. Nothing joined or left:
     // membership is still 34, and mapping those TWO rows back reproduces b8b53197...
     // byte-for-byte (recomputed from scanCandidates()).
-    expect(digest).toBe("0d28b42cd3e11ed0a9d031d2ffdb9b9a1d553d4a3c0501ae64c5cd779c3d2dfe");
+    // Regenerated for feat/crew-panel-followups' invariant-8 gate repairs, to the same bar.
+    // EXACTLY ONE input changed, a line number:
+    //   components/crew/sections/VenueSection.tsx 157 -> 158 (the registry import its
+    //   card actions' labels read)
+    // Same transportation `tile-errors` row, still marked. Nothing joined or left:
+    // membership is still 34, and mapping that ONE row back reproduces 0d28b42c...
+    // byte-for-byte (recomputed from scanCandidates()).
+    expect(digest).toBe("15756e40563a0fd7e51aee58300ff5f7881abef6cb989554463ee8657b0f7144");
   });
 });
 

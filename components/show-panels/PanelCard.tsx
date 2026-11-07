@@ -25,6 +25,7 @@
 import type { ComponentType, ReactNode } from "react";
 
 import { showSection, type ShowSectionId } from "@/lib/showSections/registry";
+import { cn } from "@/lib/ui/cn";
 
 type PanelCardHeading =
   /** The registry section this card holds: its label and glyph. */
@@ -69,7 +70,9 @@ export function PanelCard(props: PanelCardProps) {
       {showTitle || actions !== undefined ? (
         <header
           data-slot="panel-card-header"
-          className="flex flex-wrap items-center justify-between gap-2"
+          // A printed title gets 12px to the first row, not the box's 6px: beside a 15px
+          // value a 16px title read as one more row (invariant-8 gate, critique A).
+          className={cn("flex flex-wrap items-center justify-between gap-2", showTitle && "mb-1.5")}
         >
           {showTitle ? (
             <div className="flex min-w-0 grow basis-[min-content] items-center gap-2.5">

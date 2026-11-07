@@ -78,7 +78,11 @@ export function FactRows({ rows }: FactRowsProps) {
   return (
     <dl data-testid="fact-rows" className="flex flex-col">
       {present.map((row, i) => {
-        const valueClass = `min-w-0 wrap-break-word text-sm font-semibold text-text${
+        // `wrap-anywhere`, not `wrap-break-word`: only `anywhere` lowers the value's
+        // min-content, so an unbroken SSID or password wraps inside its column instead
+        // of growing left over the nowrap label (invariant-8 gate, crew panel
+        // follow-ups: -12px at 360 on the seeded SSID once values grew to 15px).
+        const valueClass = `min-w-0 wrap-anywhere text-sm font-semibold text-text${
           row.code === true ? " code-value" : ""
         }`;
         // Belt: a row whose value is empty never reaches here (the sentinel

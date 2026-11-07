@@ -9,8 +9,9 @@
  *     show, then the home body of quick facts and show notes; then the "All
  *     sections" card) with any section in a bottom sheet (`CrewSectionSheet`);
  *   - wide, 1024px and up: a left nav ("Today" then the sections) beside one
- *     column, the Today block first (the home body beside the day row, pass
- *     and run of show) and every section stacked under it.
+ *     column, the Today block first (the quick facts beside the day row and
+ *     pass, the run of show and show notes across both columns under them) and
+ *     every section stacked under it.
  * The server cannot know the viewport, so its render carries both, and CSS
  * shows the right one at the breakpoint until hydration resolves the mode
  * (`matchMedia("(min-width: 1024px)")`, compact when `matchMedia` is missing);
@@ -314,6 +315,10 @@ const TODAY_PACKED = cn(
   "lg:has-data-[testid=crew-quick-facts]:grid",
   "lg:has-data-[testid=crew-quick-facts]:grid-cols-2",
   "lg:has-data-[testid=crew-quick-facts]:grid-flow-row-dense",
+  // Dense flow puts the quick facts above the run of show while the DOM keeps the
+  // phone's order, so focus and reading follow the rows instead (invariant-8 gate,
+  // audit P2). Chromium honours it; Safari and Firefox keep DOM order.
+  "lg:has-data-[testid=crew-quick-facts]:[reading-flow:grid-rows]",
   "lg:has-data-[testid=crew-quick-facts]:gap-y-4",
   "lg:has-data-[testid=crew-quick-facts]:*:data-[testid=section-today]:contents",
   "lg:has-data-[testid=crew-quick-facts]:*:data-[testid=crew-today-lead]:col-start-1",

@@ -1251,6 +1251,30 @@ test.describe("the composed home, wide (crew page redesign Task 11)", () => {
     });
   }
 
+  test("home: keyboard order follows the wide Today rows, the quick facts before the run of show", async ({
+    page,
+  }) => {
+    await loadWide(page, `/show/${seeded.slug}/${seeded.shareToken}`);
+    await page.getByTestId("crew-today-block").focus();
+    const order: string[] = [];
+    for (let i = 0; i < 60; i++) {
+      await page.keyboard.press("Tab");
+      const where = await page.evaluate(() => {
+        const a = document.activeElement;
+        if (!a || !a.closest('[data-testid="crew-today-block"]')) return "out";
+        if (a.closest('[data-testid="crew-quick-facts"]')) return "facts";
+        if (a.closest('[data-testid="today-run-of-show"]')) return "run";
+        return "other";
+      });
+      order.push(where);
+      if (where === "out") break;
+    }
+    // PREMISE: both regions hold a focusable control that Tab reached.
+    expect(order, JSON.stringify(order)).toContain("facts");
+    expect(order, JSON.stringify(order)).toContain("run");
+    expect(order.indexOf("facts"), JSON.stringify(order)).toBeLessThan(order.indexOf("run"));
+  });
+
   test("compound: crossing the breakpoint keeps the run card and its row, so a day crossfade is not cut", async ({
     page,
   }) => {

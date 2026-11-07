@@ -52,7 +52,7 @@ const CORRECTIVE_TEXT = "Copy again - the clipboard may be out of date.";
 
 /** Today's value-span class string, verbatim from FactRows before this arc.
  *  A control-free, code-free row must still render EXACTLY this. */
-const BASE_VALUE_CLASS = "min-w-0 wrap-break-word text-sm font-semibold text-text";
+const BASE_VALUE_CLASS = "min-w-0 wrap-anywhere text-sm font-semibold text-text";
 
 type Deferred = { value: string; resolve: () => void; reject: (reason?: unknown) => void };
 

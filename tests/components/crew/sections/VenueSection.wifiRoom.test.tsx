@@ -216,7 +216,9 @@ describe("Wi-Fi split rows", () => {
     // Compared over the Facilities card's row list, which holds every Wi-Fi row: the
     // card's own header moved to the panel card (crew panel follow-ups spec §5), and the
     // Where card above it to the shared Venue body (crew page redesign PR B, Task 5), so
-    // neither is this render's any more.
+    // neither is this render's any more. The value span's wrap class moved from
+    // `wrap-break-word` to `wrap-anywhere` there too (invariant-8 gate: a long SSID
+    // overprinted its label), and the captured fixture follows that one class.
     const captured = readFileSync("tests/fixtures/venueSectionRawWifi.html", "utf8");
     premise("the captured baseline is a real render", captured.length, 1000);
     const baseline = document.createElement("template");

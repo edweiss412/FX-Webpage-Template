@@ -79,7 +79,7 @@ export function CardReportTrigger({
         data-testid="card-report-trigger"
         aria-label={`Report a problem with ${label ?? "this card"}`}
         onClick={() => setOpen(true)}
-        className={`inline-flex h-fit shrink-0 items-center text-text-faint transition-colors hover:text-text-subtle focus-visible:text-text-subtle focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring [&_svg]:size-3.5 [&_svg]:opacity-70 ${overlay}`}
+        className={`inline-flex h-fit shrink-0 items-center text-text-faint transition-colors hover:text-text-subtle focus-visible:text-text-subtle focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring [&_svg]:size-3.5 ${overlay}`}
       >
         <FlagGlyph />
       </button>

@@ -3845,7 +3845,12 @@ test.describe("billing: the crew panel card's header geometry (PR B Task 4)", ()
         travelOut: "2026-04-23",
       },
       crew: [{ name: "Panel Lead", role: "TD", roleFlags: ["LEAD"] }],
-      eventDetails: { power: "(2) Power Drops from Engineering" },
+      // A long one-word SSID and password: the invariant-8 gate measured them overprinting
+      // their labels at phone widths once values grew to 15px.
+      eventDetails: {
+        power: "(2) Power Drops from Engineering",
+        internet: "Hardline from Encore SSID: FourSeasons_Meeting_Ballroom Code: DCI2026_2026Guest",
+      },
       internal: {
         financials: {
           po: "PO-PANEL-1180",
@@ -3895,6 +3900,21 @@ test.describe("billing: the crew panel card's header geometry (PR B Task 4)", ()
         return { size: cs.fontSize, weight: cs.fontWeight };
       });
       expect(title).toEqual({ size: "16px", weight: "600" });
+      // Every fact row's value starts right of its label, so a long SSID wraps inside its
+      // own column instead of printing over "Wi-Fi network".
+      const overlaps = await card.evaluate((el) =>
+        [...el.querySelectorAll('[data-testid="fact-rows"] dt')].flatMap((dt) => {
+          const dd = dt.nextElementSibling;
+          const text = dd?.querySelector("span");
+          if (!dd || !text) return [];
+          const gap = text.getBoundingClientRect().left - dt.getBoundingClientRect().right;
+          return gap < -0.5 ? [`${dt.textContent?.trim()}: ${gap}`] : [];
+        }),
+      );
+      const wifi = await card.getByText("FourSeasons_Meeting_Ballroom").count();
+      // PREMISE: the long SSID rendered, so the row that overprinted is among those read.
+      expect(wifi).toBeGreaterThan(0);
+      expect(overlaps).toEqual([]);
       const chip = await rectOf(card.locator('[data-slot="panel-card-chip"]'));
       const header = await rectOf(card.locator('[data-slot="panel-card-header"]'));
       const label = await rectOf(card.locator("h3"));
@@ -3903,6 +3923,9 @@ test.describe("billing: the crew panel card's header geometry (PR B Task 4)", ()
       expect(Math.abs(chip.width - 28), `chip width ${chip.width}`).toBeLessThanOrEqual(TOL);
       expect(Math.abs(chip.height - 28), `chip height ${chip.height}`).toBeLessThanOrEqual(TOL);
       expect(header.height, "header row vs chip").toBeGreaterThanOrEqual(chip.height - TOL);
+      // A printed title sits 12px above the first row, so it does not read as one more row.
+      const firstRow = await rectOf(card.locator('[data-testid="fact-rows"]'));
+      expect(firstRow.top - header.bottom, "title to first row").toBeGreaterThanOrEqual(12 - TOL);
       expect(label.width, "the label is laid out").toBeGreaterThan(0);
       expect(actions.width, "the actions are laid out").toBeGreaterThan(0);
       const apart =

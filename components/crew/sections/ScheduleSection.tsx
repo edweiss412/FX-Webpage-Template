@@ -162,7 +162,7 @@ export function ScheduleSection({
 
           // §4.9 mock `split-wide`: once split (`@min-crew-split`) it is two columns — LEFT
           // the day-card list (primary, wider via the 1.6fr track), RIGHT the
-          // "Crew Schedule" SectionCard THEN (admin) the rooms-fetch degraded
+          // "Crew Schedule" panel card THEN (admin) the rooms-fetch degraded
           // tile, stacked. Narrower it collapses to a single column (grid-cols-1)
           // with the left column first, then the right column. The grid uses
           // `items-start` (NOT the default stretch) so the SHORT right column
@@ -204,15 +204,15 @@ export function ScheduleSection({
                 data-card-id="schedule-days"
                 className="min-w-0"
               >
-                {/* The Schedule day-cards are not wrapped in a SectionCard shell,
+                {/* The Schedule day-cards are not wrapped in a card shell,
                     so the card actions sit in a flush, right-aligned header above
                     the day list. Rendered UNCONDITIONALLY: `CardHeaderActions`
                     always emits the per-card report trigger (and the "In sheet"
                     link when a link exists), so the header band is never empty —
-                    matching the other 22 source-backed cards, whose SectionCard
-                    header always carries the actions cluster. The
-                    `section-card-action` slot keeps it discoverable by the §12
-                    coverage walker, matching the SectionCard header contract. */}
+                    matching the other source-backed cards, whose header always
+                    carries the actions cluster. The `section-card-action` slot
+                    keeps it discoverable by the §12 coverage walker, matching the
+                    card header contract. */}
                 <div className="mb-2 flex justify-end">
                   <div data-slot="section-card-action" className="flex shrink-0 items-center">
                     <CardHeaderActions
@@ -221,13 +221,13 @@ export function ScheduleSection({
                       anchor={data.sourceAnchors[CARD_REGION_MAP["schedule-days"]]}
                       showId={showId}
                       cardReport={cardReport}
-                      // CARDREPORT-1: this bare header is NOT a SectionCard — the
+                      // CARDREPORT-1: this bare header is NOT a card header — the
                       // section's heading (or the sheet's header) sits just above it
                       // and the non-interactive day list below. Grow the tap overlays
                       // DOWN so they clear what is above (the agenda area sat there
                       // until it moved to its own section, PR B Task 10). (Every
-                      // SectionCard-hosted cluster keeps the "up" default; see the
-                      // schedule-call-times SectionCard below.)
+                      // card-hosted cluster keeps the "up" default; see the
+                      // schedule-call-times panel card below.)
                       hitDirection="down"
                     />
                   </div>
