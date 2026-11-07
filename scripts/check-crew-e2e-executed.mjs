@@ -70,7 +70,8 @@ export const REQUIRED = {
   // Rooms sheet and not in Venue). Re-derived from --list.
   // 58 since PR C's Task 8 added two "gear alias" cases (?s=gear opens Rooms, and Back
   // then Forward over an entry carrying it). Re-derived from --list.
-  "crew-section-toggle.spec.ts": 58,
+  // 59 since the home's Dress code tile links to Event details. Re-derived from --list.
+  "crew-section-toggle.spec.ts": 59,
   "picker-flow.spec.ts": 7,
   "alert-action-links.spec.ts": 4,
   // 3 SFS-1 cases + 3 seeded agenda-fold cases.
@@ -190,7 +191,8 @@ export const REQUIRED = {
   // Show day, the copy, the dimensional case, the short window). Re-derived from --list.
   // 46 since PR C's invariant-8 gate repair 7 added the full nav's fit at 1280x800.
   // Re-derived from --list.
-  "crew-wide-nav.spec.ts": 46,
+  // 47 since the home's Dress code tile links to Event details. Re-derived from --list.
+  "crew-wide-nav.spec.ts": 47,
   // 9, and the number is the MATRIX rather than a multiple (plan
   // 2026-08-09-quick-wins-2 "e2e harness readiness"). theme-toggle runs two arms:
   //   arm (a) — 4 standalone-toggle cases, BOTH projects            = 8

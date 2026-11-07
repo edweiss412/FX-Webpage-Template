@@ -858,6 +858,7 @@ const CONDITIONAL_RENDERS: Record<string, { presences: number; renders: Conditio
       { match: '{a.kind === "call" ? (', treatment: T.serverPresence },
       { match: ') : a.kind === "text" ? (', treatment: T.serverPresence },
       { match: "{directions ? (", treatment: T.serverPresence },
+      { match: "{sectionLink ? (", treatment: T.serverPresence },
       // The copy row's label and the plain line's label: the same render twice.
       { match: "{line.label !== undefined ? (", count: 2, treatment: T.serverPresence },
       // Found by the control-flow definition (3C-1): zero tiles, no block (spec §4.5).

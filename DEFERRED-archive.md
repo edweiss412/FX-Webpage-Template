@@ -2687,3 +2687,15 @@ From the impeccable audit of `feat/a11y-privacy-cluster` (P2). The new rotation 
 **The probe that settled it.** Run as specified above, at 390x560 and also at 390x460, the tallest swept height where the popover overflows enough for the cue to move anything (measured `maxScrollTop` 97 at 560 against a URL-row bottom of 127, `docs/superpowers/specs/ci/2026-08-26-lifecycle-popover-docked-geometry-repair.md` §4), so the worst case for this claim was included rather than assumed away. Both refute it. The record carries the rect tables, the commands, and the reproduction case.
 
 **Un-defer trigger:** the probe is spent and refuted this row's claim, so nothing reopens it as written. A share-hub change that moves the rotate control BELOW the fold at rest, or that reintroduces focus inside the popover across the cue, would need re-probing against the same record.
+
+### CREWPANEL-DRESS-TILE-LINK-1 — impeccable critique P1, part: the home's clamped dress code tile has no link to the full text (2026-11-06) — CLOSED 2026-11-06 (`feat/crew-dress-tile-link`)
+
+**Resolution:** the product owner approved the link. The tile now carries a "Full dress code" link to the `event` section, and spec line 216 carries the dated amendment.
+
+**Effort:** S
+
+The Dress code quick fact clamps at three lines (`components/crew/CrewQuickFacts.tsx`) and the pass cell at two (`components/crew/CrewPass.tsx`), and neither is tappable. The rest of that finding is fixed: the dress code now leads Event details (1,372px down the sheet at 390 before, 237px after), and the section list's peek names it.
+
+**Accepted, not fixed.** Exception (a). Spec §4.5 line 216 gives the `dressCode` fact the Action "none", so a "Full dress code" link needs a spec amendment, and the spec wins until someone settles it (invariant 7).
+
+**Un-defer trigger:** the product owner's answer to plan question 3 in `docs/superpowers/plans/2026-11-05-crew-page-redesign-pr-c.md`.

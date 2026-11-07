@@ -454,7 +454,7 @@ const HOVER_DELETE = [
   "components/admin/NeedsAttentionInbox.tsx:130",
   "components/admin/NeedsAttentionInbox.tsx:198",
   "components/admin/NeedsAttentionInbox.tsx:224",
-  "components/crew/SectionChipLink.tsx:48",
+  "components/crew/SectionChipLink.tsx:67",
   "components/crew/primitives/PersonRow.tsx:281",
   "components/crew/primitives/PersonRow.tsx:298",
 ] as const;

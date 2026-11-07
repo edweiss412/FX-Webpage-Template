@@ -245,17 +245,3 @@ Venue's panel card sits beside the crew-only Facilities and Venue status cards, 
 PR C leaves Facilities, Venue status and "Your flight" on their current card styles, and adds one instance: Diagrams sits under the Rooms panel card on the crew SectionCard header. The spec keeps these crew-only blocks (lines 301, 308, 309) and names no treatment for their headers.
 
 **Un-defer trigger:** the product owner's answer to plan question 1 in `docs/superpowers/plans/2026-11-05-crew-page-redesign-pr-c.md`.
-
-## Crew page shared section bodies (PR C) — impeccable dual-gate deferrals (2026-11-06)
-
-From the invariant-8 dual gate on `feat/crew-page-redesign-pr-c` (critique 27/40, audit 14/20; 0 P0, 4 P1 after merging the three passes). Every P1 was repaired in-branch through crew-side props with the admin popup's rendered DOM held byte-identical. One part of one P1 is deferred. The full table is the PR C plan's §12.
-
-### CREWPANEL-DRESS-TILE-LINK-1 — impeccable critique P1, part: the home's clamped dress code tile has no link to the full text (2026-11-06)
-
-**Effort:** S
-
-The Dress code quick fact clamps at three lines (`components/crew/CrewQuickFacts.tsx`) and the pass cell at two (`components/crew/CrewPass.tsx`), and neither is tappable. The rest of that finding is fixed: the dress code now leads Event details (1,372px down the sheet at 390 before, 237px after), and the section list's peek names it.
-
-**Accepted, not fixed.** Exception (a). Spec §4.5 line 216 gives the `dressCode` fact the Action "none", so a "Full dress code" link needs a spec amendment, and the spec wins until someone settles it (invariant 7).
-
-**Un-defer trigger:** the product owner's answer to plan question 3 in `docs/superpowers/plans/2026-11-05-crew-page-redesign-pr-c.md`.

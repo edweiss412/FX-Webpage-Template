@@ -8,7 +8,7 @@ The runtime token surface lives in `app/globals.css` under `@theme`. Tailwind v4
 
 ## 1. Color strategy — Restrained
 
-One signature accent, neutral-led surfaces. FXAV orange occupies ≤10% of any rendered viewport — it appears on the active/live indicator on the Right Now card, the "today" pin on the schedule tile, primary CTAs, and the brand mark. Nowhere else. Selected-filter segments are NOT an accent surface — the selected-state recipe is inverted neutral (`bg-text text-bg`); accent stays reserved for live/matters-now signals and CTAs. No competing accent hue (no blue, no purple, no teal). Neutrals are tinted toward warm — chroma `0.005`–`0.012` in OKLCH — never pure `#000` or `#fff`.
+One signature accent, neutral-led surfaces. FXAV orange occupies ≤10% of any rendered viewport — it appears on the active/live indicator on the Right Now card, the "today" pin on the schedule tile, primary CTAs, text-link actions, and the brand mark. Nowhere else. Selected-filter segments are NOT an accent surface — the selected-state recipe is inverted neutral (`bg-text text-bg`); accent stays reserved for live/matters-now signals and CTAs. No competing accent hue (no blue, no purple, no teal). Neutrals are tinted toward warm — chroma `0.005`–`0.012` in OKLCH — never pure `#000` or `#fff`.
 
 Light and dark are both first-class. Dark is not a 90% inverse of light; each palette is designed against its own physical scene (sunlit loading dock vs. dim backstage). Both meet WCAG AA as a floor; body text hits AAA in light mode (the harder target — direct-sunlight readability is a hard requirement per `PRODUCT.md`).
 

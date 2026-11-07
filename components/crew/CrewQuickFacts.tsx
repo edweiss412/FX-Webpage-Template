@@ -46,6 +46,7 @@ import {
   ShirtIcon,
   WifiIcon,
 } from "@/components/crew/icons/sectionIcons";
+import { SectionChipLink, TILE_TEXT_LINK } from "@/components/crew/SectionChipLink";
 import { NewTabHint } from "@/components/shared/NewTabHint";
 import { usePrefersReducedMotion } from "@/lib/a11y/usePrefersReducedMotion";
 import type { QuickFact, QuickFactAction, QuickFactId, QuickFactLine } from "@/lib/crew/quickFacts";
@@ -252,6 +253,9 @@ function Tile({ fact, onCopy }: { fact: QuickFact; onCopy: (value: string) => vo
   const directions = fact.actions.find(
     (a): a is Extract<QuickFactAction, { kind: "directions" }> => a.kind === "directions",
   );
+  const sectionLink = fact.actions.find(
+    (a): a is Extract<QuickFactAction, { kind: "section" }> => a.kind === "section",
+  );
   const name = fact.lines[0]?.text ?? fact.label;
 
   return (
@@ -310,10 +314,17 @@ function Tile({ fact, onCopy }: { fact: QuickFact; onCopy: (value: string) => vo
           href={directions.href}
           target="_blank"
           rel="noopener noreferrer"
-          className="mt-auto inline-flex min-h-tap-min items-center self-start text-sm font-semibold text-accent-on-bg underline-offset-4 transition-colors duration-fast hover:underline"
+          className={cn("mt-auto", TILE_TEXT_LINK)}
         >
           Directions <NewTabHint />
         </a>
+      ) : null}
+      {sectionLink ? (
+        <div className="mt-auto flex">
+          <SectionChipLink section={sectionLink.section} appearance="text">
+            {sectionLink.label}
+          </SectionChipLink>
+        </div>
       ) : null}
     </div>
   );
