@@ -16,6 +16,10 @@ Non-goals: the home's cards keep their eyebrow headers (Run of show, Show notes,
 
 Anti-goals: any change to the admin popup's rendered DOM (`tests/components/admin/wizard/adminSectionDom.test.tsx` and its 402 goldens pass with no regeneration). Any change to the phone's reading order on Today.
 
+## 2.1 Resolved scope: do not relitigate
+
+The owner chose these from real renders on 2026-11-07: Option A for the wide Today block, the taller page included; labels 12px, supporting lines 13px, main values 15px, in section bodies only; repeated titles removed with the "In sheet" row kept; crew-only cards on the panel card's header. Section 12's limits are accepted.
+
 ## 3. Type scale
 
 One rule set in `app/globals.css`, outside every `@layer`, so it beats Tailwind's utilities layer. It keys on a new attribute, `data-crew-section-type`, set on the two elements that hold a section's body: the sheet body (`components/crew/CrewSectionSheet.tsx:480`) and the wide stack's section (`components/crew/CrewSections.tsx:1020`). The home is in neither, and neither is the admin popup.
@@ -128,9 +132,17 @@ Measured with this layout injected at 1280 on the seeded show: day row and pass 
 
 No fixed-height parent is involved. Two relationships are layout claims, and a real-browser test pins them: under quick facts and a run of show, the slot's and the notes' widths equal the block's within 0.5px, and the slot's top is the lower of the lead's and the quick facts' bottoms plus the 16px row gap.
 
-## 9. Transitions
+## 9. Transition Inventory
 
-Every change here is static CSS or static markup per render. The layout changes at the 1024 breakpoint without animation, as it does today. `titled` never changes after a render except when "Your flight" appears or disappears on refresh: instant, no animation. The run card's day crossfade (`components/crew/CrewRunOfShowCard.tsx:175`) is inside the card and does not move.
+Every change here is static CSS or static markup per render, so nothing here animates.
+
+| From | To | Treatment |
+| --- | --- | --- |
+| Compact one column | Wide grid | instant, at the 1024 breakpoint, as today |
+| Transport titled | Transport untitled | instant: "Your flight" appears or leaves on a refresh |
+| Today grid with a run card | Today grid without one | instant: the slot goes `empty:hidden` on a refresh |
+
+Compound: the run card's day crossfade (`components/crew/CrewRunOfShowCard.tsx:175`) is inside the card, so a breakpoint crossing during a crossfade moves the card and leaves the fade running, as it does today.
 
 ## 10. Flags
 
