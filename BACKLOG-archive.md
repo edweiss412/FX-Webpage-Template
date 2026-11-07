@@ -1,3 +1,19 @@
+## BL-DIAGRAMS-HEADING-FAINT-CONTRAST — the Diagrams tile heading and the day-card weekday labels sit below AA body contrast — ✅ RESOLVED
+
+**Status:** RESOLVED 2026-11-06 (`fix/text-faint-contrast`) · **Filed:** 2026-10-30 (`feat/crew-page-redesign`, impeccable critique O1) · **Facing:** product · **Severity:** low · **Class:** text contrast · **Effort:** XS · **Reachability:** PROBED 2026-10-30 — the critique measured `text-text-faint` at 12px on the Diagrams tile heading (`components/atoms/Section.tsx:201`, rendered by `components/crew/DiagramsBlock.tsx`) at 3.4:1 light and 3.8:1 dark; the schedule day-card weekday labels use the same token.
+
+12px text needs 4.5:1. Both sites are pre-existing and outside the crew page redesign diff.
+
+The two named sites were one instance of a wider class. A sweep of all 57 mentions of `text-text-faint` found about thirty that carried real text, among them flight confirmation codes, bell panel timestamps and two input placeholders. All moved to `text-text-subtle`. `TransportBody`'s real vehicle sub lines moved up to `text-text` so sentinels stay muted, as spec 2026-10-26 line 293 requires. What stays at the faint rung is glyphs, aria-hidden separators, the OR divider, the wordmark and inactive components, each with its reason in `tests/styles/faintTextFloor.test.ts`, which fails a new site until it names one. PR #986 deleted `components/atoms/Section.tsx` before this merged, and the Diagrams heading now reads subtle through `SectionCard`.
+
+## BL-SECTION-HEADER-VISUAL-REQUIRED-CONTEXT — promote the visual gate into branch protection's required set after soak — ✅ RESOLVED
+
+**Status:** RESOLVED 2026-11-06 (reconciliation, `fix/text-faint-contrast`) · **Severity:** low · **Class:** CI wiring · **Filed:** 2026-07-27 (reconciliation — the one live follow-up carried out of `BL-HEADER-PROBE-RESIDUAL-VACUITY` when it graduated to `BACKLOG-archive.md`) · **Effort:** XS
+
+`section-header-visual` (`.github/workflows/section-header-visual.yml`) runs as an unfiltered PR gate, but it is NOT in branch protection's required-context set, so a red run is a visible failing check that does not block merge at the GitHub layer. Deliberate at ship time: the spec ratifies promotion as a follow-up after observed-green runs, not part of that branch (`docs/superpowers/specs/2026-07-26-header-probe-residual-closure-design.md` §1.1). Same class as the required-set note in `BL-E2E-LIFECYCLE-SPECS-CI-DARK`: an owner GitHub-settings action, not repo code — the live required set held twelve contexts when last measured (2026-07-26). **Trigger:** observed-green soak of `section-header-visual` on merged PRs, then the owner adds the context.
+
+The owner flip had already landed and this row outlived it. Measured 2026-11-06 from the branch protection API: `section-header-visual` is one of thirteen required contexts, so a red run blocks merge. `tests/ci/_metaE2eWorkflowCoverage.test.ts` carried the dated twelve-context measurement and now carries this one.
+
 ## BL-CREW-ROLE-LINE-RAW-TRUNCATED — the Crew section's role lines show the raw roster string and cut off the position code — ✅ RESOLVED
 
 **Status:** RESOLVED 2026-11-03 (`feat/crew-page-redesign-pr-b`, PR #985) · **Filed:** 2026-10-30 (`feat/crew-page-redesign`, impeccable critique O2) · **Facing:** product · **Severity:** low · **Class:** roster text display · **Effort:** S · **Class-sweep exception:** (c) — the peer on the pass ("You, role") is repaired on `feat/crew-page-redesign` because that PR rebuilt the pass; the Crew section body (`components/crew/primitives/PersonRow.tsx`) is a surface the PR renders but does not change. · **Reachability:** PROBED 2026-10-30 — the critique measured the seeded Waldorf roster in the crew sheet at 390px: role lines render as uppercase raw roster strings ("- LOAD IN / SET / STRIKE / LOAD OUT - A1") truncated before the trailing position code (`PersonRow.tsx:275`).

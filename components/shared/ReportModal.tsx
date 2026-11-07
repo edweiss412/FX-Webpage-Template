@@ -526,10 +526,6 @@ export function ReportModal(props: ReportModalProps) {
   const placeholder = messageOptional
     ? "Add a note if you like. We’ve already captured the details."
     : "What’s off? Be as brief as you like.";
-  // The label is sr-only, so this prompt is the one a sighted crew member sees, and
-  // DESIGN.md §1.1 keeps crew-actionable copy off the faint tone (3.21:1 on `bg-bg`).
-  const promptTone =
-    surface === "crew" ? "placeholder:text-text-subtle" : "placeholder:text-text-faint";
   // Surface-specific subhead. Crew copy is verbatim from spec §13.1
   // (line 2982): the modal must explicitly tell the crew member that
   // reports go to the developer (not Doug) and that show-content
@@ -760,7 +756,7 @@ export function ReportModal(props: ReportModalProps) {
                 rows={6}
                 readOnly={status === "submitting"}
                 autoFocus
-                className={`block w-full resize-y rounded-sm border border-text-faint bg-bg px-3 py-2 text-base text-text ${promptTone} focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring disabled:opacity-60`}
+                className="block w-full resize-y rounded-sm border border-text-faint bg-bg px-3 py-2 text-base text-text placeholder:text-text-subtle focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring disabled:opacity-60"
                 style={{ maxHeight: "40vh" }}
               />
               {error && status === "failed-retryable" ? (

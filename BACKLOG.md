@@ -4,15 +4,9 @@ Speculative / lower-priority hardening items. "Might do" — not blocking, no co
 
 **This file is the OPEN queue only.** Resolved / shipped / superseded entries live in **[BACKLOG-archive.md](./BACKLOG-archive.md)** with full provenance — grep by id, ids are unchanged. When an item below ships, move its whole entry there rather than annotating it resolved in place; otherwise this queue silently turns into a changelog.
 
-Last reconciled: 2026-11-03 — `feat/crew-page-redesign-pr-b` (PR #985) graduated `BL-CREW-ROLE-LINE-RAW-TRUNCATED` and `BL-CREW-SECTION-GLYPH-ICONS`. PR B replaced the Crew section's PersonRow roster and contact rows with the shared Crew and Contacts bodies, so both repairs landed there rather than in PersonRow: the role line wraps with its trailing position code always visible (a visibility case with a measured overflow premise and three mutants), and the call, text and email actions use drawn icons.
+Last reconciled: 2026-11-06 — `fix/text-faint-contrast` graduated `BL-DIAGRAMS-HEADING-FAINT-CONTRAST` and `BL-SECTION-HEADER-VISUAL-REQUIRED-CONTEXT`, the second already true in branch protection.
 
 ---
-
-## BL-SECTION-HEADER-VISUAL-REQUIRED-CONTEXT — promote the visual gate into branch protection's required set after soak
-
-**Status:** OPEN · **Severity:** low · **Class:** CI wiring · **Filed:** 2026-07-27 (reconciliation — the one live follow-up carried out of `BL-HEADER-PROBE-RESIDUAL-VACUITY` when it graduated to `BACKLOG-archive.md`) · **Effort:** XS
-
-`section-header-visual` (`.github/workflows/section-header-visual.yml`) runs as an unfiltered PR gate, but it is NOT in branch protection's required-context set, so a red run is a visible failing check that does not block merge at the GitHub layer. Deliberate at ship time: the spec ratifies promotion as a follow-up after observed-green runs, not part of that branch (`docs/superpowers/specs/2026-07-26-header-probe-residual-closure-design.md` §1.1). Same class as the required-set note in `BL-E2E-LIFECYCLE-SPECS-CI-DARK`: an owner GitHub-settings action, not repo code — the live required set held twelve contexts when last measured (2026-07-26). **Trigger:** observed-green soak of `section-header-visual` on merged PRs, then the owner adds the context.
 
 ## Descoped from the CI-dark coverage cluster (2026-07-26) — read before re-attempting any of these
 
@@ -377,12 +371,6 @@ reads `scrollTop`/`scrollLeft` on the unscrolled path, where both reads follow t
 cap-restore writes and both are provably no-ops. Every measurement of every
 uncapped popover on every surface composing the helper takes that path. **No
 review round in six ever faulted it.**
-
-## BL-DIAGRAMS-HEADING-FAINT-CONTRAST — the Diagrams tile heading and the day-card weekday labels sit below AA body contrast
-
-**Status:** OPEN · **Filed:** 2026-10-30 (`feat/crew-page-redesign`, impeccable critique O1) · **Facing:** product · **Severity:** low · **Class:** text contrast · **Effort:** XS · **Reachability:** PROBED 2026-10-30 — the critique measured `text-text-faint` at 12px on the Diagrams tile heading (`components/atoms/Section.tsx:201`, rendered by `components/crew/DiagramsBlock.tsx`) at 3.4:1 light and 3.8:1 dark; the schedule day-card weekday labels use the same token.
-
-12px text needs 4.5:1. Both sites are pre-existing and outside the crew page redesign diff.
 
 ## BL-TURBOPACK-WARM-CSS-DROPS-NEW-TOKEN — a build on a warm Turbopack cache drops a new `@theme` token, and every rule that uses it
 

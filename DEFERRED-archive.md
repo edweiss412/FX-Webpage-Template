@@ -1,3 +1,22 @@
+### HELPREPORT-MODAL-NO-ESCAPE-1 — [P2] the report dialog cannot be dismissed with Esc — CLOSED 2026-11-06 (`fix/text-faint-contrast`, already SHIPPED by `d75e1b7af`)
+
+**Effort:** S
+
+From the impeccable audit. `grep -c 'Escape' components/shared/ReportModal.tsx` returns `0`; the only
+key handling in the modal is Cmd/Ctrl+Enter to submit. `lib/a11y/dialogFocus.ts:13-14` states
+explicitly that "Esc handling is the dialog's responsibility (typically already wired in the dialog
+component)", and it never was. Not an SC failure — Close is Tab-reachable and inside the focus trap —
+but it breaks the APG dialog pattern, and this branch extends the gap to a fifth surface.
+
+**Accepted, not fixed.** Pre-existing since M8 on all four existing surfaces; adding a dismissal path
+is a behavior change to every one of them, which spec §1.1 item 9 fences for this PR. It is a
+one-place fix that should ship with the modal's own suite as its net.
+
+**Un-defer trigger:** the next PR that touches `ReportModal`'s keyboard handling, or any
+keyboard-a11y sweep.
+
+The row outlived its fix. `d75e1b7af` (crew page redesign compound transitions) wired Esc through the modal's single close path, `components/shared/ReportModal.tsx:319`, and `tests/components/report/ReportModal.test.tsx` covers it. This branch only moved the row.
+
 ### SHARELINK-CUE-FORCED-COLORS-1 — impeccable audit P3 (2026-07-25, share-link-chrome-backlog) — CLOSED 2026-09-01 (`feat/forced-colors-pass`, SHIPPED)
 
 **Effort:** L

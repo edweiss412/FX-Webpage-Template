@@ -184,7 +184,7 @@ function EventDetailRow({
   return (
     <div data-search-target={searchTarget} className={className}>
       {FieldLabel({ label, marker })}
-      <span className={`wrap-break-word text-sm ${muted ? "text-text-faint" : "text-text"}`}>
+      <span className={`wrap-break-word text-sm ${muted ? "text-text-subtle" : "text-text"}`}>
         {value}
       </span>
     </div>
@@ -203,13 +203,13 @@ function BooleanChip({ label, value }: { label: string; value: string }) {
           Yes
         </span>
       ) : state === "no" ? (
-        <span className="inline-flex shrink-0 items-center gap-1 rounded-pill border border-border px-2.5 py-0.5 text-xs font-semibold text-text-faint">
+        <span className="inline-flex shrink-0 items-center gap-1 rounded-pill border border-border px-2.5 py-0.5 text-xs font-semibold text-text-subtle">
           <Minus className="size-3" aria-hidden="true" />
           No
         </span>
       ) : (
         // Neither yes nor no (sentinel / richer text) → raw parsed token, muted.
-        <span className="wrap-break-word text-xs font-medium text-text-faint">{value}</span>
+        <span className="wrap-break-word text-xs text-text-subtle">{value}</span>
       )}
     </div>
   );

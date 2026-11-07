@@ -5,7 +5,7 @@
  * Used by every tile that renders structured fields (Lodging, Venue,
  * Crew, Contacts at M4; more in subsequent tasks). One stacked row:
  *
- *   <dt>  uppercase label, tracking-wide, --text-xs, --color-text-faint
+ *   <dt>  uppercase label, tracking-wide, --text-xs, --color-text-subtle
  *   <dd>  the value or — when missing — an EmptyState placeholder.
  *
  * Why <dt>/<dd>: spec calls these "key/value pairs"; HTML's <dl> is the
@@ -98,7 +98,7 @@ export function KeyValue({ label, value, linkAs, tabular, emptyLabel }: KeyValue
   if (isMissing(value)) {
     return (
       <div className="flex flex-col gap-1">
-        <dt className="text-xs font-medium uppercase tracking-eyebrow text-text-faint">{label}</dt>
+        <dt className="text-xs font-medium uppercase tracking-eyebrow text-text-subtle">{label}</dt>
         <dd>
           <EmptyState {...(emptyLabel !== undefined ? { label: emptyLabel } : {})} />
         </dd>
@@ -147,7 +147,7 @@ export function KeyValue({ label, value, linkAs, tabular, emptyLabel }: KeyValue
 
   return (
     <div className="flex flex-col gap-1">
-      <dt className="text-xs font-medium uppercase tracking-eyebrow text-text-faint">{label}</dt>
+      <dt className="text-xs font-medium uppercase tracking-eyebrow text-text-subtle">{label}</dt>
       <dd className="text-sm/snug">{renderedValue}</dd>
     </div>
   );

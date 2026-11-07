@@ -286,7 +286,7 @@ export function PickerInterstitial({
           />
         )}
 
-        <footer data-testid="picker-footer" className="mt-4 text-center text-xs text-text-faint">
+        <footer data-testid="picker-footer" className="mt-4 text-center text-xs text-text-subtle">
           Shared by Doug Larson · FXAV
         </footer>
       </div>

@@ -502,8 +502,8 @@ export const BROWSER_SURFACES: BrowserGuardSurface[] = [
         edits: [
           {
             file: "components/admin/wizard/Step3Review.tsx",
-            from: '<h2 className="text-sm font-semibold text-text-subtle">\n          {heading} <span className="tabular-nums text-text-faint">({rows.length})</span>\n        </h2>',
-            to: '<h3 className="text-sm font-semibold text-text-subtle">\n          {heading} <span className="tabular-nums text-text-faint">({rows.length})</span>\n        </h3>',
+            from: '<h2 className="text-sm font-semibold text-text-subtle">\n          {heading} <span className="tabular-nums">({rows.length})</span>\n        </h2>',
+            to: '<h3 className="text-sm font-semibold text-text-subtle">\n          {heading} <span className="tabular-nums">({rows.length})</span>\n        </h3>',
           },
         ],
         reason:

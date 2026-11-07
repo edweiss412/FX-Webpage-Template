@@ -12,11 +12,12 @@
  * RUNS AND REPORTS on every PR — NOT that GitHub will block a merge on it.
  *
  * The claim that "branch protection requires only the `quality` context" was
- * STALE and is corrected here: measured 2026-07-26, the live required set
- * holds TWELVE contexts. The e2e jobs are advisory not because one context is
- * required, but because none of them is in that set. Merge blocking is out of
- * any scanner's reach either way; the ship pipeline's all-checks-green gate is
- * the procedural enforcement. Measurement: spec
+ * STALE and is corrected here: measured 2026-11-06, the live required set
+ * holds THIRTEEN contexts, `section-header-visual` the one Playwright gate among
+ * them. The other e2e jobs are advisory not because one context is required, but
+ * because none of them is in that set. Merge blocking is out of any scanner's
+ * reach either way; the ship pipeline's all-checks-green gate is the procedural
+ * enforcement. First measured at twelve on 2026-07-26: spec
  * docs/superpowers/specs/ci/2026-07-26-ci-dark-coverage-design.md §2.5.
  */
 import {

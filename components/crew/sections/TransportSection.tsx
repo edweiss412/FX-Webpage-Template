@@ -209,7 +209,7 @@ export function TransportSection({
                                     {route}
                                   </p>
                                   {seg.depTime && seg.arrTime ? (
-                                    <p className="text-[13px] text-text-subtle tabular-nums">
+                                    <p className="text-[13px] text-text tabular-nums">
                                       {seg.depTime} – {seg.arrTime}
                                     </p>
                                   ) : null}

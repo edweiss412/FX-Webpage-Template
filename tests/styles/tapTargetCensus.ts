@@ -147,7 +147,7 @@ export const TAP_TARGET_CENSUS: readonly TapCensusRow[] = [
   },
   {
     file: "components/shared/ReportModal.tsx",
-    line: 647,
+    line: 643,
     tag: "button",
     category: "inline-prose-link",
     reason:
@@ -470,7 +470,7 @@ export const TAP_TARGET_CENSUS: readonly TapCensusRow[] = [
   },
   {
     file: "components/shared/ReportModal.tsx",
-    line: 594,
+    line: 590,
     tag: "button",
     category: "full-bleed",
     reason: "Report-modal scrim: `absolute inset-0 bg-text-strong/40`.",

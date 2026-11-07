@@ -31,7 +31,8 @@
  *
  * DOCUMENTED LIMIT: a FIFTH control resting at `text-faint` added tomorrow is
  * not caught here. RE-FILE TRIGGER: a control resting at `text-faint` reaching
- * `main` that renders its own text, or a decision to police the token repo-wide.
+ * `main` that renders its own text. Text at the token is policed repo-wide by
+ * `faintTextFloor.test.ts`, so that trigger now fails there first.
  */
 import { readFileSync } from "node:fs";
 import { join } from "node:path";

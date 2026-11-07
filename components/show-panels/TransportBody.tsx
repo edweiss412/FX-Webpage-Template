@@ -33,7 +33,7 @@
  *   drawn as borders, which forced colors keep (DESIGN.md §17); no leg carries a
  *   "now" state, so none is accent.
  * - `riders: "with"`: the riders line as the crew's Travel card wrote it on main,
- *   "With" and the names, readable rather than faint.
+ *   "With" and the names, at body colour.
  * - A leg-time formatter may return a lead-in and a dated part, which renders in
  *   a `<time dateTime>`.
  *
@@ -89,7 +89,7 @@ export type TransportBodyProps = TransportLegOptions & {
    * connector a border.
    */
   routeMarkers?: "alternating" | "neutral";
-  /** "names" (the default, admin): the riders alone, faint. "with" (crew): "With" and the names. */
+  /** "names" (the default, admin): the riders alone, subtle. "with" (crew): "With" and the names. */
   riders?: "names" | "with";
   /** Search targets (crew). Given, the avatars and the Route eyebrow are skipped. */
   targets?: TransportBodyTargets;
@@ -331,7 +331,7 @@ export function TransportBody(props: TransportBodyProps) {
                 <span
                   key={i}
                   className={`wrap-break-word text-[11px] ${
-                    shouldHideGenericOptional(s) ? "text-text-faint" : "text-text-subtle"
+                    shouldHideGenericOptional(s) ? "text-text-subtle" : "text-text"
                   }`}
                 >
                   {s}
@@ -420,7 +420,7 @@ export function TransportBody(props: TransportBodyProps) {
                   {leg.names.length > 0 ? (
                     riders === "with" ? (
                       // The crew's riders line (gate row 2): "With" and the names, as the
-                      // Travel card wrote it on main, readable rather than faint.
+                      // Travel card wrote it on main, at body colour.
                       <span
                         className={`${leg.stage !== null || leg.when ? "mt-0.5 " : ""}block wrap-break-word text-xs text-text-subtle`}
                       >
@@ -428,7 +428,7 @@ export function TransportBody(props: TransportBodyProps) {
                       </span>
                     ) : (
                       <span
-                        className={`${leg.stage !== null || leg.when ? "mt-0.5 " : ""}block wrap-break-word text-[11px] text-text-faint`}
+                        className={`${leg.stage !== null || leg.when ? "mt-0.5 " : ""}block wrap-break-word text-[11px] text-text-subtle`}
                       >
                         {leg.names.join(", ")}
                       </span>

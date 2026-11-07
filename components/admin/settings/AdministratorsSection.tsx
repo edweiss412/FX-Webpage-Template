@@ -299,7 +299,7 @@ function RevokedRow({
       className="flex flex-wrap items-center justify-between gap-2 text-sm"
     >
       <span className="text-text-subtle">{row.email}</span>
-      <span className="flex items-center gap-3 text-xs text-text-faint">
+      <span className="flex items-center gap-3 text-xs text-text-subtle">
         <span>Revoked {revokedRelative}</span>
         {/* Part B §3.3: Re-add is developer-only. */}
         {viewerIsDeveloper ? <ReAddRowButton email={row.email} /> : null}

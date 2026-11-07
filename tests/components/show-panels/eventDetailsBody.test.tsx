@@ -201,7 +201,7 @@ describe("EventDetailsBody: sentinels", () => {
     const container = body({ groups: eventDetailGroups(SENTINELS) });
     const value = rowOf(container, "scenic").lastElementChild;
     expect(value).toHaveTextContent("TBD");
-    expect(value).toHaveClass("text-text-faint");
+    expect(value).toHaveClass("text-text-subtle");
     expect(value).not.toHaveClass("text-text");
     const real = rowOf(container, "led").lastElementChild;
     expect(real).toHaveClass("text-text");
@@ -231,7 +231,7 @@ describe("EventDetailsBody: sentinels", () => {
     const value = rowOf(stays, "opening_reel").lastElementChild;
     expect(value).toHaveTextContent("N/A");
     expect(value).toHaveClass("text-text");
-    expect(value).not.toHaveClass("text-text-faint");
+    expect(value).not.toHaveClass("text-text-subtle");
     cleanup();
 
     const goes = body({ groups: eventDetailGroups({ opening_reel: "TBD" }), sentinels: "hide" });
@@ -416,7 +416,7 @@ describe("EventDetailsBody: rowLayout", () => {
     const groups = eventDetailGroups({ ...EVERY_FIELD, led: "TBD" });
     for (const rowLayout of ["fixed", "fluid"] as const) {
       const container = body({ groups, chips: false, rowLayout });
-      expect(rowOf(container, "led").lastElementChild, rowLayout).toHaveClass("text-text-faint");
+      expect(rowOf(container, "led").lastElementChild, rowLayout).toHaveClass("text-text-subtle");
       cleanup();
     }
   });

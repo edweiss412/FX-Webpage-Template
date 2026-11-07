@@ -52,7 +52,7 @@ function CardHeader({
         <time
           data-testid={`needs-attention-time-${item.key}`}
           dateTime={item.activityAt}
-          className="shrink-0 whitespace-nowrap text-xs tabular-nums text-text-faint"
+          className="shrink-0 whitespace-nowrap text-xs tabular-nums text-text-subtle"
         >
           {formatRelative(item.activityAt, now)}
         </time>
@@ -187,7 +187,7 @@ function ItemCard({ item, now }: { item: NeedsAttentionItem; now: Date }) {
                 </p>
               ))}
               {overflow > 0 ? (
-                <p className="text-sm tabular-nums text-text-faint">and {overflow} more</p>
+                <p className="text-sm tabular-nums text-text-subtle">and {overflow} more</p>
               ) : null}
             </IdentityHoldDisclosure>
           </>

@@ -197,8 +197,13 @@ describe("TransportBody sentinels (spec line 293)", () => {
 
   test('"show" renders each sentinel as parsed, the plate and colour muted, as the admin does today', () => {
     const root = body({ transport: SENTINEL, sentinels: "show" });
-    const plate = within(root).getByText("TBD", { selector: "span.text-text-faint" });
-    expect(plate).toBeInTheDocument();
+    const plate = within(root).getByText("TBD", { selector: "span.text-\\[11px\\]" });
+    expect(plate).toHaveClass("text-text-subtle");
+    const realPlate = within(body({ sentinels: "show" })).getByText(
+      TRANSPORT.license_plate as string,
+      { selector: "span.text-\\[11px\\]" },
+    );
+    expect(realPlate).toHaveClass("text-text");
     expect(root).toHaveTextContent("TBA");
     expect(hrefs(root, "tel:")).toContain(probeTel("TBD"));
     expect(root.querySelectorAll("ol > li")).toHaveLength(2);
@@ -462,7 +467,7 @@ describe("TransportBody crew presentation props (gate rows 1, 2, 3, 8, 16)", () 
 
     const plain = ridersLine(body());
     expect(plain?.textContent).toBe(names);
-    expect(plain?.className).toContain("text-text-faint");
+    expect(plain?.className).toContain("text-text-subtle");
     cleanup();
 
     const line = ridersLine(body({ riders: "with" }));

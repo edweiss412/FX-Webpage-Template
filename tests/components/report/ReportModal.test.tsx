@@ -99,18 +99,14 @@ function defaultProps(overrides?: Partial<React.ComponentProps<typeof ReportModa
 // A. Submit body + server contract shape
 // ──────────────────────────────────────────────────────────────────────
 describe("the prompt's tone", () => {
-  // The label is sr-only, so the placeholder is the one prompt a sighted crew member
-  // sees, and at the faint tone it read 3.21:1 on the page ground (PR C gate repair 8).
-  test("crew reads the prompt at the subtle tone, and every other surface as it was", () => {
-    const { unmount } = render(<ReportModal {...defaultProps({ surface: "crew" })} />);
-    const crew = screen.getByTestId("report-modal-textarea").className;
-    expect(crew).toContain("placeholder:text-text-subtle");
-    expect(crew).not.toContain("placeholder:text-text-faint");
-    unmount();
-    render(<ReportModal {...defaultProps({ surface: "admin" })} />);
-    const admin = screen.getByTestId("report-modal-textarea").className;
-    expect(admin).toContain("placeholder:text-text-faint");
-    expect(admin).not.toContain("placeholder:text-text-subtle");
+  // The label is sr-only, so the placeholder is the one prompt a sighted reader sees,
+  // and at the faint tone it read 3.21:1 on the page ground. The text floor holds on
+  // every surface, so admin reads it at the same tone as crew.
+  test.each(["crew", "admin"] as const)("%s reads the prompt at the subtle tone", (surface) => {
+    render(<ReportModal {...defaultProps({ surface })} />);
+    const textarea = screen.getByTestId("report-modal-textarea").className;
+    expect(textarea).toContain("placeholder:text-text-subtle");
+    expect(textarea).not.toContain("placeholder:text-text-faint");
   });
 });
 

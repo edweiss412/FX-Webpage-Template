@@ -318,10 +318,9 @@ export const CENSUS: readonly CensusRow[] = [
   // spec §4.2 row 21
   // Inside the start-fresh `bg-warning-bg` plate: moved to the plate token
   // 2026-08-25. Its sibling at :678 is on a neutral ground and did not move.
-  // 666 -> 670 on PR C's gate repair 8 (`promptTone` above it); located by its own tag.
   {
     file: "components/shared/ReportModal.tsx",
-    line: 670,
+    line: 666,
     outline: "control-outline-tinted",
   },
 
@@ -418,7 +417,7 @@ export const CENSUS: readonly CensusRow[] = [
   { file: "components/crew/primitives/PersonRow.tsx", line: 298 },
   { file: "components/layout/ThemeToggle.tsx", line: 92 },
   { file: "components/shared/ReportButton.tsx", line: 142 },
-  { file: "components/shared/ReportModal.tsx", line: 723 },
+  { file: "components/shared/ReportModal.tsx", line: 719 },
 ];
 
 /**
