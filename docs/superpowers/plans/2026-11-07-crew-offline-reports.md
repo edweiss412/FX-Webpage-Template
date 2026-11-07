@@ -192,7 +192,7 @@ create  tests/reports/offlineRecovery.test.ts   (local database, the tests/repor
 
 - [ ] **Step 1: failing tests.** With `offline` set, the crew body has the section after the crew member's note and before "Page state at submission", and the admin body after "Doug's note" and before "Raw snippet": assert by index order with a premise that both anchors exist. Without `offline`, each body equals a literal expected string captured from the pre-change builders before Step 3 (an independent baseline: comparing two calls of the changed builder would pass if both changed). `reportContext({ ...body, offline })` has `offline` equal to the fields; without it, the key is absent (`"offline" in context` is false), so stored rows do not change shape. `writer` never appears in `reportContext` output or either body, whatever its value.
 
-  `offlineRecovery.test.ts`, through the real `submitReport` with `createIssue` and `findIssueByMarker` mocked and the lease expired between attempts, reading `reports.context` and the issue body:
+  The recovery file, through the real `submitReport` with `createIssue` and `findIssueByMarker` mocked and the lease expired between attempts, reading `reports.context` and the issue body:
   - an ordinary POST reserves, `createIssue` fails, the retry carries `offline`: the stored context gains it and the issue has the section.
   - a queued POST at T1 fails creation, the retry at T2 succeeds: stored `sentAt` is T2, matching the issue's sentence.
   - a retry with no `offline` on a row with none: context byte-identical, no `offline` key.
