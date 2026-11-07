@@ -712,7 +712,7 @@ export const TAP_TARGET_CENSUS: readonly TapCensusRow[] = [
   },
   {
     file: "components/shared/ReportButton.tsx",
-    line: 142,
+    line: 147,
     tag: "button",
     category: "unresolvable-dynamic",
     reason:

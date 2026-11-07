@@ -850,6 +850,7 @@ realtime reconnect backoff.
 | `DEBOUNCE_MS` | 100 | `components/realtime/ShowRealtimeBridge.tsx` |
 | `submitTimeoutMs` | 30000 | `components/shared/ReportModal.tsx` |
 | `PENDING_TIMEOUT_MS` | 8000 | `components/shared/pendingTimeout.ts` |
+| `QUEUE_SEND_INTERVAL_MS` | 60000 | `components/shared/ReportQueueStatus.tsx` |
 | `ARM_REVERT_MS` | 4000 | `lib/admin/destructiveConfirm.ts` |
 | `RETRY_INTERVAL_MS` | 30000 | `lib/offline/notSavedPage.ts` |
 | `COPY_FEEDBACK_RESET_MS` | 2000 | `lib/ui/copyFeedback.ts` |
