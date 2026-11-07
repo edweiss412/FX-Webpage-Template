@@ -55,6 +55,8 @@ Failure modes the spec implies and a person would meet. Each has a named test in
 - **Own database.** `fxav-report-queue`, version 1, store `reports`, keyPath `id`. It is not `fxav-offline`: the kill switch deletes that one by name (`lib/offline/killSwitch.ts:33`), and a held report must not die with a saved copy. Each operation opens, runs one transaction, and closes.
 - **Where the UI mounts.** `ReportButton` renders `<ReportQueueStatus>` when `surface === "crew"` and `showId` is non-null. Footer is the only caller with that surface (`components/admin/PreviewBanner.tsx`, the help CTA and the admin cards pass `admin` or `help`), so spec §5.1's "beside the report button" holds without editing `Footer.tsx`, and `_CrewShell.tsx`'s comment citing `Footer.tsx:186` stays true.
 - **Every crew modal gets the queue.** `CardReportTrigger` and `CrewSearchResults` mount `ReportModal` directly. The modal reads the marker from the DOM, so neither caller changes.
+- **What a submission binds, at the tap.** `writer`, `pageRenderedAt`, the slug and `writtenAt` are read once when Submit is tapped, before any `await`. The page can change under a pending POST (a name switch revalidates it, and the footer's `surfaceId` survives that because it is keyed by slug, `components/layout/Footer.tsx:129`), so a read at hold time could put B's key on A's text.
+- **Who may hold a detached attempt.** Each submission mints an `attemptId`, written to the persisted row. A detached attempt may hold only while the row still carries its own `attemptId`, and it removes the row synchronously before any `await`. A remount rewrites the row without that id and a later submission writes its own, so no other attempt can pass the check, and nothing can reopen the row during the storage write. If the hold is then refused, the row goes back unless a newer one is there.
 - **The sender's rate-limit wait is in memory, per show.** A reload forgets it and costs one more 429, which the quota rollback does not count (`QuotaDeniedRollback`, `lib/reports/submit.ts:1076`).
 - **What "final" requires.** A final answer must be JSON from the route. An unparseable body is not an answer from the route (captive portal, gateway HTML) and keeps the record queued. A body whose read fails or stalls is no answer at all, for the sender and the modal alike: a parse failure is told apart from a stream failure by `error.name === "SyntaxError"`.
 - **Cross-tab.** Every queue change posts on a `BroadcastChannel` named `fxav-report-queue` where the browser has one, so another open tab re-reads the queue at once; with no channel, a tab catches up on `visibilitychange`.
@@ -81,7 +83,14 @@ No advisory lock is touched: the plan adds no `pg_advisory*` holder.
 
 **S1, ledger.** `grep -n 'offline\|OFFLINE' BACKLOG.md DEFERRED.md` printed nothing. No entry to claim or mark. Recorded here for invariant 12.
 
-**S2, line-keyed rows.** `grep -rnE '(ReportModal|ReportButton|Footer|AvatarMenu)\.tsx:[0-9]|api/report/route\.ts:[0-9]|reports/submit\.ts:[0-9]' tests DESIGN.md` hits the rows in §2 plus `tests/specLint/fixtures/claimSweep/**`, which are frozen fixtures and are left alone. `tests/styles/tapTargetCensus.ts` and `controlOutlineScan.ts` key by `file` and `line` fields, so they are also found by `grep -n 'ReportModal.tsx\|ReportButton.tsx' tests/styles/*.ts`.
+**S2, line-keyed rows.** Run: `grep -rnE '"?(lib/reports/submit\.ts|app/api/report/route\.ts|components/shared/ReportModal\.tsx|components/shared/ReportButton\.tsx|components/auth/AvatarMenu\.tsx)"?(:[0-9]|,? *$|", *line|.*line: *[0-9])' tests scripts DESIGN.md`, plus `grep -n 'ReportModal.tsx\|ReportButton.tsx' tests/styles/*.ts`. Hits that key by line, with their disposition, re-keyed by content in the task that moves them:
+
+| Row | Moved by |
+|---|---|
+| `tests/adminAlerts/alertProducerScope.registry.ts:280` and `tests/adminAlerts/alertProducerScope.registry.ts:289` (the `submit.ts` lines 767 and 792), gate `tests/adminAlerts/_metaAlertProducerScope.test.ts:148` | Task 2 |
+| `tests/styles/controlOutlineScan.ts` lines 322, 419, 420; `tests/styles/_metaControlOutlineFill.test.ts:482`; `tests/styles/tapTargetCensus.ts` lines 149, 472, 714 | Tasks 6, 7, 8 |
+
+The other hits are path lists or prose: `tests/messages/_metaAdminAlertCatalog.test.ts`, `tests/messages/_metaAlertActionsContract.test.ts`, `tests/messages/_metaEmphasisRenderContract.test.ts`, `tests/cross-cutting/*`, `tests/log/*`, `tests/reports/*`, `tests/a11y/tapTargetInlineExemptions.test.ts` and `scripts/validation-report-fixtures.ts` name a file, or cite a line in a comment, and each task's verification runs them. `tests/specLint/fixtures/claimSweep/**` are frozen fixtures, left alone.
 
 **S3, callers of the modal and button.** `git grep -lE 'ReportModal|ReportButton' -- app components lib` lists `Footer`, `PreviewBanner`, `DataQualityWarningControls`, `StagedReviewCard`, `AppHealthPopover`, `step3ReviewSections`, `ReviewModalShell`, `CardHeaderActions`, `CrewSearchResults`, `TileErrorFallback`, `HelpReportCta`, `CardReportTrigger`, `lib/crew/cardReportContext.ts`, `lib/notify/templates/reportProblem.ts`, `app/globals.css`. Disposition: all keep their props; the new prop is optional and only `ReportQueueStatus` passes it.
 
@@ -182,7 +191,7 @@ modify  tests/reports/issueBody.test.ts
 - [ ] **Step 1: failing tests.** With `offline` set, the crew body has the section after the crew member's note and before "Page state at submission", and the admin body after "Doug's note" and before "Raw snippet": assert by index order with a premise that both anchors exist. Without `offline`, each body equals a literal expected string captured from the pre-change builders before Step 3 (an independent baseline: comparing two calls of the changed builder would pass if both changed). `reportContext({ ...body, offline })` has `offline` equal to the fields; without it, the key is absent (`"offline" in context` is false), so stored rows do not change shape. `writer` never appears in `reportContext` output or either body, whatever its value.
 - [ ] **Step 2:** run; the section cases fail.
 - [ ] **Step 3:** insert `...offlineIssueLines(body.offline)` with its blank separator in both builders; add the conditional spread in `reportContext`.
-- [ ] **Step 4:** command passes; `pnpm exec vitest run tests/reports/_metaInfraContract.test.ts` passes.
+- [ ] **Step 4:** re-key `tests/adminAlerts/alertProducerScope.registry.ts` by content. Command passes; `pnpm exec vitest run tests/reports/_metaInfraContract.test.ts tests/adminAlerts/_metaAlertProducerScope.test.ts tests/messages/_metaAdminAlertCatalog.test.ts tests/messages/_metaAlertActionsContract.test.ts` passes.
 - [ ] **Step 5:** commit `feat(report): add the offline section to issue bodies and context`.
 
 ### Task 3: Route: validate, refuse a writer mismatch, emit the code
@@ -273,17 +282,17 @@ export function pageSlug(): string | null;
   - enqueue then list round-trips every field; list is oldest first by `writtenAt`, ties by `id`.
   - two enqueues of different ids from one surface both survive; `Promise.all` of 2 enqueues at 9 records gives exactly one `held`, one `full`, and 10 records (the cap check and add share a transaction). A premise asserts 9 before the race.
   - cap counts failed records: 10 failed, then `full`.
-  - enqueueing an id already stored answers `held` and does not change the stored record, even at the cap.
+  - enqueueing an id already stored changes nothing and does not answer `held`: the `add` aborts, so the answer is `unavailable` and the stored record keeps its text (no attempt can hold a key twice, by the ownership rule in §1).
   - `failReport` sets status and code; on a missing id it writes nothing (a resurrect mutant fails here); on an already-failed record it leaves the earlier code.
   - `requeueReport` swaps a failed record for the new one in one transaction, at the cap too, leaving the count unchanged. A missing record, and a record no longer failed, answer `stale` and add nothing, so it can never pass the cap: planted as the full-queue race, a record discarded by another tab and its slot refilled, then a stale swap, still 10 stored. Two swaps of one record racing: one `held`, one `stale`, one record.
   - no `indexedDB` global, and an open that errors: enqueue `unavailable`, list `[]`, delete and fail resolve.
   - every mutation notifies subscribers; unsubscribing stops it; a no-op `failReport` does not need to notify but must not throw.
   - cross-document: a second copy of the module (`vi.resetModules` then a fresh import, over Node's real `BroadcastChannel`) gets its subscriber called when the first copy changes the queue, and a page does not hear its own post twice. No `BroadcastChannel` global: local subscribers still fire, nothing throws.
-  - `queuedRequestBody`: `idempotency_key` is `id`, `offline` has exactly `writtenAt` and `pageRenderedAt`, `surface` and `show_id` beat any same-named context key, `writer` is absent when null, `showSlug` is the slug.
+  - `queuedRequestBody`: deep equality against the whole expected object for a record whose context holds `fieldRef`, `viewerVisibleSection`, `rightNowState` and `userAgent` with distinguishable values, so dropping the context fails; `surface`, `show_id` and `offline` beat a same-named context key; `writer` is absent when null; `showSlug` is the slug.
   - `readPageIdentity` (in the jsdom file listed above): a template built from `markerAttributes` with a `save` marker whose assets hold a URL with `&` and `"` gives its viewer and render time, so entity decoding is proven on `outerHTML`; `keep`, `purge`, absent and malformed markers give both null.
   - `pageSlug`: `/show/a-b/tok` gives `a-b`; `/help/errors` gives null.
 - [ ] **Step 2:** run; throws.
-- [ ] **Step 3:** implement. Open per operation with `onversionchange` closing the connection. `enqueueReport`: one read-write transaction, `getKey(id)` then `count()` then `add`. `failReport`: `get` then `put` in one transaction, only for a record whose status is `queued`. `readPageIdentity` reads `document.getElementById(MARKER_ID)?.outerHTML` through `readMarker`. Subscribers live in a module `Set`. The receiving channel opens with the first subscriber and closes with the last; a change posts on it, or on a throwaway channel closed at once when this page has no subscriber.
+- [ ] **Step 3:** implement. Open per operation with `onversionchange` closing the connection. `enqueueReport`: one read-write transaction, `count()` then `add`. `failReport`: `get` then `put` in one transaction, only for a record whose status is `queued`. `readPageIdentity` reads `document.getElementById(MARKER_ID)?.outerHTML` through `readMarker`. Subscribers live in a module `Set`. The receiving channel opens with the first subscriber and closes with the last; a change posts on it, or on a throwaway channel closed at once when this page has no subscriber.
 - [ ] **Step 4:** command passes.
 - [ ] **Step 5:** commit `feat(report): add the phone-wide report queue`.
 
@@ -314,8 +323,14 @@ export function classifySendResponse(
   retryAfter: string | null,
   now: number,
 ): SendVerdict;
+export type SendOutcome =
+  | { kind: "delivered" }
+  | { kind: "failed"; code: string | null }
+  | { kind: "pending" };
 export type ReportSender = {
   send(): Promise<void>;
+  /** Runs a pass and says what this sender saw happen to one record. */
+  settle(id: string): Promise<SendOutcome>;
   flush(timeoutMs: number): Promise<void> | null;
   noteQueued(count: number): void;
 };
@@ -334,9 +349,10 @@ export const reportSender: ReportSender;
   - timeout: a fetch that never settles aborts at `SEND_TIMEOUT_MS` under fake timers and stops the pass. A response whose `json()` never settles aborts at the same bound, so the budget covers the body as well as the headers; a `json()` that rejects with a stream error stops the pass; a `json()` that rejects with a `SyntaxError` is "not our route's answer" and the pass goes on.
   - two concurrent `send` calls share one pass (each record posted once).
   - Web Locks: with a `navigator.locks` stub, the pass runs inside `request("fxav-report-sender", { ifAvailable: true })`; a null lock posts nothing; with no `navigator.locks`, it runs without one.
+  - `settle`: `delivered` only after a 2xx with `ok: true` for that id in this sender; `failed` with the code after a final answer; `pending` after a 502, a network failure, a 429, a lock held elsewhere, a pass already running that did not list the record, and offline. Never inferred from the record being absent: with the queue unreadable after the POST, a 502 still reads `pending`.
   - `flush`: `noteQueued(0)` and no pass running answers `null` synchronously; with records it settles when the pass settles, or at `timeoutMs` if the pass hangs (fake timers); it never rejects.
 - [ ] **Step 2:** run; throws.
-- [ ] **Step 3:** implement as specified. `blockedUntil` is a `Map<string, number>` inside the factory; a retry continues to the next record; no answer, whether the fetch or the body read failed, ends the pass.
+- [ ] **Step 3:** implement as specified. `blockedUntil` and the per-record outcomes are maps inside the factory, bounded in practice by the cap; a retry continues to the next record; no answer, whether the fetch or the body read failed, ends the pass.
 - [ ] **Step 4:** command passes.
 - [ ] **Step 5:** commit `feat(report): add the offline report sender`.
 
@@ -362,14 +378,18 @@ create  tests/components/report/ReportModalOffline.test.tsx   (jsdom, fresh IDBF
   - resume path: a persisted failed attempt resumed offline holds under the ORIGINAL key.
   - "storage unavailable": no `indexedDB`, rejected fetch: `failed-retryable`, the `NETWORK_UNREACHABLE` crew copy, draft and persisted row intact, no "Saved on your phone".
   - cap: 10 records stored, rejected fetch: same as above; the draft stays, Retry is offered, and still 10 records.
+  - snapshot at the tap: the marker's viewer and render time and the URL's slug change between the tap and the failure. The held record carries the tap-time values, for a rejected fetch, for a body failure, and for a detached attempt.
   - "detached network failure": unmount mid-POST, reject: the record is stored and the persisted row is gone. With no `indexedDB`, the row survives, which keeps the existing detached contract (`tests/components/report/ReportModal.test.tsx:1079`).
-  - "reopened before the failure": unmount mid-POST, remount (same key, resume state), edit the text, then reject the first POST: no record is stored and the row keeps the edited text. Also with no edit: no record, row intact. The ownership test is the row's `status`: only an attempt whose row still reads `submitting` under its key may hold, and a remount rewrites it to `failed-retryable` (`components/shared/ReportModal.tsx:241` and `components/shared/ReportModal.tsx:348`).
+  - "reopened before the failure": unmount mid-POST, remount (same key, resume state), edit the text, then reject the first POST: no record is stored and the row keeps the edited text. With no edit: no record, row intact.
+  - reopened and resubmitted: as above, then submit the edited text under the same key, then reject the FIRST POST: no record, the row still belongs to the second attempt. Reject the second: one record, with the edited text.
+  - reopened during the hold: a detached attempt reaches `enqueueReport` (held open by a deferred stub), the modal remounts: it finds no row, so it has a fresh key and an empty draft, and the first record stays as written. If that hold answers `full`, the row is restored with the attempt's text. If a newer row exists by then, it is left alone.
   - body failures: headers arrive, then `json()` rejects with a stream error: held. `json()` never settles: at `submitTimeoutMs` the attempt aborts and is held, with the modal out of `submitting`. `json()` rejects with a `SyntaxError` on a 502: no record, the existing failure path. Unmount during the body read, then a stream error: held as "detached network failure". On admin and help the same stream failures end in `failed-retryable` with the network copy, never in `submitting` forever.
   - `queued` refuses every entry point: Ctrl+Enter and Cmd+Enter in the read-only textarea make no request, change no record and write no `sessionStorage` row.
   - a 502 and a 400 on the crew surface: no record, existing behavior.
+  - a report from a card, with `fieldRef` and `viewerVisibleSection` in its autocapture, held and then sent by a real `createReportSender`: the POST body carries both values.
   - `surface` admin and help with a rejected fetch and with `onLine` false: `fetch` is called in both, no record, existing failure path.
 - [ ] **Step 2:** run; queued cases fail.
-- [ ] **Step 3:** implement. `submitOnce` reads `writtenAt` first. `canHold = surface === "crew" && showId !== null`. On offline: hold without a fetch. In the `catch`: hold before the `mountedRef` check, then a detached attempt compare-and-clears and returns. On `held`: `clearPersisted`, `setStatus("queued")`, `setMountedFromResume(false)`. The persist effect's early return gains `"queued"`. The timeout stays armed through `response.json()`; a body read that fails other than by `SyntaxError` takes the network-failure path, and for a crew attempt the first detached return moves after the body read. `handleTextareaKeyDown` refuses `queued` as it refuses `submitting`. The compose arm stays mounted for `queued`: textarea `readOnly`, notice block (`bg-info-bg`, check glyph, `text-text-strong`, role-free), action row is the Done button with `autoFocus`.
+- [ ] **Step 3:** implement. `submitOnce` reads `writtenAt` first. `canHold = surface === "crew" && showId !== null`. On offline: hold without a fetch. In the `catch`: hold before the `mountedRef` check, then a detached attempt compare-and-clears and returns. `submitOnce` builds the held record before its first `await` (§1) and writes the row with its `attemptId` synchronously. On `held`: `clearPersisted`, `setStatus("queued")`, `setMountedFromResume(false)`. The persist effect's early return gains `"queued"`. The timeout stays armed through `response.json()`; a body read that fails other than by `SyntaxError` takes the network-failure path, and for a crew attempt the first detached return moves after the body read. `handleTextareaKeyDown` refuses `queued` as it refuses `submitting`. The compose arm stays mounted for `queued`: textarea `readOnly`, notice block (`bg-info-bg`, check glyph, `text-text-strong`, role-free), action row is the Done button with `autoFocus`.
 - [ ] **Step 4:** command passes; `pnpm exec vitest run tests/components/report tests/styles tests/components/_metaLiveRegionMounting.test.ts tests/a11y` passes after re-keying.
 - [ ] **Step 5:** commit `feat(report): hold a crew report when there is no signal`.
 
@@ -387,7 +407,7 @@ create  tests/components/report/ReportModalFailedRecord.test.tsx
 
 **Produces:** `ReportModalProps.failedReport?: QueuedReport`; `ModalStatus` gains `"stale"`.
 
-**Consumes:** `requeueReport`, `deleteReport`, `listReports`, `readPageIdentity`, `reportSender.send`.
+**Consumes:** `requeueReport`, `deleteReport`, `readPageIdentity`, `reportSender.settle`.
 
 - [ ] **Step 1: failing tests.** With a stored failed record, the real queue and the real sender over a stubbed `fetch`:
   - the textarea holds its text; `report-modal-failed-notice` has "This report couldn't be sent. Send it again or discard it." and, for `errorCode: "REPORT_HORIZON_EXPIRED"`, the catalog crew copy, and for null nothing more; no raw code appears anywhere (invariant 5).
@@ -400,10 +420,13 @@ create  tests/components/report/ReportModalFailedRecord.test.tsx
   - a 401: the record is failed again under the new key with its notice, the text kept, and Send again swaps it for another fresh key.
   - two modals on one record, Send again in both: one POST, and the second lands on `stale` with its text still on screen, read-only, with Close only.
   - stale at a full queue: the queue stays at 10.
+  - `requeueReport` answering `unavailable`: no POST, the record stays failed under its old key, the text stays, `failed-retryable` with the network copy, and a retry mints another key.
+  - a successful swap, a 502, then an unreadable queue: the queued notice shows, never "Report submitted."
+  - Ctrl+Enter and Cmd+Enter on an open failed record take the same path as the button: durable key before the POST, the old record gone, a 502 retried under the same key, and no direct POST from the modal. Asserted by counting POSTs and reading the store, for both shortcuts.
   - Discard removes the record and closes, with no fetch.
   - `queued` and `stale` refuse Ctrl+Enter.
 - [ ] **Step 2:** run; fails.
-- [ ] **Step 3:** implement. `persistedAtMount` is null and the persist effect returns early when `failedReport` is set; `clearPersisted` calls go through a local guard. The record in hand is state, because a refusal replaces it. Send again: `submitting`, `requeueReport` with a fresh key, `await reportSender.send()`, then read the record back: gone is `succeeded`, failed is the notice with the new record, queued is the queued notice. Discard is a secondary button left of Send again. `stale` copy: "This report was already sent or discarded in another tab."
+- [ ] **Step 3:** implement. `persistedAtMount` is null and the persist effect returns early when `failedReport` is set; `clearPersisted` calls go through a local guard. The record in hand is state, because a refusal replaces it. Every submission entry point reaches `submitOnce`, whose first branch for `failedReport` is the resend: `submitting`, `requeueReport` with a fresh key, then `await reportSender.settle(key)`: `delivered` is `succeeded`, `failed` is the notice with the new record and code, `pending` is the queued notice. `stale` is the stale arm; `unavailable` is `failed-retryable`. Discard is a secondary button left of Send again. `stale` copy: "This report was already sent or discarded in another tab."
 - [ ] **Step 4:** command passes; registries green.
 - [ ] **Step 5:** commit `feat(report): resend or discard a report that could not be sent`.
 
@@ -468,7 +491,7 @@ create  tests/components/auth/avatarMenuReportFlush.test.tsx
 
 ```text
 modify  tests/e2e/helpers/crewOfflineProxy.ts and its unit test   (answerNext, upstreamStatus on ReceivedRequest)
-modify  playwright.config.ts                                      (both offline testMatch regexes)
+modify  playwright.config.ts                                      (both offline testMatch regexes; the baseline server env at line 301)
 modify  .github/workflows/crew-e2e.yml                            (file list at line 219, the measured-count comment, the timeout if the measured run needs it)
 modify  tests/cross-cutting/picker-flow-e2e-ci-wiring.test.ts     (ENROLLED row beside line 312, EXPECTED_SKIPS row beside line 204)
 modify  scripts/check-crew-e2e-executed.mjs                       (REQUIRED row with the measured two-engine count)
@@ -479,15 +502,15 @@ create  tests/e2e/crew-offline-reports.spec.ts
 
 **Harness readiness (`docs/agents/writing-plans.md`).** (a) Production build: `CI=1 E2E_PORT=3417 CREW_E2E_ONLY=1 pnpm heavy pnpm exec playwright test --project=crew-offline-chromium --project=crew-offline-webkit tests/e2e/crew-offline-reports.spec.ts`, through the fixture's proxy, `assertServerUnderTest` in `beforeAll`. (b) Readiness: `pickAndSave` (crew shell, bar hydration signal, worker control, saved copy), then `[data-testid="report-queue-region"][data-queue-ready="true"]`, which Task 8 sets only after the first queue read and the listeners. (c) Detach safety: no sampler outlives an element; counts are read with `toHaveText` and `expect.poll` over `page.evaluate`.
 
-**No real issue is ever filed.** Every POST that could reach `createIssue` is answered by the proxy. Only the writer-mismatch POST goes upstream, and that refusal precedes `submitReport`. The cases assert the upstream answer through `ReceivedRequest.upstreamStatus`, set when the proxy forwards and undefined for a stubbed or refused request, so a stub can never pass for the real refusal.
+**No real issue can be filed, whatever the route does.** The baseline server's env (`playwright.config.ts:301`) gains `GITHUB_REPO: ""` and `GITHUB_API_TOKEN: ""`. `next start` loads `.env.local` without replacing a variable already set, and `parseRepo` (`lib/github/issues.ts:101`) then throws before any network call, so a request that reaches `createIssue` answers 502. That holds if the writer check regresses and if scripted answers run out, so it does not rest on the code under test. `assertServerUnderTest` already requires `CI=1`, so the server is the one Playwright booted with this env, never a reused one. The cases assert the upstream answer through `ReceivedRequest.upstreamStatus`, set when the proxy forwards and undefined for a stubbed or refused request, so a stub can never pass for the real refusal.
 
 - [ ] **Step 1:** failing proxy unit cases: `answerNext(pathPrefix, answers)` answers successive POSTs from a list with status, JSON body and headers, then passes through; `reset()` clears it; a forwarded request's log row gains `upstreamStatus`, a stubbed one has none.
 - [ ] **Step 2:** run; fails. Implement; passes.
 - [ ] **Step 3:** the spec, both engines, one `seedShowWithCrew` per case:
-  1. **Queue, tab close, send.** `refuse`; open the modal, write, Submit; the copy shows; Done; "1 report waiting for signal". Close the tab, open a new one on the saved copy; the count is still there. Proxy answers 201, dispatch `online`: count clears. The POST's key equals the stored key; `offline.writtenAt` is the stored one; `offline.pageRenderedAt` equals the marker's `data-rendered-at`; `writer` equals its `data-viewer`.
+  1. **Queue, tab close, send.** From a card trigger, so the body has a `fieldRef`. `refuse`; open the modal, write, Submit; the copy shows; Done; "1 report waiting for signal". Close the tab, open a new one on the saved copy; the count is still there. Proxy answers 201, dispatch `online`: count clears. The POST's key equals the stored key; `offline.writtenAt` is the stored one; `offline.pageRenderedAt` equals the marker's `data-rendered-at`; `writer` equals its `data-viewer`; `fieldRef` is the card's.
   2. **Two tabs.** Two pages submit under `refuse` at once; each page, with no reload, reaches "2 reports waiting for signal". A third page opened first with nothing queued also reaches it with no reload.
   3. **Answers that keep it queued.** Answers 503, 409 `IDEMPOTENCY_IN_FLIGHT`, 429: after each `online` dispatch the count stays; a fourth `online` posts nothing (the wait is live); a reload sends, 201, count clears. All four POSTs carry one key.
-  4. **Writer refusal, real server.** A record's `writer` rewritten in IndexedDB; `online`; the POST's log row has `upstreamStatus` 401; "1 report couldn't be sent"; tap opens with the text; proxy answers 201; Send again; count clears.
+  4. **Writer check, real server.** With the record as written, `online`: `upstreamStatus` 502 and the record still queued, which proves the marker's key equals the server's. That POST reserves a `reports` row, and `reports.show_id` has no delete cascade (`supabase/migrations/20260501001000_internal_and_admin.sql:311`), so the case deletes the show's `reports` rows before the show. Then its `writer` rewritten in IndexedDB; `online`; the POST's log row has `upstreamStatus` 401; "1 report couldn't be sent"; tap opens with the text; proxy answers 201; Send again; count clears.
   5. **Discard.** Failed record; tap; Discard; count clears; a reload keeps it gone.
   6. **Cap.** Ten seeded records; `refuse`; Submit: the failure copy shows, the draft stays, an eleventh is not stored.
   7. **Sent elsewhere.** Two pages with one queued record; the first sends it; the second's count clears with no reload.
