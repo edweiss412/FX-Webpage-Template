@@ -159,3 +159,31 @@ Every change that merges lands before the final review, so the review covers wha
 6. Push, real CI green, merge, fast-forward `main`, verify `0  0`.
 
 The review-round corpus rows those last dispatches write land after step 5 by construction. That is the one exception, and they are records, not code.
+
+## 12. Invariant-8 UI quality gate
+
+Run on 2026-11-07 against `df5e99b10` and `d2af3121c`, on this branch's diff (`git diff origin/main..HEAD -- app components`) plus the new rule set in `app/globals.css`. Both passes ran with their setup gates: the context load of `PRODUCT.md` and `DESIGN.md`, then the register read. The critique ran as two isolated assessments, a design review and the detector with browser evidence, and scored 28/40. The audit scored 17/20. Together they raised 0 P0 and 1 P1 after merging. Measured at 320, 360, 375, 390, 768, 1024 and 1280, light and dark, on the crew route with a lead viewer on the seeded show: 134 captures plus each pass's own probes, no text under 12px, no overflow, lowest contrast 4.65:1 light and 5.86:1 dark, no skipped heading level. The detector found 0 issues in the changed files. Not reached: Safari and iOS, real touch, a seeded viewer with a Transport panel card.
+
+The P1 and four other findings were repaired in-branch (`d77cc9645`, `fb1ad5d68`), the repairs each pinned by a browser case and a mutant that fails it. Every other finding is accepted with its reason, or is outside this diff. Nothing is deferred.
+
+| # | Pass | Tier | Where | Finding | Disposition |
+| --- | --- | --- | --- | --- | --- |
+| 1 | both | P1 | `components/crew/primitives/FactRows.tsx` | A one-word SSID overprints its "Wi-Fi network" label: -12px at 360 on the seeded show, where main was clean, and -52px at 320 (main -36px). `wrap-break-word` does not lower the value's min-content. | Fixed, `d77cc9645`: `wrap-anywhere`. The Facilities case seeds a long SSID and password and fails on any label overlap at 390 and 320; reverting the class fails it. |
+| 2 | audit | P2 | `components/crew/CrewSections.tsx` | The wide Today grid's dense flow puts the quick facts above the run of show while focus follows the DOM: a 654px jump back up at 1280, 820px at 1024. | Fixed, `d77cc9645`: `reading-flow: grid-rows` under the grid, pinned by a Tab-order case. Chromium only; Safari and Firefox keep DOM order (spec §12). |
+| 3 | critique | P2 | `components/show-panels/PanelCard.tsx` | A titled card's header sat 6px above a first row of 15px values, so the 16px title read as one more row. | Fixed, `d77cc9645`: 12px under a printed title, pinned in the Facilities case. |
+| 4 | critique | P2 | `components/crew/CrewSections.tsx` | With no quick facts, the phone margins stacked on the 24px gap: 40px around the run of show. | Fixed, `fb1ad5d68`: the margins drop at lg in the flex rows too. The state cases fail any row gap above 24px. |
+| 5 | critique | P2 | `components/shared/CardReportTrigger.tsx` | The report flag rests at 2.2:1 light and 2.49:1 dark, under 3:1 for an icon-only control; `DESIGN.md` claims 3.35:1, which leaves out a 70% opacity. Outside this diff, and alone on every untitled card's action row. | Fixed, `d77cc9645`: the opacity goes, which is the 3.35:1 the doc states. |
+| 6 | both | P2 | `components/crew/CrewSections.tsx`, 1024 | At 1024 the pass column ends 178px above the quick facts, whose tiles wrap at that width. | Accepted: row 1 can differ in either direction, now recorded in spec §12. The owner chose this layout from renders. |
+| 7 | critique | P2 | `components/show-panels/PanelCard.tsx` | An untitled card reads as a card with a floating "In sheet" row, in eight of ten sections. | Accepted: ratified (spec §2.1). Putting the actions in the card's footer is the owner's next option if the row bothers. |
+| 8 | critique | P2 | `components/crew/sections/EventSection.tsx` | Event details' field-card action rows grow their tap overlays in both directions. | Accepted: PR C set the directions so a report files against the right card (its gate row 8). |
+| 9 | critique | P2 | spec §3 | Labels grew most (10 to 12px), and pack items keep the supporting tier at 13px. | Accepted: the sizes are ratified (spec §2.1). |
+| 10 | audit | P3 | `components/crew/sections/VenueSection.tsx` | Venue's three action pairs share one accessible name. | Fixed, `d77cc9645`: each passes its card's title as `label`. |
+| 11 | audit | P3 | `components/crew/CrewSections.tsx`, `components/crew/sections/ScheduleSection.tsx`, `components/crew/primitives/CardHeaderActions.tsx` | Comments described the old layout and the old card. | Fixed, `d77cc9645`. |
+| 12 | audit | P3 | Schedule sheet | Text-only 200% (not page zoom) adds a 13px sideways scroll at 390. Page zoom at 200% and 400% is clean. | Accepted, recorded in spec §12. |
+| 13 | both | P3 | report dialog | Opened from a section card, the dialog's body is 15px; from the home, 14px. | Accepted: it reads the scale of the card it was opened from. |
+| 14 | audit | P3 | `tests/styles/crewSectionTypeScale.test.ts` | The static walk counts `sm:text-[10px]`, `text-[10px]/4` and `!text-[10px]` as covered, though the CSS does not reach them, and it walks two directories. | Accepted as a documented limit in spec §12; the browser walk covers what renders. |
+| 15 | audit | P3 | headings | One heading level shows in four treatments, and the flight times stay at a literal 13px. | Accepted: each treatment belongs to an existing component. |
+| 16 | critique | P3 | schedule times card, Venue status at 320, contacts spacing, Agenda title column, the pass in dark mode, the run of show's 12/14px beside the schedule's 13/15px | Notes. | Accepted: the run of show is on the home, outside the scale by ratification; the rest predate this diff or are minor. |
+| 17 | both | P3 | outside this diff | Unbroken 60-character tokens scroll a sheet sideways; printing the wide page drops every stacked section; the day row is cut at 1024; nested field-card overlays reach nearby text; the quick fact tile breaks an SSID mid-word. | Outside this diff, all predating it. |
+
+impeccable-gate: critique=RAN audit=RAN p0=0 p1=1 dispositions=recorded

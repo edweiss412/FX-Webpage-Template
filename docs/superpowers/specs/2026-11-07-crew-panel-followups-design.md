@@ -175,7 +175,9 @@ Compound: the run card's day crossfade (`components/crew/CrewRunOfShowCard.tsx:1
 
 ## 12. Documented limits
 
-- Row 1 of the Today grid can still differ in height: a show with one or two quick facts has a shorter right side than the pass. This is the state `TODAY_PACKED` already accepted (critique F7). The block no longer has a full column of air, only that row's difference.
+- Row 1 of the Today grid can still differ in height, either way: a show with one or two quick facts has a shorter right side than the pass, and at 1024, where the quick fact tiles wrap, the pass column ends 178px above the quick facts on the seeded show. This is the state `TODAY_PACKED` already accepted (critique F7). The block no longer has a full column of air, only that row's difference.
+- Focus follows the grid's rows through `reading-flow: grid-rows`, which Chromium honours. Safari and Firefox keep DOM order, so there Tab reaches the run of show before the quick facts above it.
+- Text-only zoom at 200% gives the Schedule sheet a 13px sideways scroll at 390. Page zoom at 200% and 400% is clean.
 - Option A makes the page taller and moves Show notes below the run of show, which the owner chose knowing it.
-- The CSS names literal classes. A size added through an inline style or a new unit escapes the static walk; the browser walk catches it when a seeded section renders it.
+- The CSS names literal classes. A size added through an inline style, a new unit, a variant (`sm:text-[10px]`), a line-height suffix (`text-[10px]/4`) or an important flag escapes the rule set while the static walk still counts it as named, and the walk reads only `components/show-panels` and `components/crew`. The browser walk catches any of these when a seeded section renders it.
 - An untitled card with actions keeps a short action row, so the saving at 390 is about 25px rather than the row's full height.
