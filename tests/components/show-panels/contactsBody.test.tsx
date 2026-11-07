@@ -43,6 +43,7 @@ import type { ClientContact, ContactRow } from "@/lib/parser/types";
 import { showSection } from "@/lib/showSections/registry";
 import { premise, premiseHolds } from "@/tests/_shared/premise";
 import { makeShowForViewer } from "@/tests/fixtures/showForViewer";
+import { expectUntitledPanel } from "@/tests/components/show-panels/_panelCardAssert";
 
 afterEach(() => {
   cleanup();
@@ -339,10 +340,7 @@ describe("ContactsSection (crew)", () => {
     const root = screen.getByTestId("section-contacts");
     const card = contactsCard();
     premiseHolds("the section renders the panel card", card !== null && root.contains(card));
-    // Exact text, and visible: a suffixed or hidden title fails, not only a missing one.
-    const title = within(card!).getByRole("heading", { level: 3 });
-    expect(title.textContent).toBe(showSection("contacts").label);
-    expect(title).toBeVisible();
+    expectUntitledPanel(card!, showSection("contacts").label);
     expect(showSection("contacts").label).toBe("Contacts");
     expect(card!.querySelector('[data-slot="section-card-action"]')).not.toBeNull();
     expect(card).toHaveTextContent("Pat Venue");

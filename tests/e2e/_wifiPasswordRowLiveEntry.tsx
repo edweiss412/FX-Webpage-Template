@@ -3,7 +3,7 @@
  * (spec 2026-08-10-wifi-password-legibility §6 (b) — the standalone harness entry)
  *
  * Browser ENTRY for wifi-password-row.layout.spec.ts. Mounts the REAL
- * `FactRows` + `CopyFactValue` + `SectionCard`, never transcribed markup: this
+ * `FactRows` + `CopyFactValue` + `PanelCard`, never transcribed markup: this
  * spec's subject is which class strings sit on which elements, so a harness
  * carrying its own copy of them would pass with the corrected copy while
  * production stayed unrepaired (the live-entry rule at
@@ -38,9 +38,9 @@
 import { useEffect } from "react";
 import { createRoot } from "react-dom/client";
 
-import { WifiIcon } from "@/components/crew/icons/sectionIcons";
+import { BuildingIcon, WifiIcon } from "@/components/crew/icons/sectionIcons";
 import { FactRows, type FactRow } from "@/components/crew/primitives/FactRows";
-import { SectionCard } from "@/components/crew/primitives/SectionCard";
+import { PanelCard } from "@/components/show-panels/PanelCard";
 
 /** The live FinTech Forum password — trailing period included, deliberately. */
 const PASSWORD = "ORDTG.";
@@ -54,8 +54,10 @@ function control(testId: string, value = PASSWORD): FactRow {
 
 function Mount({ name, children }: { name: string; children: React.ReactNode }) {
   return (
-    <div data-mount={name} className="w-full">
-      <SectionCard title="Facilities">{children}</SectionCard>
+    <div data-mount={name} data-crew-section-type="" className="w-full">
+      <PanelCard title="Facilities" icon={BuildingIcon}>
+        {children}
+      </PanelCard>
     </div>
   );
 }

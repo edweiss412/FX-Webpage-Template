@@ -292,13 +292,13 @@ describe("nameAs", () => {
 
   test("the default is a span, not a heading", () => {
     const root = body();
-    expect(root.querySelector("h4")).toBeNull();
+    expect(root.querySelector("h3")).toBeNull();
     expect(within(header(root)).getByText("Grand Ballroom").tagName).toBe("SPAN");
     expect(within(header(root)).getByText("Grand Ballroom")).toHaveClass(...nameClasses);
   });
 
-  test('"h4" makes the name a heading with the same classes', () => {
-    const name = within(body({ nameAs: "h4" })).getByRole("heading", { level: 4 });
+  test('"h3" makes the name a heading with the same classes', () => {
+    const name = within(body({ nameAs: "h3" })).getByRole("heading", { level: 3 });
     expect(name).toHaveTextContent("Grand Ballroom");
     expect(name).toHaveClass(...nameClasses);
   });
@@ -695,7 +695,7 @@ describe("targets", () => {
       sentinels: "hide",
       dropEmpty: true,
       emphasize: new Set<RoomScopeKey>(["audio"]),
-      nameAs: "h4",
+      nameAs: "h3",
       navAnchors: false,
       cap: 0,
       overflowNote: () => "note",
@@ -793,7 +793,7 @@ describe("targets", () => {
             rooms: [FULL_ROOM],
             cap: null,
             testIdPrefix: PREFIX,
-            nameAs: "h4",
+            nameAs: "h3",
             sentinels: "hide",
             dropEmpty: true,
             navAnchors: false,

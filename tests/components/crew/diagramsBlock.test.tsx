@@ -205,9 +205,11 @@ describe("DiagramsTile", () => {
     );
     const diaTile = screen.getByTestId("diagrams-tile");
     expect(diaTile).toBeTruthy();
-    // Mock `map` glyph parity: the Site-diagrams card carries a leading icon in
-    // SectionCard's icon slot.
-    expect(diaTile.querySelector('header [data-slot="section-card-icon"] svg')).not.toBeNull();
+    // Mock `map` glyph parity: the Site-diagrams card carries a leading icon in the
+    // panel card's chip, the header every card in a section shares.
+    expect(diaTile.querySelector('header [data-slot="panel-card-chip"] svg')).not.toBeNull();
+    expect(diaTile.querySelector('[data-testid="crew-panel-card"]')).not.toBeNull();
+    expect(diaTile.querySelector('[data-testid="section-card"]')).toBeNull();
   });
 
   describe("the card", () => {
@@ -229,10 +231,10 @@ describe("DiagramsTile", () => {
 
     const heading = () => screen.getByTestId("diagrams-tile").querySelector("h3")!;
 
-    test("the heading is a crew card's: h3, at the subtle tone, never the faint one", () => {
+    test("the heading is a panel card's: h3, at the strong tone, never the faint one", () => {
       render(<DiagramsTile showId={SHOW_ID} diagrams={one()} />);
       expect(heading().textContent).toBe(DIAGRAMS_HEADING);
-      expect(heading().classList.contains("text-text-subtle")).toBe(true);
+      expect(heading().classList.contains("text-text-strong")).toBe(true);
       expect(heading().classList.contains("text-text-faint")).toBe(false);
     });
 

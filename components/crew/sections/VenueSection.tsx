@@ -48,7 +48,6 @@ import type { JSX } from "react";
 
 import { EmptyState } from "@/components/atoms/EmptyState";
 import { SectionTileError } from "@/components/crew/SectionTileError";
-import { SectionCard } from "@/components/crew/primitives/SectionCard";
 import { CardHeaderActions } from "@/components/crew/primitives/CardHeaderActions";
 import { DEFAULT_CARD_REPORT, type CardReportContext } from "@/lib/crew/cardReportContext";
 import { CARD_REGION_MAP } from "@/lib/sheet-links/buildSheetDeepLink";
@@ -66,6 +65,7 @@ import {
   venueWhereProps,
 } from "@/components/crew/sections/venueRows";
 import { NewTabHint } from "@/components/shared/NewTabHint";
+import { showSection } from "@/lib/showSections/registry";
 import { PanelCard } from "@/components/show-panels/PanelCard";
 import { VenueBody } from "@/components/show-panels/VenueBody";
 import { BuildingIcon, InfoIcon } from "@/components/crew/icons/sectionIcons";
@@ -181,6 +181,7 @@ export function VenueSection({
                     anchor={data.sourceAnchors[CARD_REGION_MAP[WHERE_CARD_ID]]}
                     showId={showId}
                     cardReport={cardReport}
+                    label={showSection("venue").label}
                   />
                 }
               >
@@ -210,6 +211,7 @@ export function VenueSection({
                   // the section container's threshold, the address in body text.
                   layout: "container",
                   addressTone: "text",
+                  nameLabel: false,
                 })}
               </PanelCard>
             )}
@@ -219,36 +221,38 @@ export function VenueSection({
 
       {hasFacts ? (
         <div data-testid="venue-facilities" data-card-id={FACILITIES_CARD_ID}>
-          <SectionCard
-            icon={<BuildingIcon />}
+          <PanelCard
+            icon={BuildingIcon}
             title={FACILITIES_TITLE}
-            action={
+            actions={
               <CardHeaderActions
                 cardId={FACILITIES_CARD_ID}
                 driveFileId={data.driveFileId}
                 anchor={data.sourceAnchors[CARD_REGION_MAP[FACILITIES_CARD_ID]]}
                 showId={showId}
                 cardReport={cardReport}
+                label={FACILITIES_TITLE}
               />
             }
           >
             <FactRows rows={factRows} />
-          </SectionCard>
+          </PanelCard>
         </div>
       ) : null}
 
       {hasStatus ? (
         <div data-testid="venue-status" data-card-id={STATUS_CARD_ID}>
-          <SectionCard
-            icon={<InfoIcon />}
+          <PanelCard
+            icon={InfoIcon}
             title={STATUS_TITLE}
-            action={
+            actions={
               <CardHeaderActions
                 cardId={STATUS_CARD_ID}
                 driveFileId={data.driveFileId}
                 anchor={data.sourceAnchors[CARD_REGION_MAP[STATUS_CARD_ID]]}
                 showId={showId}
                 cardReport={cardReport}
+                label={STATUS_TITLE}
               />
             }
           >
@@ -278,7 +282,7 @@ export function VenueSection({
                 <p className="text-sm text-text">{venueNotes.value}</p>
               </div>
             ) : null}
-          </SectionCard>
+          </PanelCard>
         </div>
       ) : null}
     </div>

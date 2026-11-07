@@ -136,6 +136,31 @@ describe("VenueBody", () => {
   });
 });
 
+describe("VenueBody name label (crew panel follow-ups spec §4)", () => {
+  const NAME_LINES = { name: "Grand Hall", address: "350 Fifth Ave", city: "New York" };
+  const body = (extra: { nameLabel?: boolean }) =>
+    render(
+      VenueBody({
+        ...NAME_LINES,
+        dock: null,
+        map: null,
+        sentinels: "hide",
+        bleed: false,
+        ...extra,
+      }),
+    );
+
+  test("the admin's default prints the Venue label over the name", () => {
+    expect(body({}).container).toHaveTextContent(/^Venue/);
+  });
+
+  test("nameLabel false omits it and keeps the name", () => {
+    const { container } = body({ nameLabel: false });
+    expect(container).not.toHaveTextContent(/^Venue/);
+    expect(container).toHaveTextContent(NAME_LINES.name);
+  });
+});
+
 describe("crew Venue props", () => {
   test("each shown line carries a venue search target on the venue-where card; a sentinel line none", () => {
     const props = venueWhereProps({
@@ -179,15 +204,18 @@ describe("crew Venue props", () => {
 });
 
 describe("VenueSection (crew)", () => {
-  test('the Where card is the crew panel card titled with the registry label, "Venue" (spec line 402), with card id venue-where and its actions', () => {
+  test("the Where card is the crew panel card, untitled under the section's own heading (spec line 402), with card id venue-where and its actions", () => {
     renderVenue(show({ name: "Grand Hall", address: "350 Fifth Ave" }));
     const card = where().querySelector('[data-testid="crew-panel-card"]');
     premiseHolds("the Where card renders the panel card", card !== null);
     expect(card).toHaveAttribute("data-card-id", WHERE_CARD_ID);
-    // Exact text, and visible: a suffixed or hidden title fails, not only a missing one.
-    const title = within(card as HTMLElement).getByRole("heading", { level: 3 });
-    expect(title.textContent).toBe(showSection("venue").label);
-    expect(title).toBeVisible();
+    // The section's h2 says it, so the card prints no title and no chip.
+    expect(within(card as HTMLElement).queryByRole("heading", { level: 3 })).toBeNull();
+    expect(card!.querySelector('[data-slot="panel-card-chip"]')).toBeNull();
+    // The search entries still name this group, and it stays out of the page's text.
+    const group = card!.querySelector("[data-search-group]");
+    expect(group?.textContent).toBe(showSection("venue").label);
+    expect(group).toHaveAttribute("hidden");
     expect(showSection("venue").label).toBe("Venue");
     expect(card!.querySelector('[data-slot="section-card-action"]')).not.toBeNull();
     expect(card).toHaveTextContent("Grand Hall");

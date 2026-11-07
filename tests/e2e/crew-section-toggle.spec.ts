@@ -48,6 +48,7 @@ import { updateShowLocked } from "./helpers/lockedShowCopy";
 import { deleteSeededShow, seedShowWithCrew } from "./helpers/seedShowWithCrew";
 import { signInAs, signOut } from "./helpers/signInAs";
 import { expectClearOfStickyChrome } from "./helpers/stickyClearance";
+import { readSectionTextSizes } from "./helpers/sectionTextSizes";
 import { admin } from "./helpers/supabaseAdmin";
 import { TEST_AUTH_SECRET } from "./helpers/testAuthConfig";
 
@@ -798,6 +799,102 @@ test.describe("crew compact home and section sheet (spec §5.2)", () => {
     expect(await row(page, "venue").evaluate((el) => getComputedStyle(el).transitionDuration)).toBe(
       "0s",
     );
+  });
+
+  // ── Crew panel follow-ups, spec §3 ──────────────────────────────────────
+  // The body's sizes are read off the rendered page: a rule a build dropped, or a
+  // class the rule set does not reach, leaves small text a phone cannot show well.
+  test("type scale: no text in any section sits below 12px at 390", async ({ page }) => {
+    await page.setViewportSize({ width: 390, height: 844 });
+    let labels = 0;
+    let values = 0;
+    for (const id of ADMIN_SECTIONS) {
+      await load(page, `?s=${id}`);
+      await settleOpen(page);
+      const report = await readSectionTextSizes(page, '[data-testid="crew-section-sheet-body"]');
+      expect(report.nodes, `${id} has visible text`).toBeGreaterThan(0);
+      expect(report.offenders, `${id}: ${JSON.stringify(report)}`).toEqual([]);
+      labels += report.labels;
+      values += report.values;
+    }
+    // PREMISE: the walk reached both rules, not only text they leave alone.
+    expect(labels).toBeGreaterThan(0);
+    expect(values).toBeGreaterThan(0);
+  });
+
+  test("one title: no section repeats its own name, and no section draws the old card", async ({
+    page,
+  }) => {
+    await page.setViewportSize({ width: 390, height: 844 });
+    for (const id of ADMIN_SECTIONS) {
+      await load(page, `?s=${id}`);
+      await settleOpen(page);
+      const r = await page.evaluate(() => {
+        const name = document
+          .querySelector('[data-testid="crew-section-sheet-panel"] h2')
+          ?.textContent?.trim()
+          .toLowerCase();
+        const body = document.querySelector('[data-testid="crew-section-sheet-body"]')!;
+        const oldCards = body.querySelectorAll('[data-testid="section-card"]').length;
+        const clone = body.cloneNode(true) as HTMLElement;
+        clone.querySelectorAll("[hidden]").forEach((el) => el.remove());
+        const repeats = [...clone.querySelectorAll("*")]
+          .filter((el) => el.children.length === 0)
+          .map((el) => el.textContent?.trim() ?? "")
+          .filter((text) => text.toLowerCase() === name);
+        return { name, text: (clone.textContent ?? "").length, repeats, oldCards };
+      });
+      // PREMISE: a real name, and a body with text in it to compare against.
+      expect(r.name, id).toBeTruthy();
+      expect(r.text, id).toBeGreaterThan(0);
+      expect(r.repeats, id).toEqual([]);
+      expect(r.oldCards, id).toBe(0);
+    }
+  });
+
+  test("overflow: no section scrolls sideways at 320, 390 and 768", async ({ page }) => {
+    for (const width of [320, 390, 768]) {
+      await page.setViewportSize({ width, height: 844 });
+      for (const id of ADMIN_SECTIONS) {
+        await load(page, `?s=${id}`);
+        await settleOpen(page);
+        const r = await page.evaluate(() => {
+          const body = document.querySelector('[data-testid="crew-section-sheet-body"]')!;
+          return {
+            page: document.documentElement.scrollWidth - document.documentElement.clientWidth,
+            sheet: body.scrollWidth - body.clientWidth,
+          };
+        });
+        expect(r, `${id} at ${width}px`).toEqual({ page: 0, sheet: 0 });
+      }
+    }
+  });
+
+  test("type scale: section sizes step up, the home's do not, and a schedule weekday is a label", async ({
+    page,
+  }) => {
+    await page.setViewportSize({ width: 390, height: 844 });
+    const px = (selector: string, within: string) =>
+      page.evaluate(
+        ([sel, root]) => {
+          const el = document.querySelector(`${root} ${sel}`);
+          return el === null ? null : parseFloat(getComputedStyle(el).fontSize);
+        },
+        [selector, within] as const,
+      );
+    await load(page, "");
+    const HOME = '[data-testid="crew-today-block"]';
+    expect(await px(".text-xs:not(.uppercase)", HOME)).toBe(12);
+    expect(await px(".text-sm:not(.uppercase)", HOME)).toBe(14);
+
+    await load(page, "?s=schedule");
+    await settleOpen(page);
+    const BODY = '[data-testid="crew-section-sheet-body"]';
+    expect(await px(".text-xs:not(.uppercase)", BODY)).toBe(13);
+    expect(await px(".text-sm:not(.uppercase)", BODY)).toBe(15);
+    expect(await px(".uppercase.text-xs", BODY)).toBe(12);
+    // Carries `text-[11px]` and `uppercase`: the label rule has to win.
+    expect(await px(".uppercase.text-\\[11px\\]", BODY)).toBe(12);
   });
 });
 
@@ -1658,7 +1755,7 @@ test.describe("hotels and transport: the travel alias and the transport gate, co
     const section = sheetDialog(page).getByTestId("section-hotels");
     await expect(section).toBeVisible();
     const card = section.locator('[data-card-id="travel-hotels"]');
-    await expect(card.getByRole("heading", { level: 3, name: HOTELS_LABEL })).toBeVisible();
+    await expect(card.getByRole("heading", { name: HOTELS_LABEL })).toHaveCount(0);
     const stay = card.getByTestId("crew-panel-hotel-card");
     await expect(stay).toHaveCount(1);
     for (const value of [HOTEL.hotelName, HOTEL.hotelAddress, HOTEL.confirmationNo, HOTEL.notes])
@@ -1789,7 +1886,7 @@ test.describe("hotels and transport: the travel alias and the transport gate, co
     const card = sheetDialog(page)
       .getByTestId("section-transport")
       .locator('[data-card-id="travel-getting-there"]');
-    await expect(card.getByRole("heading", { level: 3, name: TRANSPORT_LABEL })).toBeVisible();
+    await expect(card.getByRole("heading", { name: TRANSPORT_LABEL })).toHaveCount(0);
     for (const cell of ["Driver", "Load out", "Vehicle", "Parking"])
       await expect(card, cell).toContainText(cell);
     await expect(card).toContainText(LEG.stage);
@@ -2356,7 +2453,7 @@ test.describe("pack list: the Pack list section, compact (PR C Task 6)", () => {
       const section = sheetDialog(page).getByTestId("section-packlist");
       await expect(section).toContainText(CASE_LABEL);
       const panel = section.locator('[data-card-id="gear-pack-list"]');
-      await expect(panel.getByRole("heading", { level: 3 })).toHaveText(PACK_LABEL);
+      await expect(panel.getByRole("heading", { name: PACK_LABEL })).toHaveCount(0);
       // The numbered list, its item and raw row behind the case's own disclosure.
       await expect(panel.locator("ol > li")).toHaveCount(PULL_SHEET.length);
       await panel.locator("summary").first().click();

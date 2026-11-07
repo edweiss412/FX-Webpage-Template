@@ -74,6 +74,7 @@ import {
 } from "./helpers/stickyClearance";
 import { admin } from "./helpers/supabaseAdmin";
 import { TEST_AUTH_SECRET } from "./helpers/testAuthConfig";
+import { readSectionTextSizes } from "./helpers/sectionTextSizes";
 
 const SEED_DRIVE_FILE_ID = "seed-fixture:2026-04-asset-mgmt-cfo-coo-waldorf";
 const SHOW_DAY_N_INSTANT = "2026-04-21T12:00:00Z";
@@ -212,8 +213,13 @@ test.describe("crew wide nav (spec §5.3)", () => {
         }
       }
       // 2. Inside a card, every heading but the title is deeper than the title.
-      for (const card of main.querySelectorAll('[data-testid="section-card"]')) {
-        const title = card.querySelector('[data-slot="section-card-title"]');
+      const cards = [
+        ...main.querySelectorAll('[data-testid="section-card"], [data-testid="crew-panel-card"]'),
+      ];
+      const titleOf = (card: Element) =>
+        card.querySelector('[data-slot="section-card-title"], [data-slot="panel-card-header"] h3');
+      for (const card of cards) {
+        const title = titleOf(card);
         if (!title) continue;
         for (const h of card.querySelectorAll("h1, h2, h3, h4, h5, h6")) {
           if (h !== title && level(h) <= level(title)) {
@@ -232,7 +238,7 @@ test.describe("crew wide nav (spec §5.3)", () => {
       return {
         problems,
         sections: sections.length,
-        cards: main.querySelectorAll('[data-slot="section-card-title"]').length,
+        cards: cards.filter(titleOf).length,
       };
     });
     // PREMISE: the walk reached the Today block, the stacked sections and their cards.
@@ -277,6 +283,15 @@ test.describe("crew wide nav (spec §5.3)", () => {
     expect(r.notes.top - Math.max(r.lead.bottom, r.facts.bottom), at).toBeLessThanOrEqual(24 + TOL);
     // The block ends with the notes, not with a column of air.
     expect(r.block.bottom - r.notes.bottom, at).toBeLessThanOrEqual(TOL + 1);
+  });
+
+  test("type scale: no text in the stacked sections sits below 12px", async ({ page }) => {
+    await load(page, "?s=today");
+    const report = await readSectionTextSizes(page, '[data-testid="crew-wide-section"]');
+    expect(report.offenders, JSON.stringify(report)).toEqual([]);
+    // PREMISE: the walk reached both rules, not only text they leave alone.
+    expect(report.labels).toBeGreaterThan(0);
+    expect(report.values).toBeGreaterThan(0);
   });
 
   test("wide nav: ?s=today loads at the top of the page", async ({ page }) => {
@@ -1110,7 +1125,7 @@ test.describe("the composed home, wide (crew page redesign Task 11)", () => {
     await expect(root).toHaveAttribute("data-crew-mode", "wide");
   }
 
-  test("home: the wide Today block puts the quick facts beside the run of show, the notes inside it, then every section", async ({
+  test("home: the wide Today block puts the quick facts beside the pass, the run of show and notes full width, then every section", async ({
     page,
   }) => {
     await loadWide(page, `/show/${seeded.slug}/${seeded.shareToken}`);
@@ -1126,6 +1141,7 @@ test.describe("the composed home, wide (crew page redesign Task 11)", () => {
       return {
         block: box('[data-testid="crew-today-block"]'),
         dayRow: box('[data-testid="crew-day-row"]'),
+        lead: box('[data-testid="crew-today-lead"]'),
         pass: box('[data-testid="crew-pass"]'),
         run: box('[data-testid="today-run-of-show"]'),
         facts: box('[data-testid="crew-quick-facts"]'),
@@ -1152,22 +1168,186 @@ test.describe("the composed home, wide (crew page redesign Task 11)", () => {
     }
     expect(r.inside).toEqual({ facts: true, notes: true, run: true });
     const TOL = 0.5;
-    // Beside: the quick facts sit to the right of the run-of-show column and
-    // share its vertical span.
-    expect(r.facts!.left, JSON.stringify(r)).toBeGreaterThanOrEqual(r.run!.right - TOL);
-    expect(r.facts!.top).toBeLessThan(r.run!.bottom);
-    expect(r.facts!.left).toBeGreaterThanOrEqual(r.pass!.right - TOL);
-    // The notes under the quick facts, in that column.
-    expect(r.notes!.top).toBeGreaterThanOrEqual(r.facts!.bottom - TOL);
-    expect(r.notes!.left).toBeGreaterThanOrEqual(r.run!.right - TOL);
-    // The left column reads day row, pass, run of show.
+    // Row 1: the quick facts sit beside the day row and the pass.
+    expect(r.facts!.left, JSON.stringify(r)).toBeGreaterThanOrEqual(r.pass!.right - TOL);
+    expect(Math.abs(r.facts!.top - r.lead!.top), JSON.stringify(r)).toBeLessThanOrEqual(TOL);
     expect(r.pass!.top).toBeGreaterThanOrEqual(r.dayRow!.bottom - TOL);
-    expect(r.run!.top).toBeGreaterThanOrEqual(r.pass!.bottom - TOL);
+    // Rows 2 and 3: the run of show, then the notes, across both columns.
+    for (const row of [r.run!, r.notes!]) {
+      expect(Math.abs(row.left - r.block!.left), JSON.stringify(r)).toBeLessThanOrEqual(TOL);
+      expect(Math.abs(row.right - r.block!.right), JSON.stringify(r)).toBeLessThanOrEqual(TOL);
+    }
+    // One 16px row gap each, read on the visible card: a margin left on its slot's child
+    // would count inside the slot and pass there.
+    const ROW_GAP = 16;
+    const rowOne = Math.max(r.lead!.bottom, r.facts!.bottom);
+    expect(Math.abs(r.run!.top - rowOne - ROW_GAP), JSON.stringify(r)).toBeLessThanOrEqual(TOL);
+    expect(Math.abs(r.notes!.top - r.run!.bottom - ROW_GAP), JSON.stringify(r)).toBeLessThanOrEqual(
+      TOL,
+    );
     // Every section follows the Today block.
     expect(r.firstSection!.top).toBeGreaterThanOrEqual(r.block!.bottom - TOL);
     await expect(page.getByTestId("crew-all-sections")).toHaveCount(0);
     await expect(page.getByTestId("today-run-of-show")).toContainText(RUN_ROWS[0]!);
     await expect(page.getByTestId("today-notes")).toContainText(VENUE.notes);
+  });
+
+  // Spec §6's table, one row each. The rules read the live DOM, so removing a node puts
+  // the block in the state a show without that node renders.
+  const TODAY_STATES = [
+    { qf: true, run: true, notes: true, rows: [["lead", "facts"], ["run"], ["notes"]] },
+    { qf: true, run: true, notes: false, rows: [["lead", "facts"], ["run"]] },
+    { qf: true, run: false, notes: true, rows: [["lead", "facts"], ["notes"]] },
+    { qf: true, run: false, notes: false, rows: [["lead", "facts"]] },
+    { qf: false, run: true, notes: true, rows: [["lead"], ["run"], ["notes"]] },
+    { qf: false, run: true, notes: false, rows: [["lead"], ["run"]] },
+    { qf: false, run: false, notes: true, rows: [["lead", "notes"]] },
+    { qf: false, run: false, notes: false, rows: [["lead"]] },
+  ] as const;
+
+  for (const state of TODAY_STATES) {
+    const name = `quick facts ${state.qf}, run ${state.run}, notes ${state.notes}`;
+    test(`home: the wide Today block lays out its rows with ${name}`, async ({ page }) => {
+      await loadWide(page, `/show/${seeded.slug}/${seeded.shareToken}`);
+      const r = await page.evaluate(
+        ({ qf, run, notes }) => {
+          const gone = (keep: boolean, sel: string) => {
+            if (!keep) document.querySelectorAll(sel).forEach((el) => el.remove());
+          };
+          gone(qf, '[data-testid="crew-quick-facts"]');
+          gone(run, '[data-testid="crew-today-run"] > *');
+          gone(notes, '[data-testid="today-notes"]');
+          const box = (sel: string) => {
+            const b = document.querySelector(sel)?.getBoundingClientRect();
+            return b ? { top: b.top, bottom: b.bottom, left: b.left, width: b.width } : null;
+          };
+          return {
+            block: box('[data-testid="crew-today-block"]')!,
+            lead: box('[data-testid="crew-today-lead"]'),
+            facts: box('[data-testid="crew-quick-facts"]'),
+            run: box('[data-testid="today-run-of-show"]'),
+            notes: box('[data-testid="today-notes"]'),
+          };
+        },
+        { qf: state.qf, run: state.run, notes: state.notes },
+      );
+      const at = `${name}: ${JSON.stringify(r)}`;
+      const TOL = 0.5;
+      let above = -Infinity;
+      for (const row of state.rows) {
+        const items = row.map((key) => r[key]!);
+        for (const item of items) {
+          expect(item, at).not.toBeNull();
+          expect(Math.abs(item.top - items[0]!.top), at).toBeLessThanOrEqual(TOL);
+          expect(item.top, at).toBeGreaterThanOrEqual(above - TOL);
+          if (items.length === 1) {
+            expect(Math.abs(item.width - r.block.width), at).toBeLessThanOrEqual(TOL);
+          } else {
+            expect(item.width, at).toBeLessThan(r.block.width / 2 + TOL);
+          }
+        }
+        // No oversized gap: rows sit one row or column gap apart, never a margin on top.
+        if (above !== -Infinity) {
+          expect(items[0]!.top - above, at).toBeLessThanOrEqual(24 + TOL);
+        }
+        above = Math.max(...items.map((item) => item.bottom));
+      }
+    });
+  }
+
+  test("home: keyboard order follows the wide Today rows, the quick facts before the run of show", async ({
+    page,
+  }) => {
+    await loadWide(page, `/show/${seeded.slug}/${seeded.shareToken}`);
+    await page.getByTestId("crew-today-block").focus();
+    const order: string[] = [];
+    for (let i = 0; i < 60; i++) {
+      await page.keyboard.press("Tab");
+      const where = await page.evaluate(() => {
+        const a = document.activeElement;
+        if (!a || !a.closest('[data-testid="crew-today-block"]')) return "out";
+        if (a.closest('[data-testid="crew-quick-facts"]')) return "facts";
+        if (a.closest('[data-testid="today-run-of-show"]')) return "run";
+        return "other";
+      });
+      order.push(where);
+      if (where === "out") break;
+    }
+    // PREMISE: both regions hold a focusable control that Tab reached.
+    expect(order, JSON.stringify(order)).toContain("facts");
+    expect(order, JSON.stringify(order)).toContain("run");
+    expect(order.indexOf("facts"), JSON.stringify(order)).toBeLessThan(order.indexOf("run"));
+  });
+
+  test("compound: crossing the breakpoint keeps the run card and its row, so a day crossfade is not cut", async ({
+    page,
+  }) => {
+    await loadWide(page, `/show/${seeded.slug}/${seeded.shareToken}`);
+    const ROW = '[data-testid="today-run-of-show"] .grid > *';
+    const tag = () =>
+      page.evaluate((row) => {
+        const card = document.querySelector('[data-testid="today-run-of-show"]') as HTMLElement;
+        const first = document.querySelector(row) as HTMLElement;
+        card.dataset.probe = "card";
+        first.dataset.probe = "row";
+      }, ROW);
+    const tagged = () =>
+      page.evaluate(
+        (row) => ({
+          card:
+            (document.querySelector('[data-testid="today-run-of-show"]') as HTMLElement).dataset
+              .probe ?? null,
+          row: (document.querySelector(row) as HTMLElement).dataset.probe ?? null,
+        }),
+        ROW,
+      );
+    await tag();
+    const root = page.getByTestId("crew-shell-sections");
+    await page.setViewportSize({ width: 390, height: 844 });
+    await expect(root).toHaveAttribute("data-crew-mode", "compact");
+    expect(await tagged()).toEqual({ card: "card", row: "row" });
+    await page.setViewportSize(WIDE);
+    await expect(root).toHaveAttribute("data-crew-mode", "wide");
+    expect(await tagged()).toEqual({ card: "card", row: "row" });
+  });
+
+  test("home: at 390 the block reads day row, pass, run of show, quick facts, notes", async ({
+    page,
+  }) => {
+    await page.setViewportSize({ width: 390, height: 844 });
+    const res = await page.goto(`/show/${seeded.slug}/${seeded.shareToken}`, {
+      waitUntil: "domcontentloaded",
+    });
+    expect(res?.status()).toBe(200);
+    await expect(page.getByTestId("crew-shell-sections")).toHaveAttribute(
+      "data-crew-mode",
+      "compact",
+      { timeout: 30_000 },
+    );
+    const tops = await page.evaluate(() =>
+      ["crew-day-row", "crew-pass", "today-run-of-show", "crew-quick-facts", "today-notes"].map(
+        (id) =>
+          document.querySelector(`[data-testid="${id}"]`)?.getBoundingClientRect().top ?? null,
+      ),
+    );
+    expect(
+      tops.every((top) => top !== null),
+      JSON.stringify(tops),
+    ).toBe(true);
+    expect(tops).toEqual([...(tops as number[])].sort((p, q) => p - q));
+  });
+
+  test("overflow: the wide page never scrolls sideways at 1024 and 1280", async ({ page }) => {
+    for (const width of [1024, 1280]) {
+      await page.setViewportSize({ width, height: 800 });
+      await loadWide(page, `/show/${seeded.slug}/${seeded.shareToken}`);
+      const { scrollWidth, clientWidth } = await page.evaluate(() => ({
+        scrollWidth: document.documentElement.scrollWidth,
+        clientWidth: document.documentElement.clientWidth,
+      }));
+      expect(scrollWidth, `@${width}px`).toBeLessThanOrEqual(clientWidth);
+    }
+    await page.setViewportSize(WIDE);
   });
 
   // Spec line 316. Scoped to the home's own root: on the wide page the same card

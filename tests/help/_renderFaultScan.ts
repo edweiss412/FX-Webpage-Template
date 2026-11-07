@@ -1053,7 +1053,10 @@ export function scanCandidates(): Candidate[] {
       // 788 -> 799 on feat/crew-offline-reports: the report modal's queued, failed and
       // stale states and the footer counts add eleven, five on a fault-vocabulary guard,
       // all five in `"use client"` files.
-      // Probed: 799 such ternaries under the derived roots, 84 on a
+      //
+      // 799 -> 802 on feat/crew-panel-followups Task 2: PanelCard's title and header
+      // conditionals add two and VenueBody's label one. None is a fault branch; 84 kept.
+      // Probed: 802 such ternaries under the derived roots, 84 on a
       // fault-vocabulary guard and unclassifiable. 74 of those 84 sit in
       // `"use client"` files, where the guard is interaction state -- `errorCode`,
       // `state.kind === "error"`, `switchStatus === "error"` -- and not a server-render

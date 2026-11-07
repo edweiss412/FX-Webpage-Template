@@ -109,7 +109,7 @@ export function EventSection({
                 groups: panel.groups,
                 chips: false,
                 sentinels: "hide",
-                titleAs: "h4",
+                titleAs: "h3",
                 groupTitle: eventGroupTitle,
                 fieldCards: {
                   keynote_requirements: fieldCard("keynote_requirements"),

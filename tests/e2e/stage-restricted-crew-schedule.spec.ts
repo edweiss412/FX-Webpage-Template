@@ -465,11 +465,11 @@ test.describe("date-restricted agenda fold (BL-AGENDA-FOLD-NO-SEEDED-E2E)", () =
         const otherRow = page.getByTestId(`agenda-day-${viewer.other}`);
         await expect(ownRow).toHaveJSProperty("open", true);
         await expect(
-          ownRow.getByRole("heading", { level: 4 }),
+          ownRow.getByRole("heading", { level: 3 }),
           "the open row must be the viewer's OWN day, by label",
         ).toHaveText(viewer.ownLabel);
         await expect(
-          otherRow.getByRole("heading", { level: 4 }),
+          otherRow.getByRole("heading", { level: 3 }),
           "the folded row must be the OTHER day, by label",
         ).toHaveText(viewer.otherLabel);
         const marker = ownRow.getByTestId(`agenda-day-marker-${viewer.own}`);
@@ -508,10 +508,10 @@ test.describe("date-restricted agenda fold (BL-AGENDA-FOLD-NO-SEEDED-E2E)", () =
       await expect(page.getByTestId("agenda-schedule")).toBeVisible();
       await expect(page.getByTestId("agenda-day-0")).toHaveJSProperty("open", true);
       await expect(page.getByTestId("agenda-day-1")).toHaveJSProperty("open", true);
-      await expect(page.getByTestId("agenda-day-0").getByRole("heading", { level: 4 })).toHaveText(
+      await expect(page.getByTestId("agenda-day-0").getByRole("heading", { level: 3 })).toHaveText(
         DAY_LABELS[0]!,
       );
-      await expect(page.getByTestId("agenda-day-1").getByRole("heading", { level: 4 })).toHaveText(
+      await expect(page.getByTestId("agenda-day-1").getByRole("heading", { level: 3 })).toHaveText(
         DAY_LABELS[1]!,
       );
       await expect(page.locator('[data-testid^="agenda-day-marker-"]')).toHaveCount(0);

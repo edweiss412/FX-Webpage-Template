@@ -31,6 +31,7 @@ import { showSection } from "@/lib/showSections/registry";
 import { premise, premiseHolds } from "@/tests/_shared/premise";
 import { makeShowForViewer } from "@/tests/fixtures/showForViewer";
 import { ledgerProp } from "./_ledgerProp";
+import { expectUntitledPanel } from "@/tests/components/show-panels/_panelCardAssert";
 
 const SHOW_ID = "show-event";
 const TODAY = new Date("2026-05-14T15:00:00Z");
@@ -88,10 +89,7 @@ describe("event details: the section", () => {
     const panel = card(section!, "gear-tech-specs");
     expect(panel).not.toBeNull();
     expect(panel).toHaveAttribute("data-testid", "crew-panel-card");
-    expect(
-      within(panel!).getByRole("heading", { level: 3, name: showSection("event").label }),
-    ).toBeInTheDocument();
-    expect(panel!.querySelector('[data-slot="panel-card-chip"] svg')).not.toBeNull();
+    expectUntitledPanel(panel!, showSection("event").label);
     expect(ownActionSlots(panel!)).toHaveLength(1);
   });
 
@@ -139,15 +137,15 @@ describe("event details: the section", () => {
       }),
     );
     expect(
-      within(root).getByRole("heading", { level: 4, name: "Dress code & key moments" }),
+      within(root).getByRole("heading", { level: 3, name: "Dress code & key moments" }),
     ).toBeInTheDocument();
     expect(root.textContent ?? "").not.toMatch(/wardrobe/i);
   });
 
-  test("event details: each group title is an h4 under the panel's h3", () => {
+  test("event details: each group title is an h3 under the section's h2", () => {
     const root = renderEvent(withDetails({ stage_size: "8'", polling: "YES" }));
     const titles = within(root)
-      .getAllByRole("heading", { level: 4 })
+      .getAllByRole("heading", { level: 3 })
       .map((h) => h.textContent);
     expect(titles).toEqual(["Stage & scenic", "Production"]);
   });
@@ -205,7 +203,7 @@ describe("event details: the order", () => {
   const FIELDS = { stage_size: "8 x 24", fonts: "Brand Sans", dress_code: "Show blacks" };
   const titles = (root: HTMLElement) =>
     within(root)
-      .getAllByRole("heading", { level: 4 })
+      .getAllByRole("heading", { level: 3 })
       .map((h) => h.textContent);
 
   test("event details: Dress code & key moments leads, the rest in the admin's order", () => {
@@ -345,7 +343,7 @@ describe("event details: the opening reel card", () => {
     expect(within(reel!).getByText(EVENT_DETAILS_LABELS.opening_reel)).toBeInTheDocument();
     expect(reel!.querySelector("video")).not.toBeNull();
     expect(
-      within(root).getByRole("heading", { level: 4, name: "Display & content" }),
+      within(root).getByRole("heading", { level: 3, name: "Display & content" }),
     ).toBeInTheDocument();
     expect(root.querySelector('[data-testid="section-empty"]')).toBeNull();
   });

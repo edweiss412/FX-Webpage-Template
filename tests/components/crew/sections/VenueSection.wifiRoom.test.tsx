@@ -213,15 +213,18 @@ describe("Wi-Fi split rows", () => {
     // fixture. Equality here is the whole fail-soft contract: the raw row keeps
     // its label, its icon, its position and its markup.
     //
-    // Compared over the Facilities card, which holds every Wi-Fi row: the Where
-    // card above it moved onto the shared Venue body (crew page redesign PR B,
-    // Task 5), so the rest of the captured section is no longer this render.
+    // Compared over the Facilities card's row list, which holds every Wi-Fi row: the
+    // card's own header moved to the panel card (crew panel follow-ups spec §5), and the
+    // Where card above it to the shared Venue body (crew page redesign PR B, Task 5), so
+    // neither is this render's any more. The value span's wrap class moved from
+    // `wrap-break-word` to `wrap-anywhere` there too (invariant-8 gate: a long SSID
+    // overprinted its label), and the captured fixture follows that one class.
     const captured = readFileSync("tests/fixtures/venueSectionRawWifi.html", "utf8");
     premise("the captured baseline is a real render", captured.length, 1000);
     const baseline = document.createElement("template");
     baseline.innerHTML = captured;
     const expected =
-      baseline.content.querySelector('[data-testid="venue-facilities"]')?.outerHTML ?? "";
+      baseline.content.querySelector('[data-testid="venue-facilities"] dl')?.outerHTML ?? "";
     premiseHolds(
       "the baseline's Facilities card carries the raw internet value, so the comparison can see a change to it",
       expected.includes(RAW_WIFI_VALUE),
@@ -236,7 +239,9 @@ describe("Wi-Fi split rows", () => {
         showId={RAW_WIFI_SHOW_ID}
       />,
     );
-    expect(container.querySelector('[data-testid="venue-facilities"]')?.outerHTML).toBe(expected);
+    expect(container.querySelector('[data-testid="venue-facilities"] dl')?.outerHTML).toBe(
+      expected,
+    );
   });
 
   /**

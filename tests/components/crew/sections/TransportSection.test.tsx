@@ -26,6 +26,7 @@ import type { DateRestriction, TransportationRow } from "@/lib/parser/types";
 import { showSection } from "@/lib/showSections/registry";
 import { premise, premiseHolds } from "@/tests/_shared/premise";
 import { makeShowForViewer } from "@/tests/fixtures/showForViewer";
+import { expectUntitledPanel } from "@/tests/components/show-panels/_panelCardAssert";
 
 afterEach(() => {
   cleanup();
@@ -487,7 +488,7 @@ describe("transport: ground-transport gate and fields (moved from the Travel sec
     expect(leg).toHaveTextContent("Lee");
   });
 
-  test("transport: driver and vehicle facts render as cells of the Transport card, which carries its glyph", () => {
+  test("transport: driver and vehicle facts render as cells of the Transport card", () => {
     // Was "driver/vehicle facts render as travelrows (not vertical KeyValueRows)", read
     // through the retired `travelrow` and `travel-getting-there` test ids, with the card
     // glyph at `[data-slot="section-card-icon"] svg`. Kept: the driver's name and the
@@ -498,7 +499,8 @@ describe("transport: ground-transport gate and fields (moved from the Travel sec
     premiseHolds("the Transport card rendered", panel !== null);
     expect(transportCell(panel!, "Driver")).toHaveTextContent("Pat Driver");
     expect(transportCell(panel!, "Vehicle")).toHaveTextContent("Sprinter Van");
-    expect(panel!.querySelector('[data-slot="panel-card-chip"] svg')).not.toBeNull();
+    // No flight above it here, so the section's h2 is the only title (follow-ups spec §4).
+    expectUntitledPanel(panel!, showSection("transport").label);
   });
 
   test("transport: the Load-out contact shows its name, phone and email in its own cell; the Driver cell is unaffected", () => {
@@ -925,6 +927,15 @@ function renderFlight(data: ShowForViewer) {
 }
 
 describe("transport: the Your flight card", () => {
+  test("transport: the flight card is a titled panel card, and the panel under it keeps its title", () => {
+    const root = renderTransport(show({ viewerFlightInfo: FLIGHT }));
+    const flight = root.querySelector('[data-card-id="travel-flight"]') as HTMLElement;
+    const card = within(flight).getByTestId("crew-panel-card");
+    expect(within(card).getByRole("heading", { level: 3 })).toHaveTextContent("Your flight");
+    expect(card.querySelector('[data-slot="panel-card-chip"] svg')).not.toBeNull();
+    expect(root.querySelector('[data-testid="section-card"]')).toBeNull();
+  });
+
   test("transport: TECH leg renders EVERY structured field: date label, route, airline, times, conf", () => {
     const flight =
       "EWR-FLL UNITED 5/13 - 11:29am - 2:34pm HQQ79F | FLL-EWR JET BLUE 5/15 - 8:59pm - 11:58pm OSUULZ";

@@ -232,7 +232,7 @@ async function readMount(page: Page, mount: string, passwordTestId: string) {
       if (scope === null) return null;
       const row = scope.querySelector(`[data-testid="${passwordTestId}"]`);
       if (row === null) return null;
-      const card = scope.querySelector('[data-testid="section-card"]');
+      const card = scope.querySelector('[data-testid="crew-panel-card"]');
       const button = row.querySelector("button");
       const tile = button?.querySelector("span") ?? null;
       // First span inside the dd in document order is the value span; the

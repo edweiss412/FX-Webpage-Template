@@ -39,7 +39,7 @@
 import { ChevronRight } from "lucide-react";
 
 import type { ViewerAgendaDays } from "@/lib/crew/agendaViewerDays";
-import type { JSX } from "react";
+import { createElement, type JSX } from "react";
 
 import { structuredAgenda, type AgendaBlockSearch } from "@/components/crew/agendaScheduleRows";
 import { driftNote } from "@/lib/agenda/agendaPaint";
@@ -49,6 +49,11 @@ type AgendaScheduleBlockProps = {
   extraction: unknown;
   /** Per-document badge ("RFI"/"PCF"); null for a single bare-AGENDA link. */
   label?: string | null;
+  /**
+   * The day label's element. "h4" (the default, admin), one under its surface's h3. The
+   * crew's Agenda card prints no h3 (crew panel follow-ups spec §4), so it passes "h3".
+   */
+  dayHeadingAs?: "h3" | "h4";
   /**
    * Which of this extraction's day rows are the viewer's own, or `{ kind: "all" }` when that
    * cannot be established completely (spec §2). OPTIONAL with an `{ kind: "all" }` default so
@@ -75,6 +80,7 @@ type AgendaScheduleBlockProps = {
 export function AgendaScheduleBlock({
   extraction,
   label = null,
+  dayHeadingAs = "h4",
   viewerDays: _viewerDays = { kind: "all" },
   search,
 }: AgendaScheduleBlockProps): JSX.Element | null {
@@ -124,13 +130,17 @@ export function AgendaScheduleBlock({
             data-search-target={search?.days[di]?.summary}
             className="flex min-h-tap-min min-w-0 cursor-pointer list-none items-baseline gap-1.5 text-xs font-medium uppercase tracking-eyebrow text-text-subtle focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring"
           >
-            {/* Still a heading (<h4>, one under the "Agenda" <h3>), inside the <summary>
+            {/* Still a heading (one under its surface's parent heading), inside the <summary>
                 (impeccable audit P1). Replacing the day
                 heading with a bare span removed every per-day heading from the document
                 outline, so a screen-reader user navigating by heading lost the day labels
                 entirely. A heading inside a summary keeps BOTH: the disclosure role and its
-                expanded state come from <details>/<summary>, the outline entry from the h4. */}
-            <h4 className="min-w-0 font-medium wrap-break-word">{day.dayLabel}</h4>
+                expanded state come from <details>/<summary>, the outline entry from the heading. */}
+            {createElement(
+              dayHeadingAs,
+              { className: "min-w-0 font-medium wrap-break-word" },
+              day.dayLabel,
+            )}
             {day.date ? (
               <span className="max-w-[12ch] shrink-0 truncate font-normal normal-case tabular-nums text-text-subtle">
                 {day.date}

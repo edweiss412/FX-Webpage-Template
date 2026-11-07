@@ -127,7 +127,7 @@ export function RoomsSection({
                     cap: null,
                     testIdPrefix: "crew-panel",
                     roomName: roomLabel,
-                    nameAs: "h4",
+                    nameAs: "h3",
                     sentinels: "hide",
                     dropEmpty: true,
                     emphasize: panel.emphasize,

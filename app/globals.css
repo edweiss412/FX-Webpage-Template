@@ -2004,3 +2004,37 @@ details[open] > summary [data-agenda-day-count] {
 :root:has([data-testid="page-header"]) {
   scroll-padding-top: var(--crew-scroll-clearance);
 }
+
+/*
+ * Crew section type scale (docs/superpowers/specs/2026-11-07-crew-panel-followups-design.md
+ * §3). Crew read these sections on a phone on a show floor, so they sit one step above
+ * the admin popup's compact scale, and no text goes below 12px. The attribute is on the
+ * sheet body and the wide stack's section, so neither the home nor the admin popup is
+ * under it, and the shared bodies keep the class strings the admin goldens pin.
+ *
+ * Plain CSS outside every layer: it has to beat Tailwind's utilities, and a new @theme
+ * token would be dropped by a warm Turbopack build (BL-TURBOPACK-WARM-CSS-DROPS-NEW-TOKEN).
+ * Literal sizes are named because a class cannot be compared by value;
+ * tests/styles/crewSectionTypeScale.test.ts fails on one this list misses.
+ *
+ * Order matters: a schedule weekday carries both `text-[11px]` and `uppercase`, and both
+ * rules have the same specificity, so the label rule comes last.
+ */
+[data-crew-section-type] {
+  --text-xs: 0.8125rem;
+  --text-sm: 0.9375rem;
+}
+[data-crew-section-type] .text-\[11px\] {
+  font-size: 0.8125rem;
+}
+[data-crew-section-type]
+  :is(
+    .uppercase,
+    .text-\[8px\],
+    .text-\[9px\],
+    .text-\[10px\],
+    .text-\[10\.5px\],
+    .text-\[0\.625rem\]
+  ) {
+  font-size: 0.75rem;
+}

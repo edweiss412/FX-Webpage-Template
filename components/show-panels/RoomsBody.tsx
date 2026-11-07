@@ -55,8 +55,8 @@ export type RoomsBodyProps = {
   testIdPrefix: string;
   /** The room's heading. The default is the admin's: the parsed name, or "Room". */
   roomName?: (room: RoomRow) => string;
-  /** The name's element: "span" (the default, admin), or "h4" (crew, plan decision 8). */
-  nameAs?: "span" | "h4";
+  /** The name's element: "span" (the default, admin), or "h3" (crew, plan decision 8). */
+  nameAs?: "span" | "h3";
   /** "show" (the default, admin): a sentinel header field as parsed. "hide": omitted. */
   sentinels?: "show" | "hide";
   /** false (the default, admin): all five disciplines. true: an empty one renders no row. */
@@ -208,7 +208,7 @@ function RoomCard({
   lines: RoomTargets | undefined;
   testIdPrefix: string;
   roomName: (room: RoomRow) => string;
-  nameAs: "span" | "h4";
+  nameAs: "span" | "h3";
   sentinels: "show" | "hide";
   dropEmpty: boolean;
   emphasize: ReadonlySet<RoomScopeKey>;

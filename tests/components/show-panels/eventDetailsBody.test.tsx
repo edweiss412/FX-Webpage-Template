@@ -286,7 +286,7 @@ describe("EventDetailsBody: reelCards", () => {
 });
 
 describe("EventDetailsBody: titleAs and groupTitle", () => {
-  test('titleAs "h4" makes a heading with the eyebrow\'s classes and style', () => {
+  test('titleAs "h3" makes a heading with the eyebrow\'s classes and style', () => {
     const plain = body();
     const span = titleOf(groupsIn(plain)[0] as Element);
     expect(span.tagName).toBe("SPAN");
@@ -296,8 +296,8 @@ describe("EventDetailsBody: titleAs and groupTitle", () => {
     premiseHolds("the eyebrow has classes and a style", Boolean(spanClass) && Boolean(spanStyle));
     cleanup();
 
-    const headed = body({ titleAs: "h4" });
-    const headings = within(headed).getAllByRole("heading", { level: 4 });
+    const headed = body({ titleAs: "h3" });
+    const headings = within(headed).getAllByRole("heading", { level: 3 });
     expect(headings.map((h) => h.textContent)).toEqual(EVENT_DETAIL_GROUPS.map((g) => g.title));
     expect(headings[0]).toHaveAttribute("class", spanClass);
     expect(headings[0]).toHaveAttribute("style", spanStyle);
@@ -584,7 +584,7 @@ describe("EventDetailsBody: targets", () => {
       groups,
       chips: false,
       sentinels: "hide",
-      titleAs: "h4",
+      titleAs: "h3",
       fieldCards,
       reelPlayer: <div>player</div>,
     });
@@ -667,7 +667,7 @@ describe("EventDetailsBody: targets", () => {
           groups,
           chips: false,
           sentinels: "hide",
-          titleAs: "h4",
+          titleAs: "h3",
           fieldCards,
           targets,
         })}

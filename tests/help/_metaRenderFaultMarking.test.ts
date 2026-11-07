@@ -690,7 +690,28 @@ describe("the scanner's population is pinned against resolver drift", () => {
     // Same rooms `tile-errors` row, still marked. Nothing joined or left: membership is
     // still 34, and mapping that ONE row back reproduces f6a41bec... byte-for-byte
     // (recomputed from scanCandidates()).
-    expect(digest).toBe("b4a293463ac88a2ce76e087a909bab4faa75281c30f50888257717cf8351604d");
+    // Regenerated for feat/crew-panel-followups Task 2, to the same bar. EXACTLY ONE input
+    // changed, a line number:
+    //   components/crew/sections/ScheduleSection.tsx 314 -> 317 (+3: the panel card's
+    //   `titled` prop and its comment above the rooms fetch-failure row)
+    // Same rooms `tile-errors` row, still marked. Nothing joined or left: membership is
+    // still 34, and mapping that ONE row back reproduces b4a29346... byte-for-byte
+    // (recomputed from scanCandidates()).
+    // Regenerated for feat/crew-panel-followups Task 3, to the same bar. EXACTLY TWO inputs
+    // changed, line numbers, each the file's SectionCard import leaving:
+    //   components/crew/sections/TransportSection.tsx 131 -> 130
+    //   components/crew/sections/VenueSection.tsx 158 -> 157
+    // Same transportation `tile-errors` rows, still marked. Nothing joined or left:
+    // membership is still 34, and mapping those TWO rows back reproduces b8b53197...
+    // byte-for-byte (recomputed from scanCandidates()).
+    // Regenerated for feat/crew-panel-followups' invariant-8 gate repairs, to the same bar.
+    // EXACTLY ONE input changed, a line number:
+    //   components/crew/sections/VenueSection.tsx 157 -> 158 (the registry import its
+    //   card actions' labels read)
+    // Same transportation `tile-errors` row, still marked. Nothing joined or left:
+    // membership is still 34, and mapping that ONE row back reproduces 0d28b42c...
+    // byte-for-byte (recomputed from scanCandidates()).
+    expect(digest).toBe("15756e40563a0fd7e51aee58300ff5f7881abef6cb989554463ee8657b0f7144");
   });
 });
 

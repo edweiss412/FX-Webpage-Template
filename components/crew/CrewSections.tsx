@@ -9,8 +9,9 @@
  *     show, then the home body of quick facts and show notes; then the "All
  *     sections" card) with any section in a bottom sheet (`CrewSectionSheet`);
  *   - wide, 1024px and up: a left nav ("Today" then the sections) beside one
- *     column, the Today block first (the home body beside the day row, pass
- *     and run of show) and every section stacked under it.
+ *     column, the Today block first (the quick facts beside the day row and
+ *     pass, the run of show and show notes across both columns under them) and
+ *     every section stacked under it.
  * The server cannot know the viewport, so its render carries both, and CSS
  * shows the right one at the breakpoint until hydration resolves the mode
  * (`matchMedia("(min-width: 1024px)")`, compact when `matchMedia` is missing);
@@ -297,33 +298,39 @@ function focusBodyIfFocusFell(body: HTMLElement | null): void {
 }
 
 /**
- * The wide Today block when the viewer has no run of show (critique F7, spec
- * §3.2 amendment 2026-10-30). Two columns otherwise put the day row and pass
- * beside the whole home body, and with no run card under the pass the lead
- * column ended there while the quick facts and the show notes ran on beside
- * it: a blank quadrant next to the page's most important card. Here the block
- * is a two-column grid instead, the home body's root `display: contents` so its
- * cards are grid items: the quick facts sit beside the pass, and the show notes
- * and an admin fetch-failure block each span both columns under that row. Moving the notes under the pass alone only moved the hole
- * under the quick facts (measured at 1280: a 533px column of air beside the
- * notes); spanning leaves no column of air at all. Dense flow keeps the pass and
- * the quick facts on the first row whatever renders after them. Only while the
- * block holds quick facts: without them the notes are the right column's only
- * content and the two-column flex layout below already places them there. Every
- * rule reads the server render's own nodes, so nothing a body holds changes.
+ * The wide Today block (critique F7, spec §3.2 amendments 2026-10-30 and 2026-11-07).
+ * The block is a two-column grid, the home body's root `display: contents` so its cards
+ * are grid items: the day row and pass in the lead beside the quick facts, then the run
+ * of show, the show notes and an admin fetch-failure block each spanning both columns.
+ * Two free columns put a long run of show beside short notes and left 269px of air under
+ * them (measured at 1280, seeded), and moving the notes under the pass alone only moved
+ * the hole. Spanning leaves no column of air at all. Dense flow keeps the lead and the
+ * quick facts on the first row whatever renders after them, the run slot included, so
+ * document order stays the phone's reading order. Only while the block holds quick
+ * facts: without them the two-column flex layout below places the notes beside the lead,
+ * and the run slot's `basis-full` breaks its line. Every rule reads the server render's
+ * own nodes, so nothing a body holds changes.
  */
 const TODAY_PACKED = cn(
   "lg:has-data-[testid=crew-quick-facts]:grid",
   "lg:has-data-[testid=crew-quick-facts]:grid-cols-2",
   "lg:has-data-[testid=crew-quick-facts]:grid-flow-row-dense",
+  // Dense flow puts the quick facts above the run of show while the DOM keeps the
+  // phone's order, so focus and reading follow the rows instead (invariant-8 gate,
+  // audit P2). Chromium honours it; Safari and Firefox keep DOM order.
+  "lg:has-data-[testid=crew-quick-facts]:[reading-flow:grid-rows]",
   "lg:has-data-[testid=crew-quick-facts]:gap-y-4",
   "lg:has-data-[testid=crew-quick-facts]:*:data-[testid=section-today]:contents",
   "lg:has-data-[testid=crew-quick-facts]:*:data-[testid=crew-today-lead]:col-start-1",
-  // The lead's last margin spaced it from the home body; the row gap does here.
-  "lg:has-data-[testid=crew-quick-facts]:[&>[data-testid=crew-today-lead]>:last-child]:mb-0",
+  // The lead's and the run card's own margins spaced them on the phone; at lg the
+  // row or column gap does, in the grid and in the flex rows alike (invariant-8 gate:
+  // without quick facts the margin and the gap stacked to 40px).
+  "lg:[&>[data-testid=crew-today-lead]>:last-child]:mb-0",
+  "lg:[&>[data-testid=crew-today-run]>*]:mb-0",
   "lg:has-data-[testid=crew-quick-facts]:[&>[data-testid=section-today]>[data-testid=crew-quick-facts]]:col-start-2",
   "lg:has-data-[testid=crew-quick-facts]:[&>[data-testid=section-today]>[data-card-id]]:col-span-2",
   "lg:has-data-[testid=crew-quick-facts]:[&>[data-testid=section-today]>[data-testid^=section-tile-error]]:col-span-2",
+  "lg:has-data-[testid=crew-quick-facts]:*:data-[testid=crew-today-run]:col-span-2",
 );
 
 type RevealRun = { frame: number; deadline: number };
@@ -960,19 +967,17 @@ export function CrewSections({
                   // The wide nav's Today jump focuses the block (see scrollWide).
                   tabIndex={-1}
                   // Compact: one column, the home body under the run card.
-                  // Wide: two columns, the day row, pass and run card beside the
-                  // home body (quick facts, show notes), each `flex-1` so a column
-                  // that renders nothing (`empty:hidden`) leaves the other the full
-                  // width; with no run of show, the
-                  // packed grid of `TODAY_PACKED` instead. Not a size container:
+                  // Wide: the grid of `TODAY_PACKED`, or with no quick facts the flex
+                  // row, each `flex-1` so a column that renders nothing (`empty:hidden`)
+                  // leaves the other the full width. Not a size container:
                   // the home body reads no container query, and containment would
                   // make this block the containing block of the fixed copy toast.
                   // Its scroll margin is the one every reveal into it reads, so a
                   // revealed line and its ring land clear of the sticky chrome
                   // (UI-gate re-run, audit P1-1).
                   className={cn(
-                    "flex scroll-mt-(--crew-scroll-clearance) flex-col lg:flex-row lg:items-start lg:gap-6",
-                    runCard === null && TODAY_PACKED,
+                    "flex scroll-mt-(--crew-scroll-clearance) flex-col lg:flex-row lg:flex-wrap lg:items-start lg:gap-6",
+                    TODAY_PACKED,
                   )}
                 >
                   <h2 id="crew-today-heading" className="sr-only">
@@ -995,6 +1000,10 @@ export function CrewSections({
                         <CrewPass {...pass} />
                       </div>
                     ) : null}
+                  </div>
+                  {/* Its own slot, so the wide grid can span it across both columns
+                  (spec §3.2 amendment 2026-11-07). `runCard` can render nothing. */}
+                  <div data-testid="crew-today-run" className="min-w-0 empty:hidden lg:basis-full">
                     {runCard ? <CrewRunOfShowCard {...runCard} /> : null}
                   </div>
                   {sectionNodes.today}
@@ -1018,6 +1027,7 @@ export function CrewSections({
                         }}
                         id={`crew-section-${s.id}`}
                         data-testid="crew-wide-section"
+                        data-crew-section-type=""
                         data-section={s.id}
                         aria-labelledby={`crew-section-heading-${s.id}`}
                         className="@container flex scroll-mt-(--crew-scroll-clearance) flex-col gap-4"

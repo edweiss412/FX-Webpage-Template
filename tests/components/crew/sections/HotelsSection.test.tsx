@@ -23,6 +23,7 @@ import type { DateRestriction, HotelReservationRow } from "@/lib/parser/types";
 import { showSection } from "@/lib/showSections/registry";
 import { premise, premiseHolds } from "@/tests/_shared/premise";
 import { makeShowForViewer } from "@/tests/fixtures/showForViewer";
+import { expectUntitledPanel } from "@/tests/components/show-panels/_panelCardAssert";
 
 afterEach(() => {
   cleanup();
@@ -80,9 +81,7 @@ describe("hotels: the shared hotel card with the crew props (spec line 307)", ()
     );
     const panel = root.querySelector('[data-card-id="travel-hotels"]');
     premiseHolds("the hotels panel card rendered", panel instanceof HTMLElement);
-    expect(within(panel as HTMLElement).getByRole("heading", { level: 3 })).toHaveTextContent(
-      showSection("hotels").label,
-    );
+    expectUntitledPanel(panel as HTMLElement, showSection("hotels").label);
     const cards = within(panel as HTMLElement).getAllByTestId("crew-panel-hotel-card");
     expect(cards.map((c) => c.querySelector("p")?.textContent)).toEqual([
       "First Inn",

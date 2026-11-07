@@ -332,17 +332,22 @@ describe("the crew panel card of every shared section reads the registry", () =>
     vi.doUnmock("@/components/crew/CrewSections");
     for (const id of SHARED_PANEL_IDS) {
       const node = screen.getByTestId(`node-${id}`);
-      const cards = [...node.querySelectorAll('[data-testid="crew-panel-card"]')];
+      // A crew-only card (Facilities) prints its own title, so it reads no registry label:
+      // a section's card is the one whose group is hidden.
+      const cards = [...node.querySelectorAll('[data-testid="crew-panel-card"]')].filter(
+        (card) => card.querySelector("[data-search-group][hidden]") !== null,
+      );
       premise(`${id} panel cards rendered`, cards.length, 0);
       for (const card of cards) {
-        expect(card.querySelector("h3"), id).toHaveTextContent(probe.label(id));
-        expect(card.querySelector(`svg[data-probe-icon="${id}"]`), id).not.toBeNull();
+        // Each card's name is its search group, printed or hidden (follow-ups spec §4).
+        expect(card.querySelector("[data-search-group]"), id).toHaveTextContent(probe.label(id));
       }
     }
-    // The exception, pinned: Schedule draws its own cards, so its node holds content
-    // and no panel. An empty node would pass the absence, so the premise reads it first.
+    // The exception, pinned: Schedule draws its own cards and names the one panel card
+    // it uses itself, so no registry label reaches that node. An empty node would pass
+    // the absence, so the premise reads it first.
     const schedule = screen.getByTestId("node-schedule");
     premiseHolds("the Schedule node renders content", (schedule.textContent ?? "") !== "");
-    expect(schedule.querySelector('[data-testid="crew-panel-card"]')).toBeNull();
+    expect(schedule).not.toHaveTextContent(probe.label("schedule"));
   });
 });

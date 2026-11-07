@@ -1273,7 +1273,7 @@ test.describe("wifi password transcription affordance (production route)", () =>
       };
       const row = document.querySelector('[data-testid="venue-wifi-password"]');
       if (row === null) return null;
-      const card = row.closest('[data-testid="section-card"]');
+      const card = row.closest('[data-testid="crew-panel-card"]');
       const button = row.querySelector("button");
       // First span inside the dd in document order is the value span (the
       // wrapper div's first child); the announce region is a later sibling.
@@ -3443,8 +3443,9 @@ test.describe("quick facts and card titles on the seeded show (moved from crew-l
         expect(cut(titles), `${width}px ${section}: ${JSON.stringify(titles)}`).toEqual([]);
       }
     }
-    // PREMISE: the Rooms panel rendered, so its title was among those read.
-    expect(roomsAt320).toEqual(expect.arrayContaining([showSection("rooms").label]));
+    // PREMISE: the Rooms section rendered a titled card, so a title was read there. Its
+    // panel prints none (the section's h2 says it), so that card is Diagrams.
+    expect(roomsAt320).toEqual(expect.arrayContaining(["Diagrams"]));
     for (const width of [1024, 1280]) {
       await page.setViewportSize({ width, height: 900 });
       await gotoSection(page, "today");
@@ -3452,8 +3453,9 @@ test.describe("quick facts and card titles on the seeded show (moved from crew-l
       seen += titles.length;
       expect(cut(titles), `${width}px: ${JSON.stringify(titles)}`).toEqual([]);
     }
-    // PREMISE: the walk read real titles, the ones that were cut among them.
-    expect(seen).toBeGreaterThan(20);
+    // PREMISE: the walk read real titles, the ones that were cut among them. Most sections
+    // print none now, so this counts the crew-only cards and the section-less home ones.
+    expect(seen).toBeGreaterThan(10);
   });
 });
 
@@ -3843,6 +3845,12 @@ test.describe("billing: the crew panel card's header geometry (PR B Task 4)", ()
         travelOut: "2026-04-23",
       },
       crew: [{ name: "Panel Lead", role: "TD", roleFlags: ["LEAD"] }],
+      // A long one-word SSID and password: the invariant-8 gate measured them overprinting
+      // their labels at phone widths once values grew to 15px.
+      eventDetails: {
+        power: "(2) Power Drops from Engineering",
+        internet: "Hardline from Encore SSID: FourSeasons_Meeting_Ballroom Code: DCI2026_2026Guest",
+      },
       internal: {
         financials: {
           po: "PO-PANEL-1180",
@@ -3859,7 +3867,7 @@ test.describe("billing: the crew panel card's header geometry (PR B Task 4)", ()
   });
 
   for (const width of [390, 320]) {
-    test(`billing: at ${width}px the panel card's chip is 28 by 28, its header row at least the chip's height, and its actions clear the label`, async ({
+    test(`facilities: at ${width}px the panel card's chip is 28 by 28, its header row at least the chip's height, and its actions clear the label`, async ({
       page,
     }) => {
       await page.setViewportSize({ width, height: 844 });
@@ -3871,7 +3879,7 @@ test.describe("billing: the crew panel card's header geometry (PR B Task 4)", ()
         Authorization: `Bearer ${TEST_AUTH_SECRET}`,
       });
       const lead = seeded.crew[0]!;
-      const res = await page.goto(`/admin/show/${seeded.slug}/preview/${lead.id}?s=billing`, {
+      const res = await page.goto(`/admin/show/${seeded.slug}/preview/${lead.id}?s=venue`, {
         waitUntil: "domcontentloaded",
       });
       expect(res?.status()).toBe(200);
@@ -3882,9 +3890,31 @@ test.describe("billing: the crew panel card's header geometry (PR B Task 4)", ()
       );
       const card = page
         .getByTestId("crew-section-sheet-dialog")
-        .getByTestId("section-billing")
+        .getByTestId("venue-facilities")
         .getByTestId("crew-panel-card");
       await expect(card).toBeVisible();
+      // The title is the panel card's at any width: 16px semibold, under the section type
+      // scale too, which leaves `text-base` alone (follow-ups spec §3, AC-6).
+      const title = await card.locator("h3").evaluate((el) => {
+        const cs = getComputedStyle(el);
+        return { size: cs.fontSize, weight: cs.fontWeight };
+      });
+      expect(title).toEqual({ size: "16px", weight: "600" });
+      // Every fact row's value starts right of its label, so a long SSID wraps inside its
+      // own column instead of printing over "Wi-Fi network".
+      const overlaps = await card.evaluate((el) =>
+        [...el.querySelectorAll('[data-testid="fact-rows"] dt')].flatMap((dt) => {
+          const dd = dt.nextElementSibling;
+          const text = dd?.querySelector("span");
+          if (!dd || !text) return [];
+          const gap = text.getBoundingClientRect().left - dt.getBoundingClientRect().right;
+          return gap < -0.5 ? [`${dt.textContent?.trim()}: ${gap}`] : [];
+        }),
+      );
+      const wifi = await card.getByText("FourSeasons_Meeting_Ballroom").count();
+      // PREMISE: the long SSID rendered, so the row that overprinted is among those read.
+      expect(wifi).toBeGreaterThan(0);
+      expect(overlaps).toEqual([]);
       const chip = await rectOf(card.locator('[data-slot="panel-card-chip"]'));
       const header = await rectOf(card.locator('[data-slot="panel-card-header"]'));
       const label = await rectOf(card.locator("h3"));
@@ -3893,6 +3923,9 @@ test.describe("billing: the crew panel card's header geometry (PR B Task 4)", ()
       expect(Math.abs(chip.width - 28), `chip width ${chip.width}`).toBeLessThanOrEqual(TOL);
       expect(Math.abs(chip.height - 28), `chip height ${chip.height}`).toBeLessThanOrEqual(TOL);
       expect(header.height, "header row vs chip").toBeGreaterThanOrEqual(chip.height - TOL);
+      // A printed title sits 12px above the first row, so it does not read as one more row.
+      const firstRow = await rectOf(card.locator('[data-testid="fact-rows"]'));
+      expect(firstRow.top - header.bottom, "title to first row").toBeGreaterThanOrEqual(12 - TOL);
       expect(label.width, "the label is laid out").toBeGreaterThan(0);
       expect(actions.width, "the actions are laid out").toBeGreaterThan(0);
       const apart =
@@ -4151,7 +4184,7 @@ test.describe("event details: the section on a seeded show (PR C Task 5)", () =>
     await expect(card).toContainText(EVENT.dress_code);
     await expect(card.locator('[data-slot="section-card-action"]')).toHaveCount(1);
     await expect(
-      sheet.getByRole("heading", { level: 4, name: "Dress code & key moments" }),
+      sheet.getByRole("heading", { level: 3, name: "Dress code & key moments" }),
     ).toBeVisible();
     await expect(sheet.getByTestId("section-event")).not.toContainText("Wardrobe");
   });
@@ -4339,7 +4372,7 @@ test.describe("event details: the section on a seeded show (PR C Task 5)", () =>
     const dress = await section.locator('[data-card-id="today-dress"]').evaluate(top);
     const stage = await section.getByText("Stage size", { exact: true }).evaluate(top);
     expect(dress).toBeLessThan(stage);
-    await expect(section.getByRole("heading", { level: 4 }).first()).toHaveText(
+    await expect(section.getByRole("heading", { level: 3 }).first()).toHaveText(
       "Dress code & key moments",
     );
   });
@@ -4696,7 +4729,7 @@ test.describe("rooms: the section on a seeded show (PR C Task 7)", () => {
             return 0.2126 * r! + 0.7152 * g! + 0.0722 * b!;
           };
           const heading = tile.querySelector("h3")!;
-          const card = tile.querySelector('[data-testid="section-card"]') ?? tile;
+          const card = tile.querySelector('[data-testid="crew-panel-card"]') ?? tile;
           const [hi, lo] = [
             luminance(getComputedStyle(heading).color),
             luminance(getComputedStyle(card).backgroundColor),

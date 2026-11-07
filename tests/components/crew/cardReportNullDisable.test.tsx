@@ -23,7 +23,9 @@ afterEach(cleanup);
 
 const SHOW_ID = "show-abc";
 const TODAY = new Date("2026-05-14T15:00:00Z");
-const TRIGGER_LABEL = "Report a problem with this card";
+// Every trigger is named "Report a problem with <card>"; a card passing `label` names
+// itself, so the count reads the stem.
+const TRIGGER_LABEL = /^Report a problem with /;
 
 /** Every trigger in the WHOLE rendered tree, found two independent ways. */
 function triggerCount(container: HTMLElement): number {

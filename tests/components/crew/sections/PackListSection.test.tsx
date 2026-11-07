@@ -33,6 +33,7 @@ import { showSection } from "@/lib/showSections/registry";
 import { premiseHolds } from "@/tests/_shared/premise";
 import { makeShowForViewer } from "@/tests/fixtures/showForViewer";
 import { ledgerProp } from "./_ledgerProp";
+import { expectUntitledPanel } from "@/tests/components/show-panels/_panelCardAssert";
 
 const SHOW_ID = "show-pack";
 const TODAY = new Date("2026-05-14T15:00:00Z");
@@ -116,7 +117,7 @@ describe("pack list: the panel card", () => {
     const card = panel(root);
     expect(card).not.toBeNull();
     expect(section!.contains(card)).toBe(true);
-    expect(within(card!).getByRole("heading", { level: 3 })).toHaveTextContent(PACK_LABEL);
+    expectUntitledPanel(card!, PACK_LABEL);
     expect(card!.getAttribute("data-testid")).toBe("crew-panel-card");
   });
 

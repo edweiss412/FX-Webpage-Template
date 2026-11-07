@@ -36,7 +36,6 @@ import type { JSX } from "react";
 import { EmptyState } from "@/components/atoms/EmptyState";
 import { SectionTileError } from "@/components/crew/SectionTileError";
 import { PlaneIcon } from "@/components/crew/icons/sectionIcons";
-import { SectionCard } from "@/components/crew/primitives/SectionCard";
 import { CardHeaderActions } from "@/components/crew/primitives/CardHeaderActions";
 import { WrappedSection } from "@/components/crew/WrappedSection";
 import {
@@ -132,10 +131,10 @@ export function TransportSection({
 
               {showFlight ? (
                 <div data-card-id="travel-flight">
-                  <SectionCard
-                    icon={<PlaneIcon />}
+                  <PanelCard
+                    icon={PlaneIcon}
                     title="Your flight"
-                    action={
+                    actions={
                       <CardHeaderActions
                         cardId="travel-flight"
                         driveFileId={data.driveFileId}
@@ -252,7 +251,7 @@ export function TransportSection({
                         </p>
                       ) : null}
                     </div>
-                  </SectionCard>
+                  </PanelCard>
                 </div>
               ) : null}
 
@@ -271,6 +270,8 @@ export function TransportSection({
               {panel !== null && hasTransport ? (
                 <PanelCard
                   sectionId="transport"
+                  // Under "Your flight" the title tells the two cards apart (spec §4).
+                  titled={showFlight}
                   cardId={TRANSPORT_CARD_ID}
                   actions={
                     <CardHeaderActions

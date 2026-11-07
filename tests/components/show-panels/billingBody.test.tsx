@@ -41,6 +41,7 @@ import { showSection } from "@/lib/showSections/registry";
 import { financialsVisible } from "@/lib/visibility/scopeTiles";
 import { premise, premiseHolds } from "@/tests/_shared/premise";
 import { makeShowForViewer } from "@/tests/fixtures/showForViewer";
+import { expectUntitledPanel } from "@/tests/components/show-panels/_panelCardAssert";
 
 beforeEach(() => {
   captureBoundaryError.mockReset();
@@ -232,10 +233,7 @@ describe("BillingSection (crew)", () => {
     const root = screen.getByTestId("section-billing");
     const card = root.querySelector(`[data-card-id="${BUDGET_CARD_ID}"]`);
     premiseHolds("the section renders its card", card !== null);
-    // Exact text, and visible: a suffixed or hidden title fails, not only a missing one.
-    const title = within(card as HTMLElement).getByRole("heading", { level: 3 });
-    expect(title.textContent).toBe(showSection("billing").label);
-    expect(title).toBeVisible();
+    expectUntitledPanel(card as HTMLElement, showSection("billing").label);
     expect(showSection("billing").label).toBe("Billing & docs");
     for (const value of Object.values(FINANCIALS)) expect(card).toHaveTextContent(value);
   });

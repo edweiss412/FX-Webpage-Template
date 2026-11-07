@@ -35,6 +35,7 @@ import type { SearchIndex } from "@/lib/search/types";
 import { showSection } from "@/lib/showSections/registry";
 import { premise, premiseHolds } from "@/tests/_shared/premise";
 import { makeShowForViewer } from "@/tests/fixtures/showForViewer";
+import { expectUntitledPanel } from "@/tests/components/show-panels/_panelCardAssert";
 
 // Avoid pulling react-pdf/pdfjs into jsdom when AgendaEmbed mounts.
 vi.mock("@/components/agenda/AgendaPdfViewer", () => ({
@@ -187,13 +188,11 @@ function renderAgenda(
 }
 
 describe("agenda: the section on the shared agenda block (spec line 306)", () => {
-  test('agenda: the panel card titled "Agenda" holds the embed and the structured schedule, with no card id and no header actions', () => {
+  test("agenda: the panel card, untitled under the section heading, holds the embed and the structured schedule, with no card id and no header actions", () => {
     const root = renderAgenda(show(LINKS));
     premiseHolds("the section rendered", root instanceof HTMLElement);
     const card = within(root!).getByTestId("crew-panel-card");
-    expect(within(card).getByRole("heading", { level: 3 })).toHaveTextContent(
-      showSection("agenda").label,
-    );
+    expectUntitledPanel(card, showSection("agenda").label);
     expect(card).not.toHaveAttribute("data-card-id");
     expect(card.querySelector('[data-slot="section-card-action"]')).toBeNull();
     // One "View agenda" per link with a file, one structured block per extraction.
@@ -206,17 +205,13 @@ describe("agenda: the section on the shared agenda block (spec line 306)", () =>
     }
   });
 
-  test("agenda: the day headings stay h4, one level under the card's h3", () => {
+  test("agenda: the day headings are h3s, one level under the section's h2", () => {
     const root = renderAgenda(show(LINKS))!;
-    const h3s = root.querySelectorAll("h3");
-    expect(h3s).toHaveLength(1);
-    const h4s = [...root.querySelectorAll("h4")];
-    expect(h4s.map((h) => h.textContent)).toEqual(DAYS.map((d) => d.dayLabel));
-    // Each day heading lives in its own disclosure's summary, below the card title.
-    for (const h4 of h4s) {
-      expect(h4.closest("summary"), h4.textContent ?? "").not.toBeNull();
-      expect(h3s[0]!.compareDocumentPosition(h4) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
-    }
+    expect(root.querySelectorAll("h4")).toHaveLength(0);
+    const h3s = [...root.querySelectorAll("h3")];
+    expect(h3s.map((h) => h.textContent)).toEqual(DAYS.map((d) => d.dayLabel));
+    // Each day heading lives in its own disclosure's summary.
+    for (const h3 of h3s) expect(h3.closest("summary"), h3.textContent ?? "").not.toBeNull();
   });
 
   test('agenda: with no agenda link carrying a file the section says "No agenda on file yet." and draws no card', () => {

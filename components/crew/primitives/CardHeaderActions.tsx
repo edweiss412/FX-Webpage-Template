@@ -36,7 +36,7 @@ export function CardHeaderActions({
   cardReport?: CardReportContext | null;
   /**
    * CARDREPORT-1: direction the leaves' ≥44px tap overlays grow. Default `"up"`
-   * is correct for every `SectionCard`-hosted cluster (zero downward overhang
+   * is correct for every card-hosted cluster (zero downward overhang
    * clears the interactive rows below). The one bare `schedule-days` header
    * (`ScheduleSection`) passes `"down"` to clear the agenda above. Reflected as
    * `data-hit-direction` so a jsdom render test can pin the production wiring
