@@ -2,6 +2,8 @@ import { NextResponse } from "next/server";
 
 import { AdminInfraError, requireAdminIdentity } from "@/lib/auth/requireAdmin";
 import { resolvePickerSelection } from "@/lib/auth/picker/resolvePickerSelection";
+import { viewerKey } from "@/lib/offline/viewerKey";
+import { parseOfflineFields } from "@/lib/reports/offlineMeta";
 import {
   ReportSubmitInfraError,
   submitReport,
@@ -13,6 +15,8 @@ import { createSupabaseServiceRoleClient } from "@/lib/supabase/server";
 import { deriveRequestId, log, runWithRequestContext } from "@/lib/log";
 
 const UUID_V4_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+/** A viewer key is 43 characters; anything far past that is not one. */
+const WRITER_MAX_LENGTH = 128;
 
 type ReportRouteDeps = {
   resolvePickerSelection: typeof resolvePickerSelection;
@@ -33,6 +37,9 @@ async function readRequestBody(req: Request): Promise<RequestBody | null> {
   try {
     const body = (await req.json()) as Partial<RequestBody>;
     if (!isUuidV4(body.idempotency_key)) return null;
+    if (body.writer !== undefined && body.writer !== null) {
+      if (typeof body.writer !== "string" || body.writer.length > WRITER_MAX_LENGTH) return null;
+    }
     if (body.show_id === null) {
       // Spec §D4 (staged wizard rows have no shows record) + the 2026-08-09
       // help surface: null is allowed ONLY for admin and help; crew always has
@@ -197,6 +204,23 @@ async function authenticateReportRequest(
   }
 }
 
+/**
+ * A body carrying `offline` or `writer` names its author, and is filed only for
+ * that crew member (crew offline spec 2026-10-26 §5.1). So every other session is
+ * refused, an admin's included: a report the phone held could otherwise take the
+ * name of whoever is signed in when it finally goes out. A key the server cannot
+ * compute is a fault, answered as one so the phone keeps the report and retries.
+ */
+function refuseWrongAuthor(
+  auth: ReportAuthContext,
+  writer: string | null | undefined,
+): Response | null {
+  if (auth.kind !== "crew" || !writer) return errorJson(401, { ok: false });
+  const expected = viewerKey(auth.showId, auth.crewMemberId);
+  if (expected === null) return errorJson(500, { ok: false, code: "REPORT_PIPELINE_FAILED" });
+  return expected === writer ? null : errorJson(401, { ok: false });
+}
+
 const defaultDeps: ReportRouteDeps = {
   resolvePickerSelection,
   requireAdminIdentity,
@@ -221,15 +245,34 @@ export async function handleReport(
   const auth = await authenticateReportRequest(req, body, deps);
   if (!auth.ok) return errorJson(auth.status, auth.body);
 
+  if (body.offline != null || body.writer != null) {
+    const refusal = refuseWrongAuthor(auth.auth, body.writer);
+    if (refusal) return refusal;
+  }
+
+  const { fields: offline, dropped } = parseOfflineFields(body.offline, new Date());
+  if (dropped) void log.warn("report offline fields dropped", { source: "api/report" });
+  const submitted: RequestBody = { ...body };
+  if (offline) submitted.offline = offline;
+  else delete submitted.offline;
+
   let result;
   try {
-    result = await deps.submitReport(auth.auth, body);
+    result = await deps.submitReport(auth.auth, submitted);
   } catch (error) {
     if (isInvalidUuidError(error)) return errorJson(400, { ok: false });
     if (error instanceof ReportSubmitInfraError) {
       return errorJson(500, { ok: false, code: "REPORT_PIPELINE_FAILED" });
     }
     throw error;
+  }
+  if (offline && result.body.ok) {
+    void log.info("report submitted from offline queue", {
+      source: "api/report",
+      code: "REPORT_SUBMITTED_FROM_OFFLINE_QUEUE",
+      showId: submitted.show_id,
+      status: result.body.status,
+    });
   }
   return errorJson(result.status, result.body);
 }

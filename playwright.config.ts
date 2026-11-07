@@ -111,7 +111,8 @@ export default defineConfig({
       // Chromium alone runs the realtime spec: the realtime path is engine-independent
       // client code, and one engine proves it.
       name: "crew-offline-chromium",
-      testMatch: /(crew-offline|crew-offline-layout|crew-offline-realtime)\.spec\.ts/,
+      testMatch:
+        /(crew-offline|crew-offline-layout|crew-offline-realtime|crew-offline-reports)\.spec\.ts/,
       use: {
         ...devices["Desktop Chrome"],
         viewport: { width: 390, height: 844 },
@@ -122,7 +123,7 @@ export default defineConfig({
       // the fixture sends WebKit to the proxy's https listener, whose certificate is a
       // per-run throwaway: ignoreHTTPSErrors covers that loopback origin and nothing else.
       name: "crew-offline-webkit",
-      testMatch: /(crew-offline|crew-offline-layout)\.spec\.ts/,
+      testMatch: /(crew-offline|crew-offline-layout|crew-offline-reports)\.spec\.ts/,
       use: {
         ...devices["iPhone 14"],
         viewport: { width: 390, height: 844 },
@@ -306,6 +307,12 @@ export default defineConfig({
         // docs/superpowers/specs/ci/2026-08-28-local-e2e-webserver-validation-pooler.md
         DATABASE_URL: localDatabaseUrl(),
         TEST_DATABASE_URL: localDatabaseUrl(),
+        // Blank, never absent: `next start` loads `.env.local` without replacing a set
+        // variable, and `parseRepo` (lib/github/issues.ts) throws on an empty repo before
+        // any network call. So no e2e request can file a real issue, whatever the route
+        // does: crew-offline-reports.spec.ts sends real POSTs through this server.
+        GITHUB_REPO: "",
+        GITHUB_API_TOKEN: "",
       },
       url: `http://127.0.0.1:${E2E_PORT}`,
       reuseExistingServer: !process.env.CI,

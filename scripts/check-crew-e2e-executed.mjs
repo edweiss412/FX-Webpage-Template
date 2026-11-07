@@ -284,6 +284,9 @@ export const REQUIRED = {
   "crew-offline-realtime.spec.ts": 3,
   // 22 = 11 layout cases under each engine.
   "crew-offline-layout.spec.ts": 22,
+  // Offline reports (spec 2026-10-26 §7): nine cases, each under both offline
+  // projects, re-derived from `playwright test --list`: 18.
+  "crew-offline-reports.spec.ts": 18,
 };
 
 // Importable table, runnable script. The wiring guard imports REQUIRED to pin these thresholds

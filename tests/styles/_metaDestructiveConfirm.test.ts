@@ -46,6 +46,12 @@ const REGISTRY: Row[] = [
   ),
   R("components/admin/MaintenanceResetButtons.tsx", 0, "panel", "validation-reset-confirm"),
   R(
+    "components/shared/ReportModal.tsx",
+    0,
+    "morph",
+    "report-modal-discard armed branch (a failed report's text has no undo)",
+  ),
+  R(
     "components/admin/PendingPanelDiscardButtons.tsx",
     0,
     "morph",

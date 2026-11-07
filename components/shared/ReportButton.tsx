@@ -30,13 +30,14 @@
  * other action target (DESIGN §1.1a, 2026-08-14); the admin surface uses the
  * more prominent accent fill.
  */
-import { useState } from "react";
+import { useRef, useState } from "react";
 
 import {
   ReportModal,
   type ReportAutocapture,
   type ReportSurface,
 } from "@/components/shared/ReportModal";
+import { ReportQueueStatus } from "@/components/shared/ReportQueueStatus";
 import { FlagGlyph } from "@/components/shared/FlagGlyph";
 import { cn } from "@/lib/ui/cn";
 
@@ -107,6 +108,7 @@ export function ReportButton(props: ReportButtonProps) {
   const { surface, surfaceId, showId, autocapture, label, variant, ringOffset, messageOptional } =
     props;
   const [open, setOpen] = useState(false);
+  const triggerRef = useRef<HTMLButtonElement | null>(null);
 
   const effectiveLabel = label ?? DEFAULT_LABEL[surface];
   const effectiveVariant = variant ?? DEFAULT_VARIANT[surface];
@@ -139,7 +141,11 @@ export function ReportButton(props: ReportButtonProps) {
 
   return (
     <>
+      {surface === "crew" && showId ? (
+        <ReportQueueStatus showId={showId} onReturnFocus={() => triggerRef.current?.focus()} />
+      ) : null}
       <button
+        ref={triggerRef}
         type="button"
         data-testid="report-button-trigger"
         data-surface={surface}

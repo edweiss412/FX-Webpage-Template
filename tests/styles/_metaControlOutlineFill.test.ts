@@ -479,7 +479,7 @@ const HOVER_SUBTLE = [
   "components/agenda/AgendaEmbed.tsx:95",
   "components/agenda/AgendaPdfViewer.tsx:198",
   "components/layout/ThemeToggle.tsx:92",
-  "components/shared/ReportButton.tsx:142",
+  "components/shared/ReportButton.tsx:147",
 ] as const;
 
 /**

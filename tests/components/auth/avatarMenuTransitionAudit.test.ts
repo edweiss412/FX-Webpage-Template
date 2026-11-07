@@ -381,6 +381,18 @@ const DECLARED = [
     treatment: "not a render branch; with no worker the clear starts inside the tap, as before",
   },
   {
+    id: "C38",
+    what: "queued reports are waited for only when any are known to be held (spec 5.1)",
+    marker: /^if \(flush !== null\) await flush;\u0000/,
+    treatment: "not a render branch; with nothing held the clear starts inside the tap, as before",
+  },
+  {
+    id: "C38b",
+    what: "the leaving person's report drafts are dropped only when the page names them",
+    marker: /^if \(leaving !== null\) dropDraftsWrittenBy\(leaving\);\u0000/,
+    treatment: "not a render branch; sessionStorage only",
+  },
+  {
     id: "C39",
     what: "the switch row is aria-disabled while busy OR offline",
     marker: /^switchBusy \|\| !online\u0000/,

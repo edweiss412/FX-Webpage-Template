@@ -202,6 +202,7 @@ const EXPECTED_SKIPS: Record<string, string[]> = {
   "tests/e2e/crew-offline.spec.ts": [],
   "tests/e2e/crew-offline-realtime.spec.ts": [],
   "tests/e2e/crew-offline-layout.spec.ts": [],
+  "tests/e2e/crew-offline-reports.spec.ts": [],
 };
 
 /**
@@ -310,6 +311,7 @@ const ENROLLED = [
   "tests/e2e/crew-offline.spec.ts",
   "tests/e2e/crew-offline-realtime.spec.ts",
   "tests/e2e/crew-offline-layout.spec.ts",
+  "tests/e2e/crew-offline-reports.spec.ts",
 ] as const;
 
 const EXEMPT: Record<string, string> = {

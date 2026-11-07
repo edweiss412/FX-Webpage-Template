@@ -1076,6 +1076,12 @@ export const SPEC_CODES = {
     "followUp": "Crew → wait or text Doug",
     "helpfulContext": null,
   },
+  "REPORT_SUBMITTED_FROM_OFFLINE_QUEUE": {
+    "crewFacing": null,
+    "dougFacing": null,
+    "followUp": "Eric → read the issue's Written with no signal section",
+    "helpfulContext": null,
+  },
   "RESCAN_REVIEW_REQUIRED": {
     "crewFacing": null,
     "dougFacing": "This sheet changed and needs your review before publishing.",
