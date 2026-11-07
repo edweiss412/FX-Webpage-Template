@@ -2718,3 +2718,45 @@ The Dress code quick fact clamps at three lines (`components/crew/CrewQuickFacts
 **Accepted, not fixed.** Exception (a). Spec §4.5 line 216 gives the `dressCode` fact the Action "none", so a "Full dress code" link needs a spec amendment, and the spec wins until someone settles it (invariant 7).
 
 **Un-defer trigger:** the product owner's answer to plan question 3 in `docs/superpowers/plans/2026-11-05-crew-page-redesign-pr-c.md`.
+
+### CREWPANEL-TYPE-SCALE-1 — impeccable critique/audit P2: crew section bodies render at the admin popup's compact type scale (2026-11-02) — CLOSED 2026-11-07 (`feat/crew-panel-followups`)
+
+**Resolution:** the product owner chose a larger crew scale on 2026-11-07. Section bodies now read one step up, labels 12px, supporting lines 13px, values 15px, through `data-crew-section-type` and a rule set in `app/globals.css`, with the admin popup unchanged.
+
+**Effort:** M
+
+Since PR B the seven moved crew sections render the admin's shared bodies (`components/show-panels/`). Their field keys are 10px uppercase (`CELL_EYEBROW_CLASS`, `components/show-panels/FieldRowList.tsx`), and chips, leg times and riders are 11px; before PR B the crew rows used 12px keys and 13 to 15px values (origin/main `components/crew/primitives/KeyValueRows.tsx`).
+
+**Accepted, not fixed.** Exception (a), a product decision this PR cannot settle. The redesign's brief was to make the crew page match the admin popup's layout, and the spec ratifies the admin card's markup for the shared bodies (§6.1). Whether crew gets its own, larger scale on phones, and how it is expressed (a scale prop on every body, or a container-level token), is a design decision that touches all seven bodies and PR C's three, so it belongs with PR C's body moves rather than as a rider here.
+
+PR C adds Event details, Rooms and Pack list to the same scale, so all ten shared bodies now carry it. Pack item lines are the one exception: the PR C gate restored them to 14px through a crew prop, because they fell under the 7:1 sunlight floor.
+
+**Un-defer trigger:** the product owner settles the crew type scale for shared bodies.
+
+### CREWPANEL-DOUBLE-TITLE-1 — impeccable critique/audit P2: every moved section is titled twice (2026-11-02) — CLOSED 2026-11-07 (`feat/crew-panel-followups`)
+
+**Resolution:** the product owner approved dropping the repeat on 2026-11-07, and spec §6.1 line 290 carries the dated amendment. A panel card prints its title only where it tells two cards apart, keeping the label as a hidden search group; Venue drops its "Venue" label.
+
+**Effort:** S
+
+The sheet's h2 (`components/crew/CrewSectionSheet.tsx`) and the wide stack's h2 (`components/crew/CrewSections.tsx`) are followed by the panel card's h3 with the same word (`components/show-panels/PanelCard.tsx`); Venue adds a third, its 10px "VENUE" eyebrow. About 50 to 60px goes before the first fact at 390, and heading navigation hears each title twice.
+
+**Accepted, not fixed.** Exception (a): the panel card's title is ratified by spec §6.1 (the crew card is the admin card, titled with the registry label), so dropping or demoting it is a spec amendment, and it interacts with the search group heading the h3 carries.
+
+PR C adds Event details, Rooms and Pack list, so all ten shared sections now repeat the title.
+
+**Un-defer trigger:** a spec §6.1 amendment on the panel card title inside a section that already has a heading.
+
+### CREWPANEL-MIXED-CARD-HEADERS-1 — impeccable critique/audit P2: Venue and Transport mix two card header styles (2026-11-02) — CLOSED 2026-11-07 (`feat/crew-panel-followups`)
+
+**Resolution:** the product owner answered plan question 1 yes on 2026-11-07. Facilities, Venue status, Your flight and Diagrams render on the panel card with its bold title, chip and shadow.
+
+**Effort:** S
+
+Venue's panel card sits beside the crew-only Facilities and Venue status cards, and Transport's "Your flight" card sits above its panel card. The panel card has a bold 16px sentence-case h3 and a shadow; the crew SectionCard has a 12px uppercase eyebrow and none.
+
+**Accepted, not fixed.** Exception (b), a ratified scope fence: spec §6.2 keeps the crew-only blocks as their own cards in PR B, and PR C moves the remaining sections and decides the crew-only cards' treatment with them.
+
+PR C leaves Facilities, Venue status and "Your flight" on their current card styles, and adds one instance: Diagrams sits under the Rooms panel card on the crew SectionCard header. The spec keeps these crew-only blocks (lines 301, 308, 309) and names no treatment for their headers.
+
+**Un-defer trigger:** the product owner's answer to plan question 1 in `docs/superpowers/plans/2026-11-05-crew-page-redesign-pr-c.md`.
