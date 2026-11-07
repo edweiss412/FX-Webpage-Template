@@ -42,12 +42,15 @@ import { isMessageCode, messageFor, type MessageCode } from "@/lib/messages/look
 import { HelpAffordance } from "@/components/admin/HelpAffordance";
 import { NewTabHint } from "@/components/shared/NewTabHint";
 import {
+  deleteReport,
   enqueueReport,
   pageSlug,
   readPageIdentity,
+  requeueReport,
   type HoldResult,
   type QueuedReport,
 } from "@/lib/reports/offlineQueue";
+import { reportSender } from "@/lib/reports/offlineSender";
 
 /**
  * Accept-set rule (2026-08-09 spec §2.2): crew behavior iff
@@ -100,6 +103,13 @@ export type ReportModalProps = {
    * waits.
    */
   submitTimeoutMs?: number;
+  /**
+   * A report the server refused, opened for a resend or a discard. The modal
+   * never POSTs it: Send again swaps it for a queued record under a fresh key
+   * and runs the sender, so the key is on the phone before anything goes out and
+   * two tabs cannot both send it. The surface's persisted draft is not touched.
+   */
+  failedReport?: QueuedReport;
 };
 
 type ModalStatus =
@@ -109,6 +119,7 @@ type ModalStatus =
   | "succeeded"
   | "expired"
   | "queued"
+  | "stale"
   | "new-report-warning";
 
 type PersistedState = {
@@ -238,6 +249,8 @@ function copyForCode(code: MessageCode, surface: ReportSurface): string | null {
 
 const QUEUED_LEAD = "Saved on your phone.";
 const QUEUED_REST = "It will send by itself when you have signal.";
+const FAILED_LINE = "This report couldn't be sent. Send it again or discard it.";
+const STALE_LINE = "This report was already sent or discarded in another tab.";
 
 const HEADING: Record<ReportSurface, string> = {
   crew: "Something looks wrong?",
@@ -293,6 +306,7 @@ export function ReportModal(props: ReportModalProps) {
     autocapture,
     messageOptional = false,
     submitTimeoutMs = 30_000,
+    failedReport,
   } = props;
 
   // Whose report this is, read once. A refresh can turn the page under an open
@@ -312,16 +326,21 @@ export function ReportModal(props: ReportModalProps) {
   // open/close cycles re-hydrate via useEffect (below) so multiple opens
   // within one page render still pick up persisted state.
   const persistedAtMount = useMemo(
-    () => readOwnPersisted(surfaceId, surface, writer),
-    [surfaceId, surface, writer],
+    () => (failedReport ? null : readOwnPersisted(surfaceId, surface, writer)),
+    [failedReport, surfaceId, surface, writer],
   );
+
+  // The failed record in hand. A refusal of the resend replaces it.
+  const [record, setRecord] = useState<QueuedReport | null>(failedReport ?? null);
 
   const [idempotencyKey, setIdempotencyKey] = useState<string>(() => {
     if (persistedAtMount?.idempotencyKey) return persistedAtMount.idempotencyKey;
     return mintUuid();
   });
 
-  const [draft, setDraft] = useState<string>(() => persistedAtMount?.draft ?? "");
+  const [draft, setDraft] = useState<string>(
+    () => failedReport?.message ?? persistedAtMount?.draft ?? "",
+  );
 
   const [status, setStatus] = useState<ModalStatus>(() => {
     if (joinedHold) return "submitting";
@@ -436,6 +455,7 @@ export function ReportModal(props: ReportModalProps) {
   const attemptRef = useRef<number | null>(joinedHold?.attemptId ?? null);
 
   useEffect(() => {
+    if (failedReport) return;
     // Don't persist terminal states — they're cleared on transition.
     if (status === "succeeded" || status === "expired" || status === "queued") return;
     const errorCode = error?.kind === "code" ? error.code : null;
@@ -448,12 +468,12 @@ export function ReportModal(props: ReportModalProps) {
       writer,
       attemptId: attemptRef.current,
     });
-  }, [idempotencyKey, draft, status, surfaceId, error, writer]);
+  }, [failedReport, idempotencyKey, draft, status, surfaceId, error, writer]);
 
   // Done replaces the control that had focus, so focus moves to it by hand.
   const doneRef = useRef<HTMLButtonElement | null>(null);
   useEffect(() => {
-    if (status === "queued") doneRef.current?.focus();
+    if (status === "queued" || status === "stale") doneRef.current?.focus();
   }, [status]);
 
   useEffect(() => {
@@ -483,7 +503,7 @@ export function ReportModal(props: ReportModalProps) {
 
   if (!open) return null;
 
-  const canSubmit = status !== "submitting" && status !== "queued";
+  const canSubmit = status !== "submitting" && status !== "queued" && status !== "stale";
 
   function handleDraftChange(event: React.ChangeEvent<HTMLTextAreaElement>) {
     setDraft(event.target.value);
@@ -540,7 +560,50 @@ export function ReportModal(props: ReportModalProps) {
     setError({ kind: "network" });
   }
 
+  /** Send again: the new key goes on the phone first, and the sender does the rest. */
+  async function resendFailed(current: QueuedReport): Promise<void> {
+    setStatus("submitting");
+    setError(null);
+    const next: QueuedReport = {
+      ...current,
+      id: mintUuid(),
+      message: draft,
+      writer: writer ?? current.writer,
+      status: "queued",
+      errorCode: null,
+    };
+    const swapped = await requeueReport(current.id, next);
+    if (swapped === "stale") {
+      setStatus("stale");
+      return;
+    }
+    if (swapped === "unavailable") {
+      setStatus("failed-retryable");
+      setError({ kind: "network" });
+      return;
+    }
+    const outcome = await reportSender.settle(next.id);
+    if (outcome.kind === "delivered") {
+      setStatus("succeeded");
+      setSuccess({ kind: "succeeded" });
+    } else if (outcome.kind === "failed") {
+      setRecord({ ...next, status: "failed", errorCode: outcome.code });
+      setStatus("composing");
+    } else {
+      setStatus("queued");
+    }
+  }
+
+  async function handleDiscard(): Promise<void> {
+    if (record) await deleteReport(record.id);
+    handleClose();
+  }
+
   async function submitOnce(): Promise<void> {
+    if (record) {
+      await resendFailed(record);
+      return;
+    }
     // The tap, not the failure: a hung POST can take its whole timeout to give up.
     const writtenAt = new Date().toISOString();
     lastAttemptId += 1;
@@ -730,7 +793,11 @@ export function ReportModal(props: ReportModalProps) {
       : surface === "help"
         ? helpCaptureLine(autocapture?.fieldRef)
         : "This files a GitHub issue for Eric to triage.";
-  const submitLabel = showResumeBanner ? "Resume submission" : "Submit";
+  const submitLabel = record ? "Send again" : showResumeBanner ? "Resume submission" : "Submit";
+  const failedCopy =
+    record !== null && isKnownCode(record.errorCode)
+      ? copyForCode(record.errorCode, surface)
+      : null;
 
   // POLISH-D1/D3: errorCopy is always a string (possibly empty) when error
   // is set. Null in the catalog (e.g., a code with null facing-for-surface)
@@ -775,7 +842,9 @@ export function ReportModal(props: ReportModalProps) {
               ? (errorCopy ?? "This report attempt has expired.")
               : status === "queued"
                 ? `${QUEUED_LEAD} ${QUEUED_REST}`
-                : ""}
+                : status === "stale"
+                  ? STALE_LINE
+                  : ""}
       </p>
 
       {/* Backdrop. Tap-outside-to-close preserves the key (handleClose). */}
@@ -840,6 +909,16 @@ export function ReportModal(props: ReportModalProps) {
             >
               Start a new report anyway
             </button>
+          </div>
+        ) : null}
+
+        {record !== null && canSubmit ? (
+          <div
+            data-testid="report-modal-failed-notice"
+            className="mx-4 mt-2 rounded-sm bg-warning-bg px-3 py-2 text-sm text-warning-text sm:mx-6"
+          >
+            <p className="font-medium">{FAILED_LINE}</p>
+            {failedCopy ? <p className="mt-1">{failedCopy}</p> : null}
           </div>
         ) : null}
 
@@ -991,10 +1070,28 @@ export function ReportModal(props: ReportModalProps) {
                   </p>
                 </div>
               ) : null}
+              {status === "stale" ? (
+                <p
+                  data-testid="report-modal-stale"
+                  className="mt-2 rounded-sm bg-info-bg px-3 py-2 text-sm text-text-strong"
+                >
+                  {STALE_LINE}
+                </p>
+              ) : null}
             </div>
 
             <div className="flex items-center justify-end gap-2 border-t border-border px-4 py-3 sm:px-6">
-              {status === "queued" ? (
+              {record !== null && canSubmit ? (
+                <button
+                  type="button"
+                  data-testid="report-modal-discard"
+                  onClick={() => void handleDiscard()}
+                  className="inline-flex min-h-tap-min items-center rounded-sm border border-text-faint px-3 py-2 text-sm font-medium text-text transition-colors duration-fast hover:bg-surface-sunken focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring focus-visible:ring-offset-2 focus-visible:ring-offset-surface"
+                >
+                  Discard
+                </button>
+              ) : null}
+              {status === "queued" || status === "stale" ? (
                 <button
                   type="button"
                   ref={doneRef}
@@ -1002,7 +1099,7 @@ export function ReportModal(props: ReportModalProps) {
                   onClick={handleClose}
                   className="inline-flex min-h-tap-min items-center rounded-sm bg-accent px-4 py-2 font-medium text-accent-text transition-colors duration-fast hover:bg-accent-hover focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring focus-visible:ring-offset-2 focus-visible:ring-offset-surface"
                 >
-                  Done
+                  {status === "stale" ? "Close" : "Done"}
                 </button>
               ) : status === "failed-retryable" && !mountedFromResume ? (
                 <button
