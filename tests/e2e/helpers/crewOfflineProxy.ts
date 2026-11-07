@@ -52,8 +52,24 @@ export type ProxiedRequest = {
   headers: Record<string, string | string[] | undefined>;
 };
 
-/** One request as the proxy received it, before the mode decided anything. */
-export type ReceivedRequest = { method: string; path: string };
+/**
+ * One request as the proxy received it, before the mode decided anything. A
+ * forwarded request gains `upstreamStatus` when the server answers, so a case can
+ * tell a real answer from a scripted one; a scripted request gains its `body`.
+ */
+export type ReceivedRequest = {
+  method: string;
+  path: string;
+  upstreamStatus?: number;
+  body?: string;
+};
+
+/** One scripted answer to a POST: `answerNext` serves these in order. */
+export type ScriptedAnswer = {
+  status: number;
+  body: unknown;
+  headers?: Record<string, string>;
+};
 
 export type CrewOfflineProxy = {
   /** http://127.0.0.1:<port>; Chromium treats loopback http as a secure context. */
@@ -78,6 +94,11 @@ export type CrewOfflineProxy = {
    * held requests are untouched.
    */
   overrideHeaders(pathPrefix: string, headers: Record<string, string>): void;
+  /**
+   * In "pass" mode, answer the next POSTs under this path prefix from `answers`,
+   * in order, without contacting the server, then forward as usual.
+   */
+  answerNext(pathPrefix: string, answers: readonly ScriptedAnswer[]): void;
   /**
    * Every request received since the start or the last `reset()`, in arrival
    * order, whether it was forwarded, stubbed, refused or held. The worker's own
@@ -110,7 +131,12 @@ const HOP_BY_HOP = new Set([
 
 type Stub = { body: Buffer; contentType: string; headers: Record<string, string> };
 
-type Pending = { req: http.IncomingMessage; res: http.ServerResponse; viaHttps: boolean };
+type Pending = {
+  req: http.IncomingMessage;
+  res: http.ServerResponse;
+  viaHttps: boolean;
+  row: ReceivedRequest;
+};
 
 async function throwawayCertificate(): Promise<{ key: string; cert: string }> {
   const dir = await mkdtemp(join(tmpdir(), "fxav-crew-offline-proxy-"));
@@ -160,6 +186,7 @@ export async function startCrewOfflineProxy(opts: {
   let refusePredicate: ((req: ProxiedRequest) => boolean) | null = null;
   const stubs = new Map<string, Stub>();
   const overrides = new Map<string, Record<string, string>>();
+  const scripted = new Map<string, ScriptedAnswer[]>();
   const held = new Set<Pending>();
   const log: ReceivedRequest[] = [];
 
@@ -167,7 +194,7 @@ export async function startCrewOfflineProxy(opts: {
     pending.req.socket.destroy();
   };
 
-  const forward = ({ req, res, viaHttps }: Pending): void => {
+  const forward = ({ req, res, viaHttps, row }: Pending): void => {
     const headers: http.OutgoingHttpHeaders = {};
     for (const [name, value] of Object.entries(req.headers)) {
       if (!HOP_BY_HOP.has(name)) headers[name] = value;
@@ -183,6 +210,7 @@ export async function startCrewOfflineProxy(opts: {
         agent: upstreamAgent,
       },
       (answer) => {
+        if (answer.statusCode !== undefined) row.upstreamStatus = answer.statusCode;
         const path = req.url ?? "/";
         const set: Record<string, string> = {};
         for (const [prefix, headers] of overrides) {
@@ -218,6 +246,29 @@ export async function startCrewOfflineProxy(opts: {
     res.end(stub.body);
   };
 
+  const nextScripted = (method: string, path: string): ScriptedAnswer | null => {
+    if (method !== "POST") return null;
+    for (const [prefix, answers] of scripted) {
+      if (path.startsWith(prefix)) return answers.shift() ?? null;
+    }
+    return null;
+  };
+
+  const answerScripted = ({ req, res, row }: Pending, answer: ScriptedAnswer): void => {
+    const chunks: Buffer[] = [];
+    req.on("data", (chunk: Buffer) => chunks.push(chunk));
+    req.on("end", () => {
+      row.body = Buffer.concat(chunks).toString("utf8");
+      const body = Buffer.from(JSON.stringify(answer.body));
+      res.writeHead(answer.status, {
+        ...answer.headers,
+        "content-type": "application/json",
+        "content-length": body.length,
+      });
+      res.end(body);
+    });
+  };
+
   const stubFor = (method: string, path: string): Stub | null => {
     if (method !== "GET") return null;
     let found: { prefix: string; stub: Stub } | null = null;
@@ -249,6 +300,8 @@ export async function startCrewOfflineProxy(opts: {
     const method = req.method ?? "GET";
     const path = req.url ?? "/";
     if (matchesRefusal({ method, path, headers: req.headers })) return refuse(pending);
+    const answer = nextScripted(method, path);
+    if (answer !== null) return answerScripted(pending, answer);
     const stub = stubFor(method, path);
     if (stub !== null) {
       // The body is never read on this path; drain it so the connection stays reusable.
@@ -263,8 +316,9 @@ export async function startCrewOfflineProxy(opts: {
     (req: http.IncomingMessage, res: http.ServerResponse): void => {
       req.on("error", () => undefined);
       res.on("error", () => undefined);
-      log.push({ method: req.method ?? "GET", path: req.url ?? "/" });
-      dispatch({ req, res, viaHttps });
+      const row: ReceivedRequest = { method: req.method ?? "GET", path: req.url ?? "/" };
+      log.push(row);
+      dispatch({ req, res, viaHttps, row });
     };
 
   const httpServer = http.createServer(handler(false));
@@ -309,6 +363,9 @@ export async function startCrewOfflineProxy(opts: {
     overrideHeaders(pathPrefix, headers) {
       overrides.set(pathPrefix, headers);
     },
+    answerNext(pathPrefix, answers) {
+      scripted.set(pathPrefix, [...answers]);
+    },
     received() {
       return [...log];
     },
@@ -316,6 +373,7 @@ export async function startCrewOfflineProxy(opts: {
       refusePredicate = null;
       stubs.clear();
       overrides.clear();
+      scripted.clear();
       setMode("pass");
       log.length = 0;
     },
