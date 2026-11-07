@@ -375,7 +375,7 @@ describe("crewOfflineProxy", () => {
     }
 
     expect(p.received()).toEqual([
-      { method: "GET", path: "/passed?q=1" },
+      { method: "GET", path: "/passed?q=1", upstreamStatus: 201 },
       { method: "GET", path: "/stubbed" },
       { method: "POST", path: "/matched" },
       { method: "GET", path: "/refused" },
@@ -529,5 +529,68 @@ describe("crewOfflineProxy", () => {
       );
       expect(refused.code).toBe("ECONNREFUSED");
     }
+  });
+
+  test("answerNext answers POSTs from its list, in order, then lets them through", async () => {
+    const active = live();
+    active.answerNext("/api/report", [
+      { status: 503, body: { ok: false } },
+      { status: 429, body: { ok: false }, headers: { "retry-after": "120" } },
+    ]);
+
+    const first = await send(active.httpOrigin, {
+      method: "POST",
+      path: "/api/report",
+      body: '{"n":1}',
+    }).reply;
+    const second = await send(active.httpOrigin, {
+      method: "POST",
+      path: "/api/report",
+      body: '{"n":2}',
+    }).reply;
+    expect(first.status).toBe(503);
+    expect(second.status).toBe(429);
+    expect(second.headers["retry-after"]).toBe("120");
+    expect(JSON.parse(first.body)).toEqual({ ok: false });
+    expect(seen).toEqual([]);
+
+    const third = await send(active.httpOrigin, {
+      method: "POST",
+      path: "/api/report",
+      body: '{"n":3}',
+    }).reply;
+    expect(third.status).toBe(201);
+    expect(seen.map((request) => request.body)).toEqual(['{"n":3}']);
+  });
+
+  test("answerNext leaves GETs and other paths alone", async () => {
+    const active = live();
+    active.answerNext("/api/report", [{ status: 503, body: {} }]);
+    expect((await send(active.httpOrigin, { path: "/api/report" }).reply).status).toBe(201);
+    expect(
+      (await send(active.httpOrigin, { method: "POST", path: "/other", body: "x" }).reply).status,
+    ).toBe(201);
+    expect(seen).toHaveLength(2);
+  });
+
+  test("the log keeps a scripted request's body, and only a forwarded one has an upstream status", async () => {
+    const active = live();
+    active.answerNext("/api/report", [{ status: 503, body: {} }]);
+    await send(active.httpOrigin, { method: "POST", path: "/api/report", body: '{"n":1}' }).reply;
+    await send(active.httpOrigin, { method: "POST", path: "/api/report", body: '{"n":2}' }).reply;
+
+    const [scripted, forwarded] = active.received();
+    expect(scripted).toMatchObject({ method: "POST", path: "/api/report", body: '{"n":1}' });
+    expect(scripted?.upstreamStatus).toBeUndefined();
+    expect(forwarded?.upstreamStatus).toBe(201);
+  });
+
+  test("reset() clears the scripted answers", async () => {
+    const active = live();
+    active.answerNext("/api/report", [{ status: 503, body: {} }]);
+    active.reset();
+    const reply = await send(active.httpOrigin, { method: "POST", path: "/api/report", body: "x" })
+      .reply;
+    expect(reply.status).toBe(201);
   });
 });

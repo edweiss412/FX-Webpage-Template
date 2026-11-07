@@ -1,6 +1,14 @@
 import { describe, expect, test } from "vitest";
 
-import { buildAdminIssueBody, buildCrewIssueBody, type RequestBody } from "@/lib/reports/submit";
+import type { OfflineFields } from "@/lib/reports/offlineMeta";
+import {
+  buildAdminIssueBody,
+  buildCrewIssueBody,
+  reportContext,
+  type ReportAuthContext,
+  type RequestBody,
+} from "@/lib/reports/submit";
+import { premiseHolds } from "@/tests/_shared/premise";
 
 const baseBody: RequestBody = {
   idempotency_key: "018f2f4c-8f54-4c28-9f56-f0f1b2c3d4e5",
@@ -242,5 +250,85 @@ describe("help surface issue body (spec §2.4)", () => {
 
     expect(body).toMatch(/^\*\*Show:\*\* staged wizard sheet \(no show record\)$/m);
     expect(body).not.toContain("non-show recurrence report");
+  });
+});
+
+/**
+ * Crew offline spec 2026-10-26 §5.2. The two literals are the builders' output
+ * captured before the section existed, so an ordinary report staying unchanged
+ * is measured against something other than the changed builder.
+ */
+describe("the offline section", () => {
+  const crew: Extract<ReportAuthContext, { kind: "crew" }> = {
+    kind: "crew",
+    source: "picker",
+    showId: "s",
+    crewMemberId: "c",
+    roleFlags: ["A1"],
+  };
+  const admin: Extract<ReportAuthContext, { kind: "admin" }> = {
+    kind: "admin",
+    email: "doug@example.com",
+  };
+  const body: RequestBody = {
+    idempotency_key: "018f2f4c-8f54-4c28-9f56-f0f1b2c3d4e5",
+    show_id: "018f2f4c-0000-4000-9000-000000000001",
+    surface: "crew",
+    message: "Freight elevator 3 is out",
+    viewerVisibleSection: "schedule",
+    userAgent: "test-browser/1.0",
+  };
+  const offline: OfflineFields = {
+    writtenAt: "2026-11-07T14:31:00.000Z",
+    pageRenderedAt: "2026-11-07T14:14:00.000Z",
+    sentAt: "2026-11-07T15:05:00.000Z",
+  };
+
+  const CREW_BASELINE =
+    "**Reported by:** crew member of `018f2f4c-0000-4000-9000-000000000001` (role flags: `A1`)\n_(Reporter identity intentionally NOT included; Eric can look up via `reports.id` if needed.)_\n\n**Show:** 018f2f4c-0000-4000-9000-000000000001\n**Surface:** crew\n**Section being viewed:** schedule\n\n**Crew member's note:**\n\n> Freight elevator 3 is out\n\n**Page state at submission:**\n\n- Right Now state: Not captured\n- Last sync: Not captured\n- Stale tier: Not captured\n- User agent: test-browser/1.0\n\n**Show drive file ID:** Not captured\n\n<!-- fxav-report-id: 018f2f4c-8f54-4c28-9f56-f0f1b2c3d4e5 -->";
+  const ADMIN_BASELINE =
+    "**Summary:** crew report\n\n**Reported by:** doug@example.com\n**Show:** 018f2f4c-0000-4000-9000-000000000001\n**Surface:** crew\n**Crew context:** Not captured\n**Reporter role snapshot:** N/A - admin submission\n**Field/section ref:** Not captured\n\n**Sheet warnings (this section):**\n\n- None captured\n\n**Doug's note:**\n\n> Freight elevator 3 is out\n\n**Raw snippet:**\n\n```\nNot captured\n```\n\n**Last sync:** Not captured\n**Show drive file ID:** Not captured\n**User agent:** test-browser/1.0\n**Reporter URL:** Not captured\n\n<!-- fxav-report-id: 018f2f4c-8f54-4c28-9f56-f0f1b2c3d4e5 -->";
+
+  test("an ordinary report is unchanged, byte for byte", () => {
+    expect(buildCrewIssueBody(crew, body, "A1")).toBe(CREW_BASELINE);
+    expect(buildAdminIssueBody(admin, body, null)).toBe(ADMIN_BASELINE);
+  });
+
+  test("the crew body has it after the note and before the page state", () => {
+    const text = buildCrewIssueBody(crew, { ...body, offline }, "A1");
+    const note = text.indexOf("> Freight elevator 3 is out");
+    const section = text.indexOf("**Written with no signal**");
+    const pageState = text.indexOf("**Page state at submission:**");
+    premiseHolds("both anchors exist", note >= 0 && pageState >= 0);
+    expect(section).toBeGreaterThan(note);
+    expect(section).toBeLessThan(pageState);
+    expect(text).toContain(
+      "Written at 2026-11-07T14:31:00.000Z (phone time), sent at 2026-11-07T15:05:00.000Z.",
+    );
+    expect(text).toContain("They were looking at the copy saved at 2026-11-07T14:14:00.000Z.");
+  });
+
+  test("the admin body has it after the note and before the raw snippet", () => {
+    const text = buildAdminIssueBody(admin, { ...body, offline }, null);
+    const note = text.indexOf("> Freight elevator 3 is out");
+    const section = text.indexOf("**Written with no signal**");
+    const raw = text.indexOf("**Raw snippet:**");
+    premiseHolds("both anchors exist", note >= 0 && raw >= 0);
+    expect(section).toBeGreaterThan(note);
+    expect(section).toBeLessThan(raw);
+  });
+
+  test("the writer key reaches neither body nor context", () => {
+    const secret = "viewer-key-that-must-stay-out";
+    const carried = { ...body, offline, writer: secret };
+    expect(buildCrewIssueBody(crew, carried, "A1")).not.toContain(secret);
+    expect(buildAdminIssueBody(admin, carried, null)).not.toContain(secret);
+    expect(JSON.stringify(reportContext(carried))).not.toContain(secret);
+  });
+
+  test("context stores the fields, and an ordinary row keeps its shape", () => {
+    expect(reportContext({ ...body, offline }).offline).toEqual(offline);
+    expect("offline" in reportContext(body)).toBe(false);
+    expect("offline" in reportContext({ ...body, offline: null })).toBe(false);
   });
 });

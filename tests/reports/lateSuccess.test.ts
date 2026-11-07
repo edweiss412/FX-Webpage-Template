@@ -44,7 +44,7 @@ function seedExpiredUnknownOutcomeRow() {
       ${sqlString(key)}::uuid,
       ${sqlString(showId)}::uuid,
       'admin',
-      'admin',
+      'admin.com',
       '{}'::jsonb,
       'Late original success',
       now() - interval '1 minute',
@@ -82,6 +82,6 @@ describe("late-success guard", () => {
       body: { ok: true, status: "recovered", github_issue_url: lateUrl },
     });
     expect(githubMock.createIssue).not.toHaveBeenCalled();
-    expect(reportRows(key)).toEqual([`admin:admin::${lateUrl}`]);
+    expect(reportRows(key)).toEqual([`admin:admin.com::${lateUrl}`]);
   });
 });

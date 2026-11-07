@@ -12,6 +12,7 @@ import {
   type FoundIssue,
 } from "@/lib/github/issues";
 import { acquireReportLease, type ReportLeaseDb } from "@/lib/reports/leaseProtocol";
+import { offlineIssueLines, type OfflineFields } from "@/lib/reports/offlineMeta";
 import { enforceQuota, type QuotaResult, type ReportQuotaKind } from "@/lib/reports/rateLimit";
 import { canonicalize } from "@/lib/email/canonicalize";
 import { createSupabaseServiceRoleClient } from "@/lib/supabase/server";
@@ -38,6 +39,10 @@ export type RequestBody = {
   lastSyncTimestamp?: string | null;
   staleTier?: string | null;
   rightNowState?: Record<string, unknown> | null;
+  /** Set by the route after validation, for a report written with no signal. */
+  offline?: OfflineFields | null;
+  /** The author's viewer key. The route checks it; it is never stored. */
+  writer?: string | null;
 };
 
 export type ReportAuthContext =
@@ -72,13 +77,16 @@ type ExistingReportRow = {
   id: string;
   github_issue_url: string | null;
   lease_live: boolean;
+  reported_by_kind: string;
+  reported_by: string;
 };
 
 type ReservationResult =
   | { state: "claimed"; leaseHolder: string }
   | { state: "duplicate"; url: string }
   | { state: "in_flight" }
-  | { state: "expired_pending_recovery" };
+  | { state: "expired_pending_recovery" }
+  | { state: "other_reporter" };
 
 export type ReportShowContext = {
   title: string;
@@ -188,8 +196,19 @@ function successBody(
   return { ok: true, status };
 }
 
-function dispatchExisting(row: ExistingReportRow | null): ReservationResult | null {
+/**
+ * A key belongs to the reporter who reserved it. Anyone else presenting it is
+ * refused before anything is read or filed: a retry against someone else's
+ * reservation would file their text, or this text under their name.
+ */
+function dispatchExisting(
+  row: ExistingReportRow | null,
+  reporter: ReturnType<typeof reporterFor>,
+): ReservationResult | null {
   if (!row) return null;
+  if (row.reported_by_kind !== reporter.reportedByKind || row.reported_by !== reporter.reportedBy) {
+    return { state: "other_reporter" };
+  }
   if (row.github_issue_url) return { state: "duplicate", url: row.github_issue_url };
   if (row.lease_live) return { state: "in_flight" };
   return { state: "expired_pending_recovery" };
@@ -217,7 +236,9 @@ async function readExistingReport(
   const { rows } = await db.query(
     `SELECT id,
             github_issue_url,
-            (processing_lease_until > now()) AS lease_live
+            (processing_lease_until > now()) AS lease_live,
+            reported_by_kind,
+            reported_by
        FROM reports
       WHERE idempotency_key = $1::uuid`,
     [idempotencyKey],
@@ -225,7 +246,8 @@ async function readExistingReport(
   return (rows[0] as ExistingReportRow | undefined) ?? null;
 }
 
-function reportContext(body: RequestBody): Record<string, unknown> {
+// not-subject-to-meta: pure object builder; no Supabase, database, or GitHub call.
+export function reportContext(body: RequestBody): Record<string, unknown> {
   return {
     surface: body.surface ?? null,
     crewPreview: body.crewPreview ?? null,
@@ -237,6 +259,7 @@ function reportContext(body: RequestBody): Record<string, unknown> {
     lastSyncTimestamp: body.lastSyncTimestamp ?? null,
     staleTier: body.staleTier ?? null,
     rightNowState: body.rightNowState ?? null,
+    ...(body.offline ? { offline: body.offline } : {}),
   };
 }
 
@@ -432,6 +455,7 @@ export function buildAdminIssueBody(
     "",
     quoteMessage(body.message),
     "",
+    ...offlineIssueLines(body.offline),
     "**Raw snippet:**",
     "",
     "```",
@@ -469,6 +493,7 @@ export function buildCrewIssueBody(
     "",
     quoteMessage(body.message),
     "",
+    ...offlineIssueLines(body.offline),
     "**Page state at submission:**",
     "",
     `- Right Now state: ${formatValue(body.rightNowState).replaceAll("\n", " ")}`,
@@ -509,10 +534,10 @@ async function reserveReport(
   auth: ReportAuthContext,
   body: RequestBody,
 ): Promise<ReservationResult> {
-  const existing = dispatchExisting(await readExistingReport(db, body.idempotency_key));
+  const reporter = reporterFor(auth);
+  const existing = dispatchExisting(await readExistingReport(db, body.idempotency_key), reporter);
   if (existing) return existing;
 
-  const reporter = reporterFor(auth);
   const leaseHolder = randomUUID();
   const acquired = await acquireReportLease(db, {
     idempotencyKey: body.idempotency_key,
@@ -527,7 +552,9 @@ async function reserveReport(
 
   if (!acquired.acquired) {
     return (
-      dispatchExisting(await readExistingReport(db, body.idempotency_key)) ?? { state: "in_flight" }
+      dispatchExisting(await readExistingReport(db, body.idempotency_key), reporter) ?? {
+        state: "in_flight",
+      }
     );
   }
 
@@ -902,17 +929,21 @@ async function expiredLeaseRetry(
     );
   }
 
+  // The send that files the issue owns the stored offline fields: this row was
+  // reserved by an earlier request, so `reportContext` never saw this body's.
   const retryLeaseHolder = randomUUID();
   const { rows: claimRows } = await db.query(
     `UPDATE reports
         SET processing_lease_until = now() + interval '90 seconds',
-            lease_holder = $2::uuid
+            lease_holder = $2::uuid,
+            context = CASE WHEN $3::jsonb IS NULL THEN context
+                           ELSE context || jsonb_build_object('offline', $3::jsonb) END
       WHERE idempotency_key = $1::uuid
         AND (processing_lease_until IS NULL OR processing_lease_until <= now())
         AND github_issue_url IS NULL
         AND created_at >= now() - interval '24 hours'
       RETURNING id, lease_holder`,
-    [body.idempotency_key, retryLeaseHolder],
+    [body.idempotency_key, retryLeaseHolder, body.offline ?? null],
   );
 
   if (claimRows.length === 0) {
@@ -1078,6 +1109,9 @@ export async function submitReport(
         throw cause;
       }
 
+      if (reservation.state === "other_reporter") {
+        return { status: 401, body: { ok: false } };
+      }
       if (reservation.state === "duplicate") {
         return { status: 200, body: successBody(auth, "duplicate", reservation.url) };
       }

@@ -38,7 +38,7 @@ function seedExpiredUnknownOutcomeRow(idempotencyKey = key, targetShowId = showI
       ${sqlString(idempotencyKey)}::uuid,
       ${sqlString(targetShowId)}::uuid,
       'admin',
-      'admin',
+      'admin.com',
       '{}'::jsonb,
       'Lookup fail closed',
       now() - interval '1 minute',
