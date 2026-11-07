@@ -176,23 +176,19 @@ export async function requeueReport(
   failedId: string,
   report: QueuedReport,
 ): Promise<RequeueResult> {
-  const result = await inTransaction<RequeueResult>(
-    "readwrite",
-    "unavailable",
-    (store, finish) => {
-      const read = store.get(failedId);
-      read.onsuccess = () => {
-        const current = read.result as QueuedReport | undefined;
-        if (current?.status !== "failed") {
-          finish("stale");
-          return;
-        }
-        store.delete(failedId);
-        store.add(report);
-        finish("held");
-      };
-    },
-  );
+  const result = await inTransaction<RequeueResult>("readwrite", "unavailable", (store, finish) => {
+    const read = store.get(failedId);
+    read.onsuccess = () => {
+      const current = read.result as QueuedReport | undefined;
+      if (current?.status !== "failed") {
+        finish("stale");
+        return;
+      }
+      store.delete(failedId);
+      store.add(report);
+      finish("held");
+    };
+  });
   if (result === "held") notify();
   return result;
 }

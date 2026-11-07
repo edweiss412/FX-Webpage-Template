@@ -62,18 +62,25 @@ describe("parseOfflineFields", () => {
   });
 
   test("sentAt is the server's receipt, whatever the phone sent", () => {
-    const raw = { writtenAt: WRITTEN, pageRenderedAt: RENDERED, sentAt: "2001-01-01T00:00:00.000Z" };
+    const raw = {
+      writtenAt: WRITTEN,
+      pageRenderedAt: RENDERED,
+      sentAt: "2001-01-01T00:00:00.000Z",
+    };
     expect(parseOfflineFields(raw, RECEIVED)).toEqual({
       fields: { writtenAt: WRITTEN, pageRenderedAt: RENDERED, sentAt: RECEIVED.toISOString() },
       dropped: false,
     });
   });
 
-  test.each([[undefined], [null]])("a %s render time is null and nothing is dropped", (rendered) => {
-    const parsed = parseOfflineFields({ writtenAt: WRITTEN, pageRenderedAt: rendered }, RECEIVED);
-    expect(parsed.fields?.pageRenderedAt).toBeNull();
-    expect(parsed.dropped).toBe(false);
-  });
+  test.each([[undefined], [null]])(
+    "a %s render time is null and nothing is dropped",
+    (rendered) => {
+      const parsed = parseOfflineFields({ writtenAt: WRITTEN, pageRenderedAt: rendered }, RECEIVED);
+      expect(parsed.fields?.pageRenderedAt).toBeNull();
+      expect(parsed.dropped).toBe(false);
+    },
+  );
 
   test.each([["not a time"], [42]])("a malformed render time (%s) keeps the rest", (rendered) => {
     const parsed = parseOfflineFields({ writtenAt: WRITTEN, pageRenderedAt: rendered }, RECEIVED);

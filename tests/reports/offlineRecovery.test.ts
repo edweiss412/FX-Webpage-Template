@@ -34,7 +34,12 @@ const auth = { kind: "admin", email: adminIdentity } as const;
 const otherIdentity = "offline-recovery-other@example.com";
 const otherAuth = { kind: "admin", email: otherIdentity } as const;
 
-const ordinary = { idempotency_key: key, show_id: showId, message: "Dock B moved", surface: "crew" };
+const ordinary = {
+  idempotency_key: key,
+  show_id: showId,
+  message: "Dock B moved",
+  surface: "crew",
+};
 const T1 = {
   writtenAt: "2026-11-07T14:31:00.000Z",
   pageRenderedAt: "2026-11-07T14:14:00.000Z",

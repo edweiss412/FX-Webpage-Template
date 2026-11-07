@@ -305,9 +305,7 @@ describe("the offline section", () => {
     expect(text).toContain(
       "Written at 2026-11-07T14:31:00.000Z (phone time), sent at 2026-11-07T15:05:00.000Z.",
     );
-    expect(text).toContain(
-      "They were looking at the copy saved at 2026-11-07T14:14:00.000Z.",
-    );
+    expect(text).toContain("They were looking at the copy saved at 2026-11-07T14:14:00.000Z.");
   });
 
   test("the admin body has it after the note and before the raw snippet", () => {
