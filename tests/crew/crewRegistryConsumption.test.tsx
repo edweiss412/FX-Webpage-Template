@@ -332,7 +332,11 @@ describe("the crew panel card of every shared section reads the registry", () =>
     vi.doUnmock("@/components/crew/CrewSections");
     for (const id of SHARED_PANEL_IDS) {
       const node = screen.getByTestId(`node-${id}`);
-      const cards = [...node.querySelectorAll('[data-testid="crew-panel-card"]')];
+      // A crew-only card (Facilities) prints its own title, so it reads no registry label:
+      // a section's card is the one whose group is hidden.
+      const cards = [...node.querySelectorAll('[data-testid="crew-panel-card"]')].filter(
+        (card) => card.querySelector("[data-search-group][hidden]") !== null,
+      );
       premise(`${id} panel cards rendered`, cards.length, 0);
       for (const card of cards) {
         // Each card's name is its search group, printed or hidden (follow-ups spec §4).

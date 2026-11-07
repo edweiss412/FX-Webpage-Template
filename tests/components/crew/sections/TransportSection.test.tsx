@@ -927,6 +927,15 @@ function renderFlight(data: ShowForViewer) {
 }
 
 describe("transport: the Your flight card", () => {
+  test("transport: the flight card is a titled panel card, and the panel under it keeps its title", () => {
+    const root = renderTransport(show({ viewerFlightInfo: FLIGHT }));
+    const flight = root.querySelector('[data-card-id="travel-flight"]') as HTMLElement;
+    const card = within(flight).getByTestId("crew-panel-card");
+    expect(within(card).getByRole("heading", { level: 3 })).toHaveTextContent("Your flight");
+    expect(card.querySelector('[data-slot="panel-card-chip"] svg')).not.toBeNull();
+    expect(root.querySelector('[data-testid="section-card"]')).toBeNull();
+  });
+
   test("transport: TECH leg renders EVERY structured field: date label, route, airline, times, conf", () => {
     const flight =
       "EWR-FLL UNITED 5/13 - 11:29am - 2:34pm HQQ79F | FLL-EWR JET BLUE 5/15 - 8:59pm - 11:58pm OSUULZ";

@@ -39,7 +39,7 @@
  */
 import { MapIcon } from "@/components/crew/icons/sectionIcons";
 import { DIAGRAMS_HEADING, diagramGalleryItems } from "@/components/crew/diagramItems";
-import { SectionCard } from "@/components/crew/primitives/SectionCard";
+import { PanelCard } from "@/components/show-panels/PanelCard";
 import { Gallery } from "@/components/diagrams/Gallery";
 import { shouldHideDiagrams } from "@/lib/visibility/emptyState";
 import type { PersistedDiagrams } from "@/lib/parser/types";
@@ -69,11 +69,7 @@ export function DiagramsTile({ showId, diagrams, thumbnailSizes }: DiagramsTileP
           not the old tile atom: its body had a 240px cap for equal-height tile rows,
           which hid 167px of a full-width gallery behind a scroller with no scrollbar on
           a Mac, and its heading sat at 3.35:1. */}
-      <SectionCard
-        icon={<MapIcon />}
-        title={DIAGRAMS_HEADING}
-        headingSearchTarget={gallery.heading.id}
-      >
+      <PanelCard icon={MapIcon} title={DIAGRAMS_HEADING} titleSearchTarget={gallery.heading.id}>
         {diagrams ? (
           <Gallery
             showId={showId}
@@ -83,7 +79,7 @@ export function DiagramsTile({ showId, diagrams, thumbnailSizes }: DiagramsTileP
             {...(thumbnailSizes ? { sizes: thumbnailSizes } : {})}
           />
         ) : null}
-      </SectionCard>
+      </PanelCard>
     </div>
   );
 }

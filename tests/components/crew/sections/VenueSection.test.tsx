@@ -159,6 +159,37 @@ test("Facilities renders the .kvrow FactRows with dock/parking/wifi mini-icons (
 // (geocoding-at-ingest follow-up). venueDisplay resolves the city;
 // streetFromAddress drops the redundant city tail from the street so it isn't
 // printed twice. Each line is one search target, in render order.
+test("Facilities and Venue status are titled panel cards, so every card in the section shares a header", () => {
+  const data = makeShowForViewer({
+    show: {
+      venue: { name: "Center", address: "350 Fifth Ave" },
+      coi_status: "SENT",
+      event_details: { power: "(2) Drops" },
+    },
+  });
+  const { container } = render(
+    <VenueSection
+      {...ledgerProp()}
+      data={data}
+      viewer={{ kind: "admin" }}
+      today={TODAY}
+      showId={SHOW_ID}
+    />,
+  );
+  for (const [testId, title] of [
+    ["venue-facilities", "Facilities"],
+    ["venue-status", "Venue status"],
+  ] as const) {
+    const block = container.querySelector(`[data-testid="${testId}"]`);
+    const card = block?.querySelector('[data-testid="crew-panel-card"]');
+    expect(card, testId).not.toBeNull();
+    expect(card?.querySelector("h3")).toHaveTextContent(title);
+    expect(card?.querySelector('[data-slot="panel-card-chip"] svg')).not.toBeNull();
+    expect(card?.querySelector('[data-slot="section-card-action"]')).not.toBeNull();
+  }
+  expect(container.querySelector('[data-testid="section-card"]')).toBeNull();
+});
+
 function lines(where: Element): string[] {
   return [...where.querySelectorAll("[data-search-target]")].map((el) => el.textContent ?? "");
 }

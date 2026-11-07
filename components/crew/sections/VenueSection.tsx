@@ -48,7 +48,6 @@ import type { JSX } from "react";
 
 import { EmptyState } from "@/components/atoms/EmptyState";
 import { SectionTileError } from "@/components/crew/SectionTileError";
-import { SectionCard } from "@/components/crew/primitives/SectionCard";
 import { CardHeaderActions } from "@/components/crew/primitives/CardHeaderActions";
 import { DEFAULT_CARD_REPORT, type CardReportContext } from "@/lib/crew/cardReportContext";
 import { CARD_REGION_MAP } from "@/lib/sheet-links/buildSheetDeepLink";
@@ -220,10 +219,10 @@ export function VenueSection({
 
       {hasFacts ? (
         <div data-testid="venue-facilities" data-card-id={FACILITIES_CARD_ID}>
-          <SectionCard
-            icon={<BuildingIcon />}
+          <PanelCard
+            icon={BuildingIcon}
             title={FACILITIES_TITLE}
-            action={
+            actions={
               <CardHeaderActions
                 cardId={FACILITIES_CARD_ID}
                 driveFileId={data.driveFileId}
@@ -234,16 +233,16 @@ export function VenueSection({
             }
           >
             <FactRows rows={factRows} />
-          </SectionCard>
+          </PanelCard>
         </div>
       ) : null}
 
       {hasStatus ? (
         <div data-testid="venue-status" data-card-id={STATUS_CARD_ID}>
-          <SectionCard
-            icon={<InfoIcon />}
+          <PanelCard
+            icon={InfoIcon}
             title={STATUS_TITLE}
-            action={
+            actions={
               <CardHeaderActions
                 cardId={STATUS_CARD_ID}
                 driveFileId={data.driveFileId}
@@ -279,7 +278,7 @@ export function VenueSection({
                 <p className="text-sm text-text">{venueNotes.value}</p>
               </div>
             ) : null}
-          </SectionCard>
+          </PanelCard>
         </div>
       ) : null}
     </div>

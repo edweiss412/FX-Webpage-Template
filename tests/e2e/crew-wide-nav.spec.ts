@@ -213,8 +213,13 @@ test.describe("crew wide nav (spec §5.3)", () => {
         }
       }
       // 2. Inside a card, every heading but the title is deeper than the title.
-      for (const card of main.querySelectorAll('[data-testid="section-card"]')) {
-        const title = card.querySelector('[data-slot="section-card-title"]');
+      const cards = [
+        ...main.querySelectorAll('[data-testid="section-card"], [data-testid="crew-panel-card"]'),
+      ];
+      const titleOf = (card: Element) =>
+        card.querySelector('[data-slot="section-card-title"], [data-slot="panel-card-header"] h3');
+      for (const card of cards) {
+        const title = titleOf(card);
         if (!title) continue;
         for (const h of card.querySelectorAll("h1, h2, h3, h4, h5, h6")) {
           if (h !== title && level(h) <= level(title)) {
@@ -233,7 +238,7 @@ test.describe("crew wide nav (spec §5.3)", () => {
       return {
         problems,
         sections: sections.length,
-        cards: main.querySelectorAll('[data-slot="section-card-title"]').length,
+        cards: cards.filter(titleOf).length,
       };
     });
     // PREMISE: the walk reached the Today block, the stacked sections and their cards.

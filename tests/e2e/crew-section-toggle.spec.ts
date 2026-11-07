@@ -822,6 +822,36 @@ test.describe("crew compact home and section sheet (spec §5.2)", () => {
     expect(values).toBeGreaterThan(0);
   });
 
+  test("one title: no section repeats its own name, and no section draws the old card", async ({
+    page,
+  }) => {
+    await page.setViewportSize({ width: 390, height: 844 });
+    for (const id of ADMIN_SECTIONS) {
+      await load(page, `?s=${id}`);
+      await settleOpen(page);
+      const r = await page.evaluate(() => {
+        const name = document
+          .querySelector('[data-testid="crew-section-sheet-panel"] h2')
+          ?.textContent?.trim()
+          .toLowerCase();
+        const body = document.querySelector('[data-testid="crew-section-sheet-body"]')!;
+        const oldCards = body.querySelectorAll('[data-testid="section-card"]').length;
+        const clone = body.cloneNode(true) as HTMLElement;
+        clone.querySelectorAll("[hidden]").forEach((el) => el.remove());
+        const repeats = [...clone.querySelectorAll("*")]
+          .filter((el) => el.children.length === 0)
+          .map((el) => el.textContent?.trim() ?? "")
+          .filter((text) => text.toLowerCase() === name);
+        return { name, text: (clone.textContent ?? "").length, repeats, oldCards };
+      });
+      // PREMISE: a real name, and a body with text in it to compare against.
+      expect(r.name, id).toBeTruthy();
+      expect(r.text, id).toBeGreaterThan(0);
+      expect(r.repeats, id).toEqual([]);
+      expect(r.oldCards, id).toBe(0);
+    }
+  });
+
   test("type scale: section sizes step up, the home's do not, and a schedule weekday is a label", async ({
     page,
   }) => {
@@ -1707,7 +1737,7 @@ test.describe("hotels and transport: the travel alias and the transport gate, co
     const section = sheetDialog(page).getByTestId("section-hotels");
     await expect(section).toBeVisible();
     const card = section.locator('[data-card-id="travel-hotels"]');
-    await expect(card.getByRole("heading", { level: 3, name: HOTELS_LABEL })).toBeVisible();
+    await expect(card.getByRole("heading", { name: HOTELS_LABEL })).toHaveCount(0);
     const stay = card.getByTestId("crew-panel-hotel-card");
     await expect(stay).toHaveCount(1);
     for (const value of [HOTEL.hotelName, HOTEL.hotelAddress, HOTEL.confirmationNo, HOTEL.notes])
@@ -1838,7 +1868,7 @@ test.describe("hotels and transport: the travel alias and the transport gate, co
     const card = sheetDialog(page)
       .getByTestId("section-transport")
       .locator('[data-card-id="travel-getting-there"]');
-    await expect(card.getByRole("heading", { level: 3, name: TRANSPORT_LABEL })).toBeVisible();
+    await expect(card.getByRole("heading", { name: TRANSPORT_LABEL })).toHaveCount(0);
     for (const cell of ["Driver", "Load out", "Vehicle", "Parking"])
       await expect(card, cell).toContainText(cell);
     await expect(card).toContainText(LEG.stage);
@@ -2405,7 +2435,7 @@ test.describe("pack list: the Pack list section, compact (PR C Task 6)", () => {
       const section = sheetDialog(page).getByTestId("section-packlist");
       await expect(section).toContainText(CASE_LABEL);
       const panel = section.locator('[data-card-id="gear-pack-list"]');
-      await expect(panel.getByRole("heading", { level: 3 })).toHaveText(PACK_LABEL);
+      await expect(panel.getByRole("heading", { name: PACK_LABEL })).toHaveCount(0);
       // The numbered list, its item and raw row behind the case's own disclosure.
       await expect(panel.locator("ol > li")).toHaveCount(PULL_SHEET.length);
       await panel.locator("summary").first().click();

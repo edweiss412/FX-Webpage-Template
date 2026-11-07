@@ -1273,7 +1273,7 @@ test.describe("wifi password transcription affordance (production route)", () =>
       };
       const row = document.querySelector('[data-testid="venue-wifi-password"]');
       if (row === null) return null;
-      const card = row.closest('[data-testid="section-card"]');
+      const card = row.closest('[data-testid="crew-panel-card"]');
       const button = row.querySelector("button");
       // First span inside the dd in document order is the value span (the
       // wrapper div's first child); the announce region is a later sibling.
@@ -3859,7 +3859,7 @@ test.describe("billing: the crew panel card's header geometry (PR B Task 4)", ()
   });
 
   for (const width of [390, 320]) {
-    test(`billing: at ${width}px the panel card's chip is 28 by 28, its header row at least the chip's height, and its actions clear the label`, async ({
+    test(`facilities: at ${width}px the panel card's chip is 28 by 28, its header row at least the chip's height, and its actions clear the label`, async ({
       page,
     }) => {
       await page.setViewportSize({ width, height: 844 });
@@ -3871,7 +3871,7 @@ test.describe("billing: the crew panel card's header geometry (PR B Task 4)", ()
         Authorization: `Bearer ${TEST_AUTH_SECRET}`,
       });
       const lead = seeded.crew[0]!;
-      const res = await page.goto(`/admin/show/${seeded.slug}/preview/${lead.id}?s=billing`, {
+      const res = await page.goto(`/admin/show/${seeded.slug}/preview/${lead.id}?s=venue`, {
         waitUntil: "domcontentloaded",
       });
       expect(res?.status()).toBe(200);
@@ -3882,9 +3882,16 @@ test.describe("billing: the crew panel card's header geometry (PR B Task 4)", ()
       );
       const card = page
         .getByTestId("crew-section-sheet-dialog")
-        .getByTestId("section-billing")
+        .getByTestId("venue-facilities")
         .getByTestId("crew-panel-card");
       await expect(card).toBeVisible();
+      // The title is the panel card's at any width: 16px semibold, under the section type
+      // scale too, which leaves `text-base` alone (follow-ups spec §3, AC-6).
+      const title = await card.locator("h3").evaluate((el) => {
+        const cs = getComputedStyle(el);
+        return { size: cs.fontSize, weight: cs.fontWeight };
+      });
+      expect(title).toEqual({ size: "16px", weight: "600" });
       const chip = await rectOf(card.locator('[data-slot="panel-card-chip"]'));
       const header = await rectOf(card.locator('[data-slot="panel-card-header"]'));
       const label = await rectOf(card.locator("h3"));
@@ -4151,7 +4158,7 @@ test.describe("event details: the section on a seeded show (PR C Task 5)", () =>
     await expect(card).toContainText(EVENT.dress_code);
     await expect(card.locator('[data-slot="section-card-action"]')).toHaveCount(1);
     await expect(
-      sheet.getByRole("heading", { level: 4, name: "Dress code & key moments" }),
+      sheet.getByRole("heading", { level: 3, name: "Dress code & key moments" }),
     ).toBeVisible();
     await expect(sheet.getByTestId("section-event")).not.toContainText("Wardrobe");
   });
@@ -4339,7 +4346,7 @@ test.describe("event details: the section on a seeded show (PR C Task 5)", () =>
     const dress = await section.locator('[data-card-id="today-dress"]').evaluate(top);
     const stage = await section.getByText("Stage size", { exact: true }).evaluate(top);
     expect(dress).toBeLessThan(stage);
-    await expect(section.getByRole("heading", { level: 4 }).first()).toHaveText(
+    await expect(section.getByRole("heading", { level: 3 }).first()).toHaveText(
       "Dress code & key moments",
     );
   });
@@ -4696,7 +4703,7 @@ test.describe("rooms: the section on a seeded show (PR C Task 7)", () => {
             return 0.2126 * r! + 0.7152 * g! + 0.0722 * b!;
           };
           const heading = tile.querySelector("h3")!;
-          const card = tile.querySelector('[data-testid="section-card"]') ?? tile;
+          const card = tile.querySelector('[data-testid="crew-panel-card"]') ?? tile;
           const [hi, lo] = [
             luminance(getComputedStyle(heading).color),
             luminance(getComputedStyle(card).backgroundColor),
