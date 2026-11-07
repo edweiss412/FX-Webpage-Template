@@ -96,7 +96,7 @@ export function createReportSender(
       const response = await fetchImpl("/api/report", {
         method: "POST",
         headers: { "content-type": "application/json" },
-        body: JSON.stringify(queuedRequestBody(report)),
+        body: JSON.stringify(queuedRequestBody(report)), // jsonb-text-exempt: a fetch body
         signal: controller.signal,
       });
       let body: unknown = null;

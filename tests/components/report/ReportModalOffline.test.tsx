@@ -419,6 +419,44 @@ describe("what is not held", () => {
   });
 });
 
+describe("focus when the control that held it goes away", () => {
+  test("a failure with focus on the page returns it to Retry", async () => {
+    fetchMock.mockImplementationOnce(async () => {
+      (document.activeElement as HTMLElement | null)?.blur();
+      return jsonResponse(502, { ok: false, code: "REPORT_LOOKUP_INCONCLUSIVE" });
+    });
+    render(<ReportModal {...props()} />);
+    write("text");
+    tapSubmit();
+    await failedRetryable();
+    await waitFor(() =>
+      expect(document.activeElement).toBe(screen.getByTestId("report-modal-retry")),
+    );
+  });
+
+  test("a success with focus on the page lands on Close", async () => {
+    fetchMock.mockImplementationOnce(async () => {
+      (document.activeElement as HTMLElement | null)?.blur();
+      return jsonResponse(201, { ok: true, status: "created" });
+    });
+    render(<ReportModal {...props()} />);
+    write("text");
+    tapSubmit();
+    await waitFor(() => expect(state()).toBe("succeeded"));
+    await waitFor(() => expect(document.activeElement?.textContent).toBe("Close"));
+  });
+
+  test("a failure that left focus in the textarea leaves it there", async () => {
+    fetchMock.mockResolvedValueOnce(jsonResponse(502, { ok: false }));
+    render(<ReportModal {...props()} />);
+    write("text");
+    textarea().focus();
+    tapSubmit();
+    await failedRetryable();
+    expect(document.activeElement).toBe(textarea());
+  });
+});
+
 describe("rule 8: the first POST carries the writer", () => {
   function firstBody(): Record<string, unknown> {
     return JSON.parse(String(fetchMock.mock.calls[0]?.[1]?.body)) as Record<string, unknown>;

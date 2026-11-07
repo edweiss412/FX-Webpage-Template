@@ -194,7 +194,10 @@ describe("Server-side time-call grep guard (test #16 — AC-11.38)", () => {
   // read them. Re-derived by running this guard.
   // 249 -> 248 (crew page redesign PR C Task 7): lib/crew/roomDetailFields.ts retired
   // with its last consumer. Re-derived by running this guard.
-  const DERIVED_LIB_POPULATION = 248;
+  // 248 -> 250 (crew offline reports): lib/reports/offlineQueue.ts and
+  // lib/reports/offlineSender.ts, the client's held reports and their sender.
+  // Re-derived by running this guard.
+  const DERIVED_LIB_POPULATION = 250;
 
   it(`the derived lib population has exactly ${DERIVED_LIB_POPULATION} members, including both directory-index modules`, () => {
     // The shipped resolver tried only <base>.ts and <base>.tsx, so five live

@@ -37,6 +37,7 @@
  */
 import { useEffect, useMemo, useRef, useState } from "react";
 
+import { ARM_EXPIRED_ANNOUNCEMENT, ARM_REVERT_MS } from "@/lib/admin/destructiveConfirm";
 import { useDialogFocus } from "@/lib/a11y/dialogFocus";
 import { isMessageCode, messageFor, type MessageCode } from "@/lib/messages/lookup";
 import { HelpAffordance } from "@/components/admin/HelpAffordance";
@@ -332,6 +333,7 @@ export function ReportModal(props: ReportModalProps) {
 
   // The failed record in hand. A refusal of the resend replaces it.
   const [record, setRecord] = useState<QueuedReport | null>(failedReport ?? null);
+  const [refusedAgain, setRefusedAgain] = useState(false);
 
   const [idempotencyKey, setIdempotencyKey] = useState<string>(() => {
     if (persistedAtMount?.idempotencyKey) return persistedAtMount.idempotencyKey;
@@ -470,11 +472,28 @@ export function ReportModal(props: ReportModalProps) {
     });
   }, [failedReport, idempotencyKey, draft, status, surfaceId, error, writer]);
 
-  // Done replaces the control that had focus, so focus moves to it by hand.
-  const doneRef = useRef<HTMLButtonElement | null>(null);
+  // The control holding focus can leave with the state it belonged to: Done
+  // replaces the action row, and a disabled button drops focus to the page, where
+  // the next Tab reaches the controls behind the dialog. So focus moves to the
+  // state's main control by hand, and only when it has nowhere else to be.
+  const primaryRef = useRef<HTMLButtonElement | null>(null);
   useEffect(() => {
-    if (status === "queued" || status === "stale") doneRef.current?.focus();
-  }, [status]);
+    if (status === "submitting") return;
+    const active = document.activeElement;
+    const fell = active === null || active === document.body;
+    if (fell || status === "queued" || status === "stale") primaryRef.current?.focus();
+  }, [status, record]);
+
+  // Discard is two taps, because nothing brings the text back (DESIGN.md §15 tier 2).
+  const [discardArmed, setDiscardArmed] = useState(false);
+  const [discardExpired, setDiscardExpired] = useState(false);
+  const discardTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  useEffect(
+    () => () => {
+      if (discardTimer.current !== null) clearTimeout(discardTimer.current);
+    },
+    [],
+  );
 
   useEffect(() => {
     if (joinedHold) void showHoldResult(joinedHold.write);
@@ -564,6 +583,7 @@ export function ReportModal(props: ReportModalProps) {
   async function resendFailed(current: QueuedReport): Promise<void> {
     setStatus("submitting");
     setError(null);
+    setRefusedAgain(false);
     const next: QueuedReport = {
       ...current,
       id: mintUuid(),
@@ -588,6 +608,7 @@ export function ReportModal(props: ReportModalProps) {
       setSuccess({ kind: "succeeded" });
     } else if (outcome.kind === "failed") {
       setRecord({ ...next, status: "failed", errorCode: outcome.code });
+      setRefusedAgain(true);
       setStatus("composing");
     } else {
       setStatus("queued");
@@ -595,6 +616,16 @@ export function ReportModal(props: ReportModalProps) {
   }
 
   async function handleDiscard(): Promise<void> {
+    if (!discardArmed) {
+      setDiscardArmed(true);
+      setDiscardExpired(false);
+      discardTimer.current = setTimeout(() => {
+        setDiscardArmed(false);
+        setDiscardExpired(true);
+      }, ARM_REVERT_MS);
+      return;
+    }
+    if (discardTimer.current !== null) clearTimeout(discardTimer.current);
     if (record) await deleteReport(record.id);
     handleClose();
   }
@@ -794,10 +825,15 @@ export function ReportModal(props: ReportModalProps) {
         ? helpCaptureLine(autocapture?.fieldRef)
         : "This files a GitHub issue for Eric to triage.";
   const submitLabel = record ? "Send again" : showResumeBanner ? "Resume submission" : "Submit";
+  // The horizon's copy says to open a fresh report, and Send again is one: on this
+  // sheet that line would contradict the button under it.
   const failedCopy =
-    record !== null && isKnownCode(record.errorCode)
+    record !== null &&
+    record.errorCode !== "REPORT_HORIZON_EXPIRED" &&
+    isKnownCode(record.errorCode)
       ? copyForCode(record.errorCode, surface)
       : null;
+  const showFailedNotice = record !== null && canSubmit;
 
   // POLISH-D1/D3: errorCopy is always a string (possibly empty) when error
   // is set. Null in the catalog (e.g., a code with null facing-for-surface)
@@ -824,6 +860,7 @@ export function ReportModal(props: ReportModalProps) {
       role="dialog"
       aria-modal="true"
       aria-labelledby="report-modal-heading"
+      aria-describedby={showFailedNotice ? "report-modal-failed-notice" : undefined}
       className="fixed inset-0 z-overlay flex items-end justify-center sm:items-center"
     >
       {/* THE MODAL'S ONE LIVE REGION (BL-ANNOUNCE-REGION-UNMOUNT-CLASS).
@@ -844,7 +881,13 @@ export function ReportModal(props: ReportModalProps) {
                 ? `${QUEUED_LEAD} ${QUEUED_REST}`
                 : status === "stale"
                   ? STALE_LINE
-                  : ""}
+                  : discardArmed
+                    ? "Tap again to discard."
+                    : discardExpired
+                      ? ARM_EXPIRED_ANNOUNCEMENT
+                      : refusedAgain
+                        ? FAILED_LINE
+                        : ""}
       </p>
 
       {/* Backdrop. Tap-outside-to-close preserves the key (handleClose). */}
@@ -859,7 +902,7 @@ export function ReportModal(props: ReportModalProps) {
 
       <div
         ref={containerRef}
-        className="relative w-full max-w-panel-max rounded-t-md bg-surface text-text shadow-tile sm:rounded-md motion-safe:animate-[sheet-rise_220ms_cubic-bezier(0.25,1,0.5,1)] motion-reduce:animate-none"
+        className="relative max-h-full w-full max-w-panel-max overflow-y-auto rounded-t-md bg-surface text-base text-text shadow-tile sm:rounded-md motion-safe:animate-[sheet-rise_220ms_cubic-bezier(0.25,1,0.5,1)] motion-reduce:animate-none"
       >
         {/*
           Mobile drag-handle. Visual affordance ONLY — pull-to-dismiss
@@ -912,8 +955,9 @@ export function ReportModal(props: ReportModalProps) {
           </div>
         ) : null}
 
-        {record !== null && canSubmit ? (
+        {showFailedNotice ? (
           <div
+            id="report-modal-failed-notice"
             data-testid="report-modal-failed-notice"
             className="mx-4 mt-2 rounded-sm bg-warning-bg px-3 py-2 text-sm text-warning-text sm:mx-6"
           >
@@ -988,6 +1032,7 @@ export function ReportModal(props: ReportModalProps) {
               <p className="mt-2 text-sm text-text-subtle">Thanks, we&apos;ll take a look.</p>
             )}
             <button
+              ref={primaryRef}
               type="button"
               onClick={handleClose}
               className="mt-4 inline-flex min-h-tap-min items-center rounded-sm border border-text-faint px-3 py-2 text-sm font-medium text-text transition-colors duration-fast hover:bg-surface-sunken focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring focus-visible:ring-offset-2 focus-visible:ring-offset-surface"
@@ -1004,6 +1049,7 @@ export function ReportModal(props: ReportModalProps) {
               <HelpAffordance code={error.code} />
             ) : null}
             <button
+              ref={primaryRef}
               type="button"
               onClick={handleStartFreshConfirm}
               className="mt-4 inline-flex min-h-tap-min items-center rounded-sm bg-accent px-4 py-2 font-medium text-accent-text transition-colors duration-fast hover:bg-accent-hover focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring focus-visible:ring-offset-2 focus-visible:ring-offset-surface"
@@ -1026,8 +1072,9 @@ export function ReportModal(props: ReportModalProps) {
                 placeholder={placeholder}
                 rows={6}
                 readOnly={!canSubmit}
-                autoFocus
-                className="block w-full resize-y rounded-sm border border-text-faint bg-bg px-3 py-2 text-base text-text placeholder:text-text-subtle focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring disabled:opacity-60"
+                // A failed report opens to a decision: the keyboard would cover it.
+                autoFocus={record === null}
+                className="block w-full resize-y rounded-sm border border-text-faint bg-bg px-3 py-2 text-base text-text placeholder:text-text-subtle read-only:bg-surface-sunken read-only:text-text-subtle focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring disabled:opacity-60"
                 style={{ maxHeight: "40vh" }}
               />
               {error && status === "failed-retryable" ? (
@@ -1080,29 +1127,34 @@ export function ReportModal(props: ReportModalProps) {
               ) : null}
             </div>
 
-            <div className="flex items-center justify-end gap-2 border-t border-border px-4 py-3 sm:px-6">
-              {record !== null && canSubmit ? (
+            <div className="flex flex-wrap items-center justify-end gap-2 border-t border-border px-4 py-3 sm:px-6">
+              {showFailedNotice ? (
                 <button
                   type="button"
                   data-testid="report-modal-discard"
                   onClick={() => void handleDiscard()}
-                  className="inline-flex min-h-tap-min items-center rounded-sm border border-text-faint px-3 py-2 text-sm font-medium text-text transition-colors duration-fast hover:bg-surface-sunken focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring focus-visible:ring-offset-2 focus-visible:ring-offset-surface"
+                  className={
+                    discardArmed
+                      ? "inline-flex min-h-tap-min items-center rounded-sm bg-warning-text px-3 py-2 text-sm font-semibold text-warning-bg transition-opacity duration-fast hover:opacity-90 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring focus-visible:ring-offset-2 focus-visible:ring-offset-surface"
+                      : "inline-flex min-h-tap-min items-center rounded-sm border border-text-faint px-3 py-2 text-sm font-medium text-text transition-colors duration-fast hover:bg-surface-sunken focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring focus-visible:ring-offset-2 focus-visible:ring-offset-surface"
+                  }
                 >
-                  Discard
+                  {discardArmed ? "Tap again to discard" : "Discard"}
                 </button>
               ) : null}
               {status === "queued" || status === "stale" ? (
                 <button
                   type="button"
-                  ref={doneRef}
+                  ref={primaryRef}
                   data-testid="report-modal-done"
                   onClick={handleClose}
                   className="inline-flex min-h-tap-min items-center rounded-sm bg-accent px-4 py-2 font-medium text-accent-text transition-colors duration-fast hover:bg-accent-hover focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring focus-visible:ring-offset-2 focus-visible:ring-offset-surface"
                 >
                   {status === "stale" ? "Close" : "Done"}
                 </button>
-              ) : status === "failed-retryable" && !mountedFromResume ? (
+              ) : status === "failed-retryable" && !mountedFromResume && record === null ? (
                 <button
+                  ref={primaryRef}
                   type="button"
                   data-testid="report-modal-retry"
                   onClick={handleRetry}
@@ -1113,6 +1165,7 @@ export function ReportModal(props: ReportModalProps) {
                 </button>
               ) : (
                 <button
+                  ref={primaryRef}
                   type="button"
                   data-testid="report-modal-submit"
                   data-resume={showResumeBanner ? "true" : undefined}

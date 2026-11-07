@@ -106,6 +106,14 @@ describe("the counts", () => {
     );
   });
 
+  test("the failed count says it opens a dialog", async () => {
+    await enqueueReport(report(1, { status: "failed" }));
+    await mounted();
+    const failed = await screen.findByTestId("report-queue-failed");
+    expect(failed.getAttribute("aria-haspopup")).toBe("dialog");
+    expect(failed.tagName).toBe("BUTTON");
+  });
+
   test("another show's records count for neither", async () => {
     await enqueueReport(report(1, { showId: OTHER }));
     await enqueueReport(report(2, { showId: OTHER, status: "failed" }));
@@ -342,7 +350,9 @@ describe("tapping the failed count", () => {
     const failed = await screen.findByTestId("report-queue-failed");
     failed.focus();
     fireEvent.click(failed);
-    fireEvent.click(await screen.findByTestId("report-modal-discard"));
+    const discard = await screen.findByTestId("report-modal-discard");
+    fireEvent.click(discard);
+    fireEvent.click(discard);
     await waitFor(() => expect(screen.queryByTestId("report-queue-failed")).toBeNull());
     await waitFor(() =>
       expect(document.activeElement).toBe(screen.getByTestId("report-button-trigger")),

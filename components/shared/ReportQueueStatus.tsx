@@ -121,7 +121,7 @@ export function ReportQueueStatus({
         {announcement}
       </p>
       {waiting > 0 || failed.length > 0 ? (
-        <div className="flex shrink-0 flex-col items-end gap-1">
+        <div className="order-last flex min-w-0 basis-full flex-wrap items-center gap-2 sm:order-none sm:shrink-0 sm:basis-auto sm:flex-col sm:items-end sm:gap-1">
           {waiting > 0 ? (
             <span
               aria-hidden="true"
@@ -134,10 +134,24 @@ export function ReportQueueStatus({
           {failed[0] ? (
             <button
               type="button"
+              aria-haspopup="dialog"
               data-testid="report-queue-failed"
               onClick={() => setResending(failed[0] ?? null)}
-              className="inline-flex min-h-tap-min items-center rounded-sm bg-warning-bg px-2 text-xs font-semibold text-warning-text underline underline-offset-2 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring focus-visible:ring-offset-2 focus-visible:ring-offset-surface-raised"
+              className="inline-flex min-h-tap-min items-center gap-1.5 rounded-sm border border-warning-text bg-warning-bg px-2.5 text-sm font-semibold text-warning-text transition-opacity duration-fast hover:opacity-90 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring focus-visible:ring-offset-2 focus-visible:ring-offset-surface-raised"
             >
+              <svg
+                aria-hidden="true"
+                viewBox="0 0 24 24"
+                className="size-4 shrink-0"
+                fill="none"
+                stroke="currentColor"
+                strokeWidth="2"
+                strokeLinecap="round"
+                strokeLinejoin="round"
+              >
+                <path d="M12 3l9.5 17h-19z" />
+                <path d="M12 10v4M12 17.5v.01" />
+              </svg>
               {failedLabel(failed.length)}
             </button>
           ) : null}

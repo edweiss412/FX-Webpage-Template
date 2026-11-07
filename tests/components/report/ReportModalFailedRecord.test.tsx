@@ -23,7 +23,9 @@ import {
   type QueuedReport,
 } from "@/lib/reports/offlineQueue";
 import * as queue from "@/lib/reports/offlineQueue";
+import { ARM_EXPIRED_ANNOUNCEMENT, ARM_REVERT_MS } from "@/lib/admin/destructiveConfirm";
 import { reportSender } from "@/lib/reports/offlineSender";
+import { premiseHolds } from "@/tests/_shared/premise";
 
 const SHOW = "11111111-1111-4111-8111-111111111111";
 const SURFACE = "footer-crew-east-coast";
@@ -110,6 +112,7 @@ beforeEach(async () => {
 
 afterEach(() => {
   cleanup();
+  vi.useRealTimers();
   vi.restoreAllMocks();
   vi.unstubAllGlobals();
   plant(null);
@@ -125,10 +128,17 @@ describe("opening a failed record", () => {
   });
 
   test("a cataloged code adds its crew copy, and the code itself never shows", () => {
-    render(modal({ ...record, errorCode: "REPORT_HORIZON_EXPIRED" }));
+    render(modal({ ...record, errorCode: "PICKER_SHOW_UNAVAILABLE" }));
     const notice = screen.getByTestId("report-modal-failed-notice").textContent ?? "";
-    expect(notice).toContain(MESSAGE_CATALOG.REPORT_HORIZON_EXPIRED.crewFacing as string);
-    expect(document.body.textContent).not.toContain("REPORT_HORIZON_EXPIRED");
+    expect(notice).toContain(MESSAGE_CATALOG.PICKER_SHOW_UNAVAILABLE.crewFacing as string);
+    expect(document.body.textContent).not.toContain("PICKER_SHOW_UNAVAILABLE");
+  });
+
+  test("the horizon code's copy says to start over, which Send again makes untrue, so it stays out", () => {
+    render(modal({ ...record, errorCode: "REPORT_HORIZON_EXPIRED" }));
+    expect(screen.getByTestId("report-modal-failed-notice").textContent).toBe(
+      "This report couldn't be sent. Send it again or discard it.",
+    );
   });
 
   test("an unknown code adds nothing", () => {
@@ -137,6 +147,19 @@ describe("opening a failed record", () => {
       "This report couldn't be sent. Send it again or discard it.",
     );
     expect(document.body.textContent).not.toContain("SOMETHING_NEW");
+  });
+
+  test("the dialog is described by the notice, so a reader hears why it opened", () => {
+    render(modal(record));
+    const root = screen.getByTestId("report-modal-root");
+    expect(root.getAttribute("aria-describedby")).toBe(
+      screen.getByTestId("report-modal-failed-notice").id,
+    );
+  });
+
+  test("it opens on the notice's decision, not in the keyboard", () => {
+    render(modal(record));
+    expect(document.activeElement).not.toBe(textarea());
   });
 
   test("the button says Send again", () => {
@@ -257,14 +280,15 @@ describe("Send again", () => {
 
   test("refused again: failed under the new key, the notice and text kept, then another key", async () => {
     fetchMock
-      .mockResolvedValueOnce(answer(410, { ok: false, code: "REPORT_HORIZON_EXPIRED" }))
+      .mockResolvedValueOnce(answer(410, { ok: false, code: "PICKER_SHOW_UNAVAILABLE" }))
       .mockResolvedValueOnce(created());
     render(modal(record));
     fireEvent.change(textarea(), { target: { value: "edited" } });
     sendAgain();
+    await waitFor(() => expect(state()).toBe("composing"));
     await waitFor(() =>
       expect(screen.getByTestId("report-modal-failed-notice").textContent).toContain(
-        MESSAGE_CATALOG.REPORT_HORIZON_EXPIRED.crewFacing as string,
+        "couldn't be sent",
       ),
     );
 
@@ -277,6 +301,22 @@ describe("Send again", () => {
     await waitFor(() => expect(state()).toBe("succeeded"));
     expect(posted(1).idempotency_key).not.toBe(posted(0).idempotency_key);
     expect(await listReports()).toEqual([]);
+  });
+
+  test("refused again: it is spoken, and focus lands back on Send again rather than the page", async () => {
+    fetchMock.mockImplementationOnce(async () => {
+      (document.activeElement as HTMLElement | null)?.blur();
+      return answer(401, { ok: false });
+    });
+    render(modal(record));
+    screen.getByTestId("report-modal-submit").focus();
+    sendAgain();
+    await waitFor(() =>
+      expect(screen.getByRole("status").textContent).toContain("couldn't be sent"),
+    );
+    await waitFor(() =>
+      expect(document.activeElement).toBe(screen.getByTestId("report-modal-submit")),
+    );
   });
 
   test("the swap unavailable: no POST, the record kept, and a retry mints another key", async () => {
@@ -295,7 +335,8 @@ describe("Send again", () => {
       MESSAGE_CATALOG.NETWORK_UNREACHABLE.crewFacing as string,
     );
 
-    fireEvent.click(screen.getByTestId("report-modal-retry"));
+    expect(screen.getByTestId("report-modal-submit").textContent).toBe("Send again");
+    sendAgain();
     await waitFor(() => expect(state()).toBe("succeeded"));
     const keys = swap.mock.calls.map((call) => call[1].id);
     expect(new Set(keys).size).toBe(2);
@@ -367,18 +408,60 @@ describe("another tab got there first", () => {
     render(modal(record, { onOpenChange }));
     await deleteReport(OLD_KEY);
     fireEvent.click(screen.getByTestId("report-modal-discard"));
+    fireEvent.click(screen.getByTestId("report-modal-discard"));
     await waitFor(() => expect(onOpenChange).toHaveBeenCalledWith(false));
   });
 });
 
 describe("Discard", () => {
-  test("removes the record and closes, with no fetch", async () => {
+  const discard = (): HTMLElement => screen.getByTestId("report-modal-discard");
+
+  test("the first tap only arms it, with the confirm recipe", async () => {
+    render(modal(record));
+    expect(discard().textContent).toBe("Discard");
+    fireEvent.click(discard());
+    expect(discard().textContent).toBe("Tap again to discard");
+    expect(discard().className).toContain("bg-warning-text");
+    expect(discard().className).toContain("text-warning-bg");
+    expect(screen.getByRole("status").textContent).toBe("Tap again to discard.");
+    expect(await listReports()).toHaveLength(1);
+  });
+
+  test("the second tap removes the record and closes, with no fetch", async () => {
     const onOpenChange = vi.fn();
     render(modal(record, { onOpenChange }));
-    fireEvent.click(screen.getByTestId("report-modal-discard"));
+    fireEvent.click(discard());
+    fireEvent.click(discard());
     await waitFor(() => expect(onOpenChange).toHaveBeenCalledWith(false));
     expect(await listReports()).toEqual([]);
     expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  test("left alone it reverts and says so, with the record kept", async () => {
+    vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
+    render(modal(record));
+    fireEvent.click(discard());
+    act(() => {
+      vi.advanceTimersByTime(ARM_REVERT_MS - 1);
+    });
+    expect(discard().textContent).toBe("Tap again to discard");
+    act(() => {
+      vi.advanceTimersByTime(1);
+    });
+    expect(discard().textContent).toBe("Discard");
+    expect(screen.getByRole("status").textContent).toBe(ARM_EXPIRED_ANNOUNCEMENT);
+    vi.useRealTimers();
+    expect(await listReports()).toHaveLength(1);
+  });
+
+  test("the timer goes with the modal", () => {
+    vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
+    const { unmount } = render(modal(record));
+    const before = vi.getTimerCount();
+    fireEvent.click(discard());
+    premiseHolds("arming started a timer", vi.getTimerCount() === before + 1);
+    unmount();
+    expect(vi.getTimerCount()).toBeLessThanOrEqual(before);
   });
 });
 

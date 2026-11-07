@@ -379,7 +379,10 @@ test("a refused report can be discarded, and stays gone", async ({
   ]);
   await signalBack(crewPage);
   await failed(crewPage).click();
-  await crewPage.getByTestId("report-modal-discard").click();
+  const discard = crewPage.getByTestId("report-modal-discard");
+  await discard.click();
+  await expect(discard).toHaveText("Tap again to discard");
+  await discard.click();
   await expect(failed(crewPage)).toHaveCount(0);
 
   await crewPage.goto(`${origin}${crewUrlPath(show)}`);
@@ -439,4 +442,47 @@ test("the footer band holds both counts at 390px with no overflow", async ({
   const viewport = crewPage.viewportSize();
   premiseHolds("the case runs at the phone width", viewport?.width === 390);
   expect((triggerBox?.x ?? 0) + (triggerBox?.width ?? 0)).toBeLessThanOrEqual(390);
+});
+
+test("the counts and the failed sheet hold on a small screen and at a short one", async ({
+  crewPage,
+  crewProxy,
+  origin,
+}) => {
+  const show = await seedCase();
+  await openShow(crewPage, origin, show);
+  await writeQueue(crewPage, [
+    storedReport(show, 1, { status: "queued" }),
+    storedReport(show, 2, { status: "failed" }),
+  ]);
+  crewProxy.setMode("refuse");
+  await crewPage.setViewportSize({ width: 320, height: 568 });
+  await crewPage.goto(`${origin}${crewUrlPath(show)}`);
+  await queueReady(crewPage);
+  await expect(failed(crewPage)).toBeVisible();
+
+  // Past a phone's width of room, the counts take their own row rather than
+  // pushing the band sideways. Text at 200% is the harshest ordinary case.
+  await crewPage.evaluate(() => {
+    document.documentElement.style.fontSize = "200%";
+  });
+  const overflow = await crewPage
+    .getByTestId("page-footer")
+    .evaluate((footer) => footer.scrollWidth - footer.clientWidth);
+  expect(overflow).toBeLessThanOrEqual(0);
+  const trigger = await crewPage.getByTestId("report-button-trigger").boundingBox();
+  expect((trigger?.x ?? 0) + (trigger?.width ?? 0)).toBeLessThanOrEqual(320);
+  await crewPage.evaluate(() => {
+    document.documentElement.style.fontSize = "";
+  });
+
+  // A landscape phone: the sheet scrolls, so both ends can be reached.
+  await crewPage.setViewportSize({ width: 844, height: 390 });
+  await failed(crewPage).click();
+  const close = crewPage.getByTestId("report-modal-close");
+  const send = crewPage.getByTestId("report-modal-submit");
+  await close.scrollIntoViewIfNeeded();
+  await expect(close).toBeInViewport();
+  await send.scrollIntoViewIfNeeded();
+  await expect(send).toBeInViewport();
 });
