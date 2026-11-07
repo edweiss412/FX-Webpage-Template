@@ -150,6 +150,31 @@ describe("the flush before a name switch", () => {
     sessionStorage.clear();
   });
 
+  test("storage that refuses access never stops the switch", () => {
+    vi.spyOn(reportSender, "flush").mockReturnValue(null);
+    const marker = document.createElement("template");
+    for (const [name, value] of Object.entries(
+      markerAttributes({
+        disposition: "save",
+        showId: ROUTE.showId,
+        renderedAt: "2026-11-07T12:00:00.000Z",
+        epoch: 1,
+        viewer: "viewer-a",
+        assets: [],
+      }),
+    )) {
+      marker.setAttribute(name, value);
+    }
+    document.body.appendChild(marker);
+    vi.spyOn(window, "sessionStorage", "get").mockImplementation(() => {
+      throw new DOMException("denied", "SecurityError");
+    });
+    const action = heldAction();
+    openAndTap(action);
+    expect(action).toHaveBeenCalledTimes(1);
+    marker.remove();
+  });
+
   test("with no author on the page, a switch drops nothing", () => {
     vi.spyOn(reportSender, "flush").mockReturnValue(null);
     sessionStorage.setItem(

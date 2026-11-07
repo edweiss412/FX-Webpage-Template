@@ -43,7 +43,7 @@ type Stored = Record<string, unknown> & { id: string; status: string; message: s
 
 type CaseShow = { showId: string; slug: string; shareToken: string; crewMemberId: string };
 
-const seeded: Array<{ driveFileId: string; showId: string }> = [];
+const seeded: Array<{ driveFileId: string; showId: string; crewMemberId: string }> = [];
 
 test.describe.configure({ timeout: 180_000 });
 
@@ -52,9 +52,13 @@ test.beforeAll(async ({ crewOfflineProxy }) => {
 });
 
 test.afterEach(async () => {
-  for (const { driveFileId, showId } of seeded.splice(0)) {
-    const { error } = await admin.from("reports").delete().eq("show_id", showId);
-    if (error) throw new Error(`crew offline reports e2e: ${error.message}`);
+  for (const { driveFileId, showId, crewMemberId } of seeded.splice(0)) {
+    // A POST that reached the route reserved a report row and a quota row, and
+    // neither cascades from the show.
+    const reports = await admin.from("reports").delete().eq("show_id", showId);
+    if (reports.error) throw new Error(`crew offline reports e2e: ${reports.error.message}`);
+    const quota = await admin.from("report_rate_limits").delete().eq("identity", crewMemberId);
+    if (quota.error) throw new Error(`crew offline reports e2e: ${quota.error.message}`);
     await deleteSeededShow(driveFileId);
   }
 });
@@ -66,9 +70,9 @@ async function seedCase(): Promise<CaseShow> {
     venue: { name: "Offline Hall", address: "41 Dock Road" } as never,
     crew: [{ name: "Riley Offline", role: "A1" }],
   });
-  seeded.push({ driveFileId: show.driveFileId, showId: show.showId });
   const crewMember = show.crew[0];
   if (crewMember === undefined) throw new Error("seedCase: the show has no crew member");
+  seeded.push({ driveFileId: show.driveFileId, showId: show.showId, crewMemberId: crewMember.id });
   return {
     showId: show.showId,
     slug: show.slug,

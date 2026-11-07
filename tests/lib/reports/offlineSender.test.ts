@@ -584,9 +584,16 @@ describe("flush", () => {
     await vi.waitFor(() => expect(posted).toHaveLength(1));
     const flushed = sender.flush(3000);
     expect(flushed).not.toBeNull();
+    let settled = false;
+    void flushed?.then(() => {
+      settled = true;
+    });
+    await new Promise((resolve) => setTimeout(resolve, 20));
+    expect(settled, "the flush waits for the pass that is still sending").toBe(false);
     release(CREATED());
     await running;
     await flushed;
+    expect(settled).toBe(true);
   });
 
   test("a queue the sender has read as empty goes back to null", () => {

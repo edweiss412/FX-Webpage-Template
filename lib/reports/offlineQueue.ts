@@ -273,20 +273,26 @@ export const REPORT_DRAFT_PREFIX = "fxav-report-attempt-";
  * on that surface after switching back would meet the old draft again.
  */
 export function dropDraftsWrittenBy(writer: string): void {
-  if (typeof window === "undefined") return;
-  const store = window.sessionStorage;
-  const keys: string[] = [];
-  for (let i = 0; i < store.length; i += 1) {
-    const key = store.key(i);
-    if (key !== null && key.startsWith(REPORT_DRAFT_PREFIX)) keys.push(key);
-  }
-  for (const key of keys) {
-    try {
-      const row = JSON.parse(store.getItem(key) ?? "null") as { writer?: unknown } | null;
-      if (row?.writer === writer) store.removeItem(key);
-    } catch {
-      // Not a draft this code wrote; left alone.
+  // A storage refusal (a SecurityError on the property itself) must never stop
+  // the switch this runs inside, so nothing here throws.
+  try {
+    if (typeof window === "undefined") return;
+    const store = window.sessionStorage;
+    const keys: string[] = [];
+    for (let i = 0; i < store.length; i += 1) {
+      const key = store.key(i);
+      if (key !== null && key.startsWith(REPORT_DRAFT_PREFIX)) keys.push(key);
     }
+    for (const key of keys) {
+      try {
+        const row = JSON.parse(store.getItem(key) ?? "null") as { writer?: unknown } | null;
+        if (row?.writer === writer) store.removeItem(key);
+      } catch {
+        // Not a draft this code wrote; left alone.
+      }
+    }
+  } catch {
+    // Storage refused: nothing to drop that anyone could read back either.
   }
 }
 
