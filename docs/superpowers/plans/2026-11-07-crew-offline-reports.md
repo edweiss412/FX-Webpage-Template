@@ -67,7 +67,8 @@ Failure modes the spec implies and a person would meet. Each has a named test in
   | 5 | H lives in a module `Map` keyed by `surfaceId` and writer, holding `{ attemptId, write }`. Same person, same surface: one H at a time, because a remount joins instead of submitting. Each H removes only its own entry. |
   | 6 | A modal mounting with an H under its own surface and W joins: it hydrates R, adopts `attemptId`, starts in `submitting`, read-only, and shows the result: `held` is the queued notice, a refusal is the failure with the text. A modal under another W sees no H. |
   | 7 | On `held`, H clears R only if `R.attemptId` is its own. On a refusal it leaves R. So a replacement draft under another person survives either outcome, and a refused attempt with nobody watching returns as the ordinary resume banner. |
-  | 8 | A name switch drops the leaving person's unsent draft from the slot, and rule 2 keeps it off the next person's screen. A report already in the queue is unaffected: its key, text and writer were fixed at the tap. |
+  | 8 | Every crew POST carries the page's `writer` when it has one, first attempt included, so the request that reserves a key is checked as the sender's will be, and a key can only ever be reserved under the name on the page. A page whose cookie changed in another tab gets the existing authentication failure instead of filing under the other name. |
+  | 9 | A name switch drops the leaving person's unsent draft from the slot, and rule 2 keeps it off the next person's screen. A report already in the queue is unaffected: its key, text and writer were fixed at the tap. |
 
 - **Which send owns the stored `offline` fields.** The send that files the issue. `reportContext` covers a first reservation, and the retry's lease claim in `expiredLeaseRetry` (`lib/reports/submit.ts:905`) merges `offline` into the stored context in the same `UPDATE`, for an ordinary POST whose response was lost and then queued, and for a queued POST retried later, whose `sentAt` moves with the issue. A retry that finds the issue already on GitHub (`writeRecoveredIssueUrl`) changes nothing, because that issue was filed by the earlier request and carries no section of this send's.
 - **The sender's rate-limit wait is in memory, per show.** A reload forgets it and costs one more 429, which the quota rollback does not count (`QuotaDeniedRollback`, `lib/reports/submit.ts:1076`).
@@ -240,6 +241,7 @@ create  tests/reports/offlineRoute.test.ts
 
   A queued report is only ever filed for the crew member who wrote it. The failure mode of each refusal is a report filed under a name that did not write it, by the next crew member or the next admin on the phone. Further cases:
   - a body with neither `offline` nor `writer`: every path exactly as today.
+  - a crew body with a matching `writer` and no `offline` is filed exactly as today, and with a different `writer` is 401 and never reserves: rule 8 in §1.
   - `offline` present but dropped by validation still counts as queued: a far-future `writtenAt` with no `writer` on a crew session is 401.
   - `writer` present, `viewerKey` returns null (signing key missing): 500 `REPORT_PIPELINE_FAILED`, not filed, so the record stays queued rather than failing for good.
   - `writer: 7` and a 200-character writer: 400.
@@ -410,6 +412,7 @@ create  tests/components/report/ReportModalOffline.test.tsx   (jsdom, fresh IDBF
   - a refused hold with nobody watching: the next open shows the resume banner with the text.
   - body failures: headers arrive, then `json()` rejects with a stream error: held. `json()` never settles: at `submitTimeoutMs` the attempt aborts and is held, with the modal out of `submitting`. `json()` rejects with a `SyntaxError` on a 502: no record, the existing failure path. Unmount during the body read, then a stream error: held as "detached network failure". On admin and help the same stream failures end in `failed-retryable` with the network copy, never in `submitting` forever.
   - `queued` refuses every entry point: Ctrl+Enter and Cmd+Enter in the read-only textarea make no request, change no record and write no `sessionStorage` row.
+  - rule 8: the first POST on the crew surface carries the tap-time `writer`; with no writer on the page, and on admin and help, the body is exactly today's. A 401 on that first POST is the failure path, not a hold.
   - a 502 and a 400 on the crew surface: no record, existing behavior.
   - a report from a card, with `fieldRef` and `viewerVisibleSection` in its autocapture, held and then sent by a real `createReportSender`: the POST body carries both values.
   - `surface` admin and help with a rejected fetch and with `onLine` false: `fetch` is called in both, no record, existing failure path.
