@@ -264,6 +264,32 @@ export function readPageIdentity(): { writer: string | null; pageRenderedAt: str
   return marker.disposition === "keep" ? { writer: marker.viewer, pageRenderedAt: null } : none;
 }
 
+/** Where the report modal keeps each surface's draft (one `sessionStorage` row per surface). */
+export const REPORT_DRAFT_PREFIX = "fxav-report-attempt-";
+
+/**
+ * Drops every report draft written for `writer`, on a name switch. The surface
+ * scopes outlive the switch, so without this the next person to open a report
+ * on that surface after switching back would meet the old draft again.
+ */
+export function dropDraftsWrittenBy(writer: string): void {
+  if (typeof window === "undefined") return;
+  const store = window.sessionStorage;
+  const keys: string[] = [];
+  for (let i = 0; i < store.length; i += 1) {
+    const key = store.key(i);
+    if (key !== null && key.startsWith(REPORT_DRAFT_PREFIX)) keys.push(key);
+  }
+  for (const key of keys) {
+    try {
+      const row = JSON.parse(store.getItem(key) ?? "null") as { writer?: unknown } | null;
+      if (row?.writer === writer) store.removeItem(key);
+    } catch {
+      // Not a draft this code wrote; left alone.
+    }
+  }
+}
+
 /** The show slug in this page's crew URL, or null off a crew page. */
 export function pageSlug(): string | null {
   if (typeof location === "undefined") return null;

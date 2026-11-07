@@ -16,6 +16,7 @@ import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
 import { AvatarMenu } from "@/components/auth/AvatarMenu";
 import { PENDING_TIMEOUT_MS } from "@/components/shared/pendingTimeout";
 import type { ClearIdentityResult } from "@/lib/auth/picker/clearIdentity";
+import { markerAttributes } from "@/lib/offline/marker";
 import { enqueueReport } from "@/lib/reports/offlineQueue";
 import { createReportSender, reportSender } from "@/lib/reports/offlineSender";
 import { premise } from "@/tests/_shared/premise";
@@ -114,6 +115,50 @@ describe("the flush before a name switch", () => {
     openAndTap(action);
     expect(flush).not.toHaveBeenCalled();
     expect(action).not.toHaveBeenCalled();
+  });
+
+  test("a switch drops the leaving person's report drafts, and only theirs", () => {
+    vi.spyOn(reportSender, "flush").mockReturnValue(null);
+    const marker = document.createElement("template");
+    for (const [name, value] of Object.entries(
+      markerAttributes({
+        disposition: "save",
+        showId: ROUTE.showId,
+        renderedAt: "2026-11-07T12:00:00.000Z",
+        epoch: 1,
+        viewer: "viewer-a",
+        assets: [],
+      }),
+    )) {
+      marker.setAttribute(name, value);
+    }
+    document.body.appendChild(marker);
+    const row = (writer: string | null) =>
+      JSON.stringify({ idempotencyKey: "k", draft: "d", status: "composing", writer });
+    sessionStorage.setItem("fxav-report-attempt-footer-crew-east-coast", row("viewer-a"));
+    sessionStorage.setItem("fxav-report-attempt-card-x", row("viewer-a"));
+    sessionStorage.setItem("fxav-report-attempt-footer-crew-other", row("viewer-c"));
+    sessionStorage.setItem("unrelated", "keep me");
+
+    openAndTap(heldAction());
+
+    expect(sessionStorage.getItem("fxav-report-attempt-footer-crew-east-coast")).toBeNull();
+    expect(sessionStorage.getItem("fxav-report-attempt-card-x")).toBeNull();
+    expect(sessionStorage.getItem("fxav-report-attempt-footer-crew-other")).not.toBeNull();
+    expect(sessionStorage.getItem("unrelated")).toBe("keep me");
+    marker.remove();
+    sessionStorage.clear();
+  });
+
+  test("with no author on the page, a switch drops nothing", () => {
+    vi.spyOn(reportSender, "flush").mockReturnValue(null);
+    sessionStorage.setItem(
+      "fxav-report-attempt-footer-crew-east-coast",
+      JSON.stringify({ idempotencyKey: "k", draft: "d", status: "composing", writer: null }),
+    );
+    openAndTap(heldAction());
+    expect(sessionStorage.getItem("fxav-report-attempt-footer-crew-east-coast")).not.toBeNull();
+    sessionStorage.clear();
   });
 
   test("a real sender stuck on a dead POST lets the clear go at 3000 ms and not before", async () => {

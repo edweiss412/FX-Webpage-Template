@@ -12,7 +12,11 @@ import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
 
 const sender = vi.hoisted(() => ({
   send: vi.fn(async () => undefined),
-  settle: vi.fn(async () => ({ kind: "pending" as const })),
+  settle: vi.fn(
+    async (_id: string): Promise<{ kind: "pending" | "failed"; code?: string | null }> => ({
+      kind: "pending",
+    }),
+  ),
   flush: vi.fn(() => null),
   noteQueued: vi.fn(),
 }));
@@ -341,6 +345,28 @@ describe("tapping the failed count", () => {
     fireEvent.click(failed);
     fireEvent.click(await screen.findByTestId("report-modal-close"));
     await waitFor(() => expect(document.activeElement).toBe(failed));
+  });
+
+  test("a refused resend recreates the failed count, and closing lands focus on the new one", async () => {
+    const queue = await import("@/lib/reports/offlineQueue");
+    sender.settle.mockImplementationOnce(async (id: string) => {
+      await queue.failReport(id, null);
+      return { kind: "failed", code: null };
+    });
+    await enqueueReport(report(1, { status: "failed" }));
+    await mounted();
+    const first = await screen.findByTestId("report-queue-failed");
+    first.focus();
+    fireEvent.click(first);
+    fireEvent.click(await screen.findByTestId("report-modal-submit"));
+    await waitFor(() =>
+      expect(screen.getByTestId("report-modal-root").getAttribute("data-state")).toBe("composing"),
+    );
+    await waitFor(() => expect(screen.getByTestId("report-queue-failed")).not.toBe(first));
+    fireEvent.click(screen.getByTestId("report-modal-close"));
+    await waitFor(() =>
+      expect(document.activeElement).toBe(screen.getByTestId("report-queue-failed")),
+    );
   });
 
   test("with the count gone, focus goes to the report trigger", async () => {

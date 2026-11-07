@@ -113,12 +113,15 @@ describe("classifySendResponse", () => {
     });
   });
 
-  test.each([[null], ["soon"], [""]])("429 with Retry-After %j waits 20 minutes", (header) => {
-    expect(classifySendResponse(429, rateLimited, header, NOW)).toEqual({
-      kind: "wait",
-      until: NOW + 20 * 60 * 1000,
-    });
-  });
+  test.each([[null], ["soon"], [""], ["-1"], ["1.5"]])(
+    "429 with Retry-After %j waits 20 minutes",
+    (header) => {
+      expect(classifySendResponse(429, rateLimited, header, NOW)).toEqual({
+        kind: "wait",
+        until: NOW + 20 * 60 * 1000,
+      });
+    },
+  );
 
   test.each([
     ["the horizon", 410, { ok: false, code: "REPORT_HORIZON_EXPIRED" }, "REPORT_HORIZON_EXPIRED"],
@@ -244,6 +247,42 @@ describe("a pass over the queue", () => {
       vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
     });
 
+    test("one budget covers headers and body together, not one each", async () => {
+      await enqueueReport(report(1));
+      const started: unknown[] = [];
+      const fetchImpl = ((_input: RequestInfo | URL, init?: RequestInit) => {
+        started.push(init?.body);
+        return new Promise<Response>((resolve, reject) => {
+          init?.signal?.addEventListener("abort", () =>
+            reject(new DOMException("Aborted", "AbortError")),
+          );
+          // Headers at 20 seconds, then a body that never finishes.
+          setTimeout(
+            () =>
+              resolve({
+                status: 201,
+                headers: new Headers(),
+                json: () =>
+                  new Promise((_done, fail) => {
+                    init?.signal?.addEventListener("abort", () =>
+                      fail(new DOMException("Aborted", "AbortError")),
+                    );
+                  }),
+              } as unknown as Response),
+            20_000,
+          );
+        });
+      }) as typeof fetch;
+      const pass = createReportSender({ fetchImpl }).send();
+      await vi.waitFor(() => expect(started).toHaveLength(1));
+      let settled = false;
+      void pass.then(() => {
+        settled = true;
+      });
+      await vi.advanceTimersByTimeAsync(SEND_TIMEOUT_MS + 1000);
+      expect(settled, "given up at the one budget, not 30 seconds after the headers").toBe(true);
+    });
+
     test("a request that never answers is given up, and the pass ends", async () => {
       await enqueueReport(report(1));
       await enqueueReport(report(2));
@@ -365,6 +404,29 @@ describe("Web Locks", () => {
     vi.stubGlobal("navigator", { onLine: true, locks: { request } });
     return request;
   }
+
+  test("the lock is held for the whole pass, not just to start it", async () => {
+    let held = false;
+    const request = vi.fn(async (_name: string, _options: unknown, callback: Callback) => {
+      held = true;
+      try {
+        return await callback({ name: "lock" });
+      } finally {
+        held = false;
+      }
+    });
+    vi.stubGlobal("navigator", { onLine: true, locks: { request } });
+    await enqueueReport(report(1));
+    const heldDuringPost: boolean[] = [];
+    const fetchImpl = (async () => {
+      heldDuringPost.push(held);
+      await new Promise((resolve) => setTimeout(resolve, 5));
+      heldDuringPost.push(held);
+      return CREATED();
+    }) as unknown as typeof fetch;
+    await createReportSender({ fetchImpl }).send();
+    expect(heldDuringPost).toEqual([true, true]);
+  });
 
   test("the pass runs inside the lock", async () => {
     const request = withLocks(true);
@@ -509,6 +571,22 @@ describe("flush", () => {
     await flushed;
     expect(settled).toBe(true);
     expect(posted).toBeLessThanOrEqual(1);
+  });
+
+  test("a pass already running is waited for even before any count was noted", async () => {
+    await enqueueReport(report(1));
+    let release: (response: Response) => void = () => undefined;
+    const { fetchImpl, posted } = scripted(
+      () => new Promise<Response>((resolve) => (release = resolve)),
+    );
+    const sender = createReportSender({ fetchImpl });
+    const running = sender.send();
+    await vi.waitFor(() => expect(posted).toHaveLength(1));
+    const flushed = sender.flush(3000);
+    expect(flushed).not.toBeNull();
+    release(CREATED());
+    await running;
+    await flushed;
   });
 
   test("a queue the sender has read as empty goes back to null", () => {

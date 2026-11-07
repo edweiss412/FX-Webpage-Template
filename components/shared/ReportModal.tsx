@@ -45,6 +45,7 @@ import { NewTabHint } from "@/components/shared/NewTabHint";
 import {
   deleteReport,
   enqueueReport,
+  REPORT_DRAFT_PREFIX,
   pageSlug,
   readPageIdentity,
   requeueReport,
@@ -147,7 +148,7 @@ type ErrorState = { kind: "code"; code: MessageCode } | { kind: "network" } | nu
 
 type SuccessState = { kind: "succeeded"; github_issue_url?: string } | null;
 
-const STORAGE_PREFIX = "fxav-report-attempt-";
+const STORAGE_PREFIX = REPORT_DRAFT_PREFIX;
 
 function storageKeyFor(surfaceId: string) {
   return `${STORAGE_PREFIX}${surfaceId}`;
@@ -318,8 +319,9 @@ export function ReportModal(props: ReportModalProps) {
   const writer = surface === "crew" ? pageIdentity.writer : null;
 
   // A storage write already running for this person, on this surface.
+  // A failed record is a different report, so it never joins one.
   const [joinedHold] = useState<RunningHold | null>(() =>
-    writer === null ? null : (runningHolds.get(holdKey(surfaceId, writer)) ?? null),
+    writer === null || failedReport ? null : (runningHolds.get(holdKey(surfaceId, writer)) ?? null),
   );
 
   // Hydrate from sessionStorage on mount. The initial state of each

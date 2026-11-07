@@ -42,6 +42,7 @@ export function ReportQueueStatus({
   const [reports, setReports] = useState<readonly QueuedReport[]>([]);
   const [resending, setResending] = useState<QueuedReport | null>(null);
   const [ready, setReady] = useState(false);
+  const failedButton = useRef<HTMLButtonElement | null>(null);
 
   // A monotonic ordinal: two reads can settle out of order, and the older list
   // must not paint over the newer one.
@@ -100,7 +101,14 @@ export function ReportQueueStatus({
     const stillFailed = next.some(
       (report) => report.showId === showId && report.status === "failed",
     );
-    if (!stillFailed) onReturnFocus?.();
+    if (!stillFailed) {
+      onReturnFocus?.();
+      return;
+    }
+    // A refused resend can recreate the count, so the node the modal returned
+    // focus to may be gone: focus the one on screen now, if focus fell.
+    const active = document.activeElement;
+    if (active === null || active === document.body) failedButton.current?.focus();
   };
 
   const announcement = [
@@ -121,7 +129,7 @@ export function ReportQueueStatus({
         {announcement}
       </p>
       {waiting > 0 || failed.length > 0 ? (
-        <div className="order-last flex min-w-0 basis-full flex-wrap items-center gap-2 md:order-none md:shrink-0 md:basis-auto md:flex-col md:items-end md:gap-1">
+        <div className="order-last flex min-w-0 basis-full flex-wrap items-center gap-2 md:order-0 md:shrink-0 md:basis-auto md:flex-col md:items-end md:gap-1">
           {waiting > 0 ? (
             <span
               aria-hidden="true"
@@ -133,6 +141,7 @@ export function ReportQueueStatus({
           ) : null}
           {failed[0] ? (
             <button
+              ref={failedButton}
               type="button"
               aria-haspopup="dialog"
               data-testid="report-queue-failed"

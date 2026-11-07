@@ -34,10 +34,16 @@ export type SendVerdict =
   | { kind: "wait"; until: number }
   | { kind: "final"; code: string | null };
 
+/**
+ * `Retry-After` is whole seconds or an HTTP date. Anything else waits the full
+ * fallback: `Date.parse` reads "-1" and "1.5" as dates in 2001, which would
+ * end the wait at once.
+ */
 function waitUntil(retryAfter: string | null, now: number): number {
   const value = retryAfter?.trim() ?? "";
   if (/^\d+$/.test(value)) return now + Number(value) * 1000;
-  const date = Date.parse(value);
+  const httpDate = /^[A-Za-z]{3}, \d{2} [A-Za-z]{3} \d{4} \d{2}:\d{2}:\d{2} GMT$/.test(value);
+  const date = httpDate ? Date.parse(value) : Number.NaN;
   return Number.isNaN(date) ? now + RATE_LIMIT_WAIT_MS : date;
 }
 

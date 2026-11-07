@@ -849,6 +849,23 @@ describe("rules 5 to 7: one owner for a running hold", () => {
     expect(state()).toBe("composing");
   });
 
+  test("a failed-record dialog on the same surface never joins another report's write", async () => {
+    const failedRecord = stored({
+      id: "00000000-0000-4000-8000-0000000000ff",
+      status: "failed",
+      message: "an older failed report",
+    });
+    await enqueueReport(failedRecord);
+    const running = await startHold("a rejected fetch", true);
+    render(<ReportModal {...props({ failedReport: failedRecord })} />);
+    expect(state()).toBe("composing");
+    expect(screen.getByTestId("report-modal-failed-notice")).toBeTruthy();
+    await running.settle("held");
+    expect(state()).toBe("composing");
+    expect(textarea().value).toBe("an older failed report");
+    expect(screen.getByTestId("report-modal-discard")).toBeTruthy();
+  });
+
   test("a refused hold with nobody watching comes back as the resume banner", async () => {
     const running = await startHold("a rejected fetch", true);
     await running.settle("full");

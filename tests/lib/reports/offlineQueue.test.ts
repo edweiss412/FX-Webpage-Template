@@ -87,6 +87,10 @@ describe("storing reports", () => {
 });
 
 describe("the cap", () => {
+  test("is ten, as spec section 5.1 fixes it", () => {
+    expect(QUEUE_CAP).toBe(10);
+  });
+
   test("two enqueues racing for the last place: one held, one full, ten stored", async () => {
     await fill(QUEUE_CAP - 1);
     premiseHolds("one place is left", (await listReports()).length === QUEUE_CAP - 1);
@@ -112,6 +116,12 @@ describe("failReport", () => {
 
   test("a record another tab removed stays removed", async () => {
     await failReport(report(1).id, null);
+    expect(await listReports()).toEqual([]);
+  });
+
+  test("a delete landing while it runs is never undone", async () => {
+    await fill(1);
+    await Promise.all([failReport(report(1).id, null), deleteReport(report(1).id)]);
     expect(await listReports()).toEqual([]);
   });
 
@@ -242,6 +252,21 @@ describe("other documents", () => {
     stopOther();
     stopOwn();
     expect(own).toHaveBeenCalledTimes(1);
+  });
+
+  test("every kind of change reaches the other document", async () => {
+    const other = await secondDocument();
+    const heard = vi.fn();
+    const stop = other.subscribeQueue(heard);
+    await enqueueReport(report(1));
+    await vi.waitFor(() => expect(heard).toHaveBeenCalledTimes(1));
+    await failReport(report(1).id, null);
+    await vi.waitFor(() => expect(heard).toHaveBeenCalledTimes(2));
+    await requeueReport(report(1).id, report(2));
+    await vi.waitFor(() => expect(heard).toHaveBeenCalledTimes(3));
+    await deleteReport(report(2).id);
+    await vi.waitFor(() => expect(heard).toHaveBeenCalledTimes(4));
+    stop();
   });
 
   test("a document with no subscribers still tells the others", async () => {

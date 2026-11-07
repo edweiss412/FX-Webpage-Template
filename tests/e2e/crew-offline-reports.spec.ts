@@ -115,6 +115,23 @@ async function signalBack(page: Page): Promise<void> {
   await page.evaluate(() => window.dispatchEvent(new Event("online")));
 }
 
+/**
+ * Signals until `done` holds. A trigger that lands while a pass is still
+ * finishing joins that pass and posts nothing, so one trigger proves nothing;
+ * repeating it until the expected POST arrives does.
+ */
+async function signalUntil(page: Page, done: () => boolean): Promise<void> {
+  await expect
+    .poll(
+      async () => {
+        if (!done()) await signalBack(page);
+        return done();
+      },
+      { intervals: [250, 500, 1000], timeout: 30_000 },
+    )
+    .toBe(true);
+}
+
 function reportPosts(proxy: CrewOfflineProxy): ReceivedRequest[] {
   return proxy.received().filter((row) => row.method === "POST" && row.path === "/api/report");
 }
@@ -224,7 +241,7 @@ test("a report written with no signal survives the tab and sends itself", async 
 
   crewProxy.answerNext("/api/report", [CREATED]);
   crewProxy.setMode("pass");
-  await signalBack(next);
+  await signalUntil(next, () => reportPosts(crewProxy).some((row) => row.body !== undefined));
   await expect(waiting(next)).toHaveCount(0);
   expect(await readQueue(next)).toEqual([]);
 
@@ -287,7 +304,7 @@ test("a report sent from another tab clears the count here with no reload", asyn
   await expect(waiting(second)).toHaveText("1 report waiting for signal");
 
   crewProxy.answerNext("/api/report", [CREATED]);
-  await signalBack(crewPage);
+  await signalUntil(crewPage, () => reportPosts(crewProxy).some((row) => row.body !== undefined));
   await expect(waiting(crewPage)).toHaveCount(0);
   await expect(waiting(second)).toHaveCount(0);
 });
@@ -309,14 +326,17 @@ test("503, 409 and 429 keep the report queued under one key", async ({
     CREATED,
   ]);
   for (const attempt of [1, 2, 3]) {
-    await signalBack(crewPage);
-    await expect.poll(() => reportPosts(crewProxy).length).toBe(before + attempt);
+    await signalUntil(crewPage, () => reportPosts(crewProxy).length >= before + attempt);
     await expect(waiting(crewPage)).toHaveText("1 report waiting for signal");
   }
 
-  // The 429's wait is live: a further try posts nothing.
-  await signalBack(crewPage);
-  await crewPage.waitForTimeout(500);
+  // The 429's wait is live: repeated tries over two seconds post nothing. Repeated,
+  // because one trigger landing on the 429's own unfinished pass would also post
+  // nothing and prove no wait.
+  for (let n = 0; n < 8; n += 1) {
+    await signalBack(crewPage);
+    await crewPage.waitForTimeout(250);
+  }
   expect(reportPosts(crewProxy).length).toBe(before + 3);
 
   // A load forgets the wait, in memory by design.
@@ -343,17 +363,13 @@ test("the real server files nothing for the wrong writer, and the report can be 
 
   // As written: the marker's key is the server's, so the POST gets past the writer
   // check, and the blanked GitHub repo answers 502. The report stays queued.
-  await signalBack(crewPage);
-  await expect
-    .poll(() => reportPosts(crewProxy).at(-1)?.upstreamStatus, { timeout: 30_000 })
-    .toBe(502);
+  await signalUntil(crewPage, () => reportPosts(crewProxy).at(-1)?.upstreamStatus === 502);
   await expect(waiting(crewPage)).toHaveText("1 report waiting for signal");
 
   const [held] = await readQueue(crewPage);
   premiseHolds("the report is still held", held !== undefined);
   await writeQueue(crewPage, [{ ...(held as Stored), writer: "somebody-else" }]);
-  await signalBack(crewPage);
-  await expect.poll(() => reportPosts(crewProxy).at(-1)?.upstreamStatus).toBe(401);
+  await signalUntil(crewPage, () => reportPosts(crewProxy).at(-1)?.upstreamStatus === 401);
   await expect(failed(crewPage)).toHaveText("1 report couldn't be sent");
 
   await failed(crewPage).click();
@@ -377,7 +393,7 @@ test("a refused report can be discarded, and stays gone", async ({
   crewProxy.answerNext("/api/report", [
     { status: 410, body: { ok: false, code: "REPORT_HORIZON_EXPIRED" } },
   ]);
-  await signalBack(crewPage);
+  await signalUntil(crewPage, () => reportPosts(crewProxy).some((row) => row.body !== undefined));
   await failed(crewPage).click();
   const discard = crewPage.getByTestId("report-modal-discard");
   await discard.click();
