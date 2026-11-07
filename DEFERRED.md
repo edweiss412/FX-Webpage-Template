@@ -195,7 +195,7 @@ From the invariant-8 dual gate on `feat/crew-page-redesign-pr-b` (critique 28/40
 
 ### CREWPANEL-TYPE-SCALE-1 — impeccable critique/audit P2: crew section bodies render at the admin popup's compact type scale (2026-11-02)
 
-**Effort:** M
+**Effort:** M · **Status:** IN PROGRESS · **Branch:** feat/crew-panel-followups
 
 Since PR B the seven moved crew sections render the admin's shared bodies (`components/show-panels/`). Their field keys are 10px uppercase (`CELL_EYEBROW_CLASS`, `components/show-panels/FieldRowList.tsx`), and chips, leg times and riders are 11px; before PR B the crew rows used 12px keys and 13 to 15px values (origin/main `components/crew/primitives/KeyValueRows.tsx`).
 
@@ -207,7 +207,7 @@ PR C adds Event details, Rooms and Pack list to the same scale, so all ten share
 
 ### CREWPANEL-DOUBLE-TITLE-1 — impeccable critique/audit P2: every moved section is titled twice (2026-11-02)
 
-**Effort:** S
+**Effort:** S · **Status:** IN PROGRESS · **Branch:** feat/crew-panel-followups
 
 The sheet's h2 (`components/crew/CrewSectionSheet.tsx`) and the wide stack's h2 (`components/crew/CrewSections.tsx`) are followed by the panel card's h3 with the same word (`components/show-panels/PanelCard.tsx`); Venue adds a third, its 10px "VENUE" eyebrow. About 50 to 60px goes before the first fact at 390, and heading navigation hears each title twice.
 
@@ -219,7 +219,7 @@ PR C adds Event details, Rooms and Pack list, so all ten shared sections now rep
 
 ### CREWPANEL-MIXED-CARD-HEADERS-1 — impeccable critique/audit P2: Venue and Transport mix two card header styles (2026-11-02)
 
-**Effort:** S
+**Effort:** S · **Status:** IN PROGRESS · **Branch:** feat/crew-panel-followups
 
 Venue's panel card sits beside the crew-only Facilities and Venue status cards, and Transport's "Your flight" card sits above its panel card. The panel card has a bold 16px sentence-case h3 and a shadow; the crew SectionCard has a 12px uppercase eyebrow and none.
 
