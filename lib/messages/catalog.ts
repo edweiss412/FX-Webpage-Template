@@ -3651,6 +3651,17 @@ export const MESSAGE_CATALOG = {
     longExplanation: null,
     helpHref: null,
   },
+  REPORT_SUBMITTED_FROM_OFFLINE_QUEUE: {
+    code: "REPORT_SUBMITTED_FROM_OFFLINE_QUEUE",
+    warningClass: "general",
+    dougFacing: null,
+    crewFacing: null,
+    followUp: "Eric → read the issue's Written with no signal section",
+    helpfulContext: null,
+    title: null,
+    longExplanation: null,
+    helpHref: null,
+  },
   SLUG_REQUIRED: {
     code: "SLUG_REQUIRED",
     warningClass: "general",
