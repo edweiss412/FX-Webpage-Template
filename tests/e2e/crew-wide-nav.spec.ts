@@ -1398,8 +1398,15 @@ test.describe("the composed home, wide (crew page redesign Task 11)", () => {
             right: b.right - parseFloat(cs.paddingRight),
           };
         };
+        // The width the body row could fill: its parent's content box. On the preview
+        // route the admin chrome pads it, so it is narrower than the window.
+        const shell = document.querySelector('[data-testid="crew-shell-sections"]')!;
+        const cs = getComputedStyle(shell);
         return {
-          window: document.documentElement.clientWidth,
+          available:
+            shell.getBoundingClientRect().width -
+            parseFloat(cs.paddingLeft) -
+            parseFloat(cs.paddingRight),
           body: row('[data-testid="crew-shell-sections"] > div'),
           header: row('[data-testid="page-header"] > div'),
           footer: row('[data-testid="page-footer"] > div'),
@@ -1407,7 +1414,9 @@ test.describe("the composed home, wide (crew page redesign Task 11)", () => {
         };
       });
       const at = `@${width}: ${JSON.stringify(r)}`;
-      const expected = Math.min(r.window, 1440);
+      // PREMISE: at 1728 there is room past the limit, so the 1440 check binds there.
+      if (width === 1728) expect(r.available, at).toBeGreaterThan(1440);
+      const expected = Math.min(r.available, 1440);
       for (const key of ["body", "header", "footer", "banner"] as const) {
         const row = r[key];
         expect(row, `${key} ${at}`).not.toBeNull();
