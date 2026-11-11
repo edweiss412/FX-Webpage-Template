@@ -60,4 +60,4 @@ Run on 2026-11-11 against `e4f1d80de` to `26eacc4cf`, on this branch's diff (`gi
 | 8 | critique | P3 | single-fact cards, the header status pill | Billing and Venue status read mostly empty at 1104px; the status pill sits by the search box. | Accepted: the owner declined two columns; the pill predates this. |
 | 9 | critique | P3 | `components/offline/SavedCopyBar.tsx` | The saved-copy bar is full width, not on the 1440 column. | Outside this diff; it was full width before too. |
 
-impeccable-gate: critique=RAN audit=RAN p0=0 p1=0 dispositions=recorded
+impeccable-gate: critique=RAN audit=RAN p0=0 p1=0 dispositions=none
