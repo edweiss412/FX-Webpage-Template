@@ -127,7 +127,7 @@ export function Header({ show, identityChip, statusPill, search }: HeaderProps) 
             `flex-1` (a zero basis) beside a small right slot, so without a
             search node the row is the single line it always was. `gap-y`
             equals the padding the search row used to carry under the title. */}
-        <div className="mx-auto flex w-full max-w-[1200px] flex-wrap items-baseline justify-between gap-x-6 gap-y-3 px-4 py-3 sm:gap-y-4 sm:px-8 sm:py-4 lg:h-full lg:flex-nowrap lg:items-center lg:py-0">
+        <div className="mx-auto flex w-full max-w-360 flex-wrap items-baseline justify-between gap-x-6 gap-y-3 px-4 py-3 sm:gap-y-4 sm:px-8 sm:py-4 lg:h-full lg:flex-nowrap lg:items-center lg:py-0">
           {/* Wide: a two-column grid (the rest, then the pill's width), so the
               status pill leaves the title's line (audit P2-3) for the eyebrow's,
               at its end: the eyebrow and the pill share the first row, then the

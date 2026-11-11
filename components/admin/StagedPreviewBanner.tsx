@@ -103,7 +103,7 @@ export function StagedPreviewBanner({ stagedId, roster, selectedId }: StagedPrev
       style={{ position: "sticky", top: 0 }}
       className="z-sticky-banner border-b border-border-strong bg-warning-bg text-warning-text shadow-tile"
     >
-      <div className="mx-auto flex w-full max-w-300 flex-col gap-3 px-4 py-3 sm:px-8">
+      <div className="mx-auto flex w-full max-w-360 flex-col gap-3 px-4 py-3 sm:px-8">
         <div className="flex flex-wrap items-center gap-3">
           <p className="flex flex-1 flex-wrap items-center gap-2 text-sm sm:text-base">
             <span data-testid="staged-preview-banner-title" className="font-semibold">

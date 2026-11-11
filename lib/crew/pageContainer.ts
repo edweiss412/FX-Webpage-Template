@@ -10,8 +10,8 @@
  * drift: change the gutter / max-width here once.
  *
  * Centering utilities ONLY — `mx-auto` (horizontal center), `w-full` (fill up
- * to the cap), `max-w-300` (the project's ~1200px container token), and the
+ * to the cap), `max-w-360` (1440px: the crew page's desktop limit, docs/superpowers/specs/2026-11-11-crew-page-width-1440-design.md; the header, footer and preview banners carry the same class), and the
  * `px-4 sm:px-8` gutter. Surface-specific utilities (the shell's flex/padding,
  * the nav's flex/gap) are appended by each consumer, NOT baked in here.
  */
-export const CREW_PAGE_CONTAINER = "mx-auto w-full max-w-300 px-4 sm:px-8";
+export const CREW_PAGE_CONTAINER = "mx-auto w-full max-w-360 px-4 sm:px-8";

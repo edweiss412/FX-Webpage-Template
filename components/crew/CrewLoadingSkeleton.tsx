@@ -76,7 +76,7 @@ export function CrewLoadingSkeleton() {
         data-testid="crew-loading-header"
         className="border-b border-border bg-bg lg:sticky lg:top-(--crew-sticky-top) lg:z-nav lg:h-(--crew-header-h)"
       >
-        <div className="mx-auto flex w-full max-w-[1200px] flex-wrap items-baseline justify-between gap-x-6 gap-y-3 px-4 py-3 sm:gap-y-4 sm:px-8 sm:py-4 lg:h-full lg:flex-nowrap lg:items-center lg:py-0">
+        <div className="mx-auto flex w-full max-w-360 flex-wrap items-baseline justify-between gap-x-6 gap-y-3 px-4 py-3 sm:gap-y-4 sm:px-8 sm:py-4 lg:h-full lg:flex-nowrap lg:items-center lg:py-0">
           {/* The title block, with the live header's classes (`Header.tsx`) on
               every line's element, so each line box is the loaded line's height.
               Below 640px it reserves a two-line eyebrow and a two-line title (the

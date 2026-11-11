@@ -74,7 +74,7 @@ export function PreviewBanner({
     >
       {/* The banner's height, published for the crew header that sticks under it. */}
       <PreviewBannerHeight bannerTestId="admin-preview-banner" />
-      <div className="mx-auto flex w-full max-w-300 flex-wrap items-center gap-3 px-4 py-3 sm:px-8">
+      <div className="mx-auto flex w-full max-w-360 flex-wrap items-center gap-3 px-4 py-3 sm:px-8">
         <p className="flex flex-1 flex-wrap items-center gap-2 text-sm sm:text-base">
           <span
             data-testid="admin-preview-banner-label"

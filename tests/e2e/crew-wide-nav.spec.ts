@@ -1350,6 +1350,53 @@ test.describe("the composed home, wide (crew page redesign Task 11)", () => {
     await page.setViewportSize(WIDE);
   });
 
+  test("width: the header, page, footer and preview banner share one column, 1440px at most", async ({
+    page,
+  }) => {
+    // docs/superpowers/specs/2026-11-11-crew-page-width-1440-design.md AC-1, AC-2. Border
+    // boxes catch a row left at the old limit; content edges catch a row whose gutter
+    // differs, which moves its text while its box stays put.
+    const crewId = seeded.crew[0]!.id;
+    for (const width of [1728, 1280, 1200, 1024]) {
+      await page.setViewportSize({ width, height: 900 });
+      await loadWide(page, `/admin/show/${seeded.slug}/preview/${crewId}`);
+      const r = await page.evaluate(() => {
+        const row = (sel: string) => {
+          const el = document.querySelector(sel);
+          if (!el) return null;
+          const b = el.getBoundingClientRect();
+          const cs = getComputedStyle(el);
+          return {
+            width: b.width,
+            left: b.left + parseFloat(cs.paddingLeft),
+            right: b.right - parseFloat(cs.paddingRight),
+          };
+        };
+        return {
+          window: document.documentElement.clientWidth,
+          body: row('[data-testid="crew-shell-sections"] > div'),
+          header: row('[data-testid="page-header"] > div'),
+          footer: row('[data-testid="page-footer"] > div'),
+          banner: row('[data-testid="admin-preview-banner"] > div'),
+        };
+      });
+      const at = `@${width}: ${JSON.stringify(r)}`;
+      const expected = Math.min(r.window, 1440);
+      for (const key of ["body", "header", "footer", "banner"] as const) {
+        const row = r[key];
+        expect(row, `${key} ${at}`).not.toBeNull();
+        expect(Math.abs(row!.width - expected), `${key} width ${at}`).toBeLessThanOrEqual(0.5);
+        expect(Math.abs(row!.left - r.body!.left), `${key} left edge ${at}`).toBeLessThanOrEqual(
+          0.5,
+        );
+        expect(Math.abs(row!.right - r.body!.right), `${key} right edge ${at}`).toBeLessThanOrEqual(
+          0.5,
+        );
+      }
+    }
+    await page.setViewportSize(WIDE);
+  });
+
   // Spec line 316. Scoped to the home's own root: on the wide page the same card
   // id sits in the stacked Event details section, so a page-wide query cannot tell.
   test("event details: the Dress code card sits in the stacked section and the Today block holds none", async ({

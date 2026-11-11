@@ -27,7 +27,7 @@ export default function Loading() {
         data-testid="admin-preview-loading-banner"
         className="border-b border-border-strong bg-warning-bg"
       >
-        <div className="mx-auto flex w-full max-w-300 flex-wrap items-center gap-3 px-4 py-3 sm:px-8">
+        <div className="mx-auto flex w-full max-w-360 flex-wrap items-center gap-3 px-4 py-3 sm:px-8">
           <p className="flex flex-1 flex-wrap items-center gap-2 text-sm sm:text-base">
             <span className="font-semibold uppercase tracking-eyebrow">
               <SkeletonText>Previewing as</SkeletonText>
