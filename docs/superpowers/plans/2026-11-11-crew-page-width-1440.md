@@ -26,17 +26,17 @@ RED: tests/components/layout/crewWidth.test.tsx (new) renders the header, footer
 
 GREEN: spec §2's table, each class replaced; `lib/crew/pageContainer.ts`'s comment names the new limit; `DESIGN.md:906` corrected.
 
-Browser: a case in `tests/e2e/crew-wide-nav.spec.ts` at 1728 reads the rects of the header's inner row, the body row, the footer's inner row and, on the preview route, the preview banner's inner row, and asserts each is 1440px wide and all share a left edge within 0.5px; at 1280 each equals the window width. Failure caught: one surface left at 1200px, or a surface whose padding differs so its edge moves. Mutant: leave the footer at `max-w-300` (fails the 1440 check).
+Browser: a case in `tests/e2e/crew-wide-nav.spec.ts` reads the header's inner row, the body row, the footer's inner row and, on the preview route, the preview banner's inner row. For each it takes the border box and the computed left and right padding. At 1728 each border box is 1440px wide, and each content edge (left plus padding-left, right minus padding-right) matches the body row's within 0.5px. At 1280 each border box is 1280px wide with the same content-edge match; at 1200 and 1024 each is the window's width, as today. Failure caught: one surface left at the old limit, or a surface whose gutter differs, which moves its content edge while its box stays put. Mutants: leave the footer at `max-w-300` (the 1728 width check fails); change the footer's `sm:px-8` to `sm:px-4` (the content-edge check fails).
 
 ## Task 2: Rooms thumbnails at the new width
 
 <!-- task: red=`pnpm vitest run tests/components/crew/sections/RoomsSection.test.tsx` ac=AC-4 -->
 
-RED: `tests/components/crew/sections/RoomsSection.test.tsx` asserts the gallery's `sizes` attribute starts with `(min-width: 1440px) 264px`. Fails today: the declaration starts at 1024px.
+RED: `tests/components/crew/sections/RoomsSection.test.tsx` asserts the gallery's `sizes` attribute is spec §2's declaration exactly. Fails today: the declaration is `(min-width: 1024px) 200px, (min-width: 640px) 100px, 26vw`.
 
-GREEN: `components/crew/sections/RoomsSection.tsx:52` gains the entry; `components/diagrams/Gallery.tsx:116-118`'s comment drops the old limit.
+GREEN: measure the column's inset at 1280 and 1728 in a browser first (rendered thumbnail width against `100vw`), then write `components/crew/sections/RoomsSection.tsx:52` from it; `components/diagrams/Gallery.tsx:116-118`'s comment drops the old limit.
 
-Browser: at 1728 a case in `tests/e2e/crew-wide-nav.spec.ts` reads a rendered Rooms thumbnail's width and asserts it is within 8px of 264, on a show with diagrams; at 390 the declared size the phone uses is unchanged. Failure caught: a declared size that drifts from the layout it describes.
+Browser: a case in `tests/e2e/crew-wide-nav.spec.ts`, on a show with diagrams, reads a rendered Rooms thumbnail's width at 1280 and at 1728 and asserts each is within 8px of the declared size evaluated at that width (the `calc` at 1280, 264 at 1728). Failure caught: a declared size that drifts from the layout it describes. Below 1024px the declaration's entries are unchanged, which the unit RED pins.
 
 <!-- tasks: end -->
 
