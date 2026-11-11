@@ -200,11 +200,13 @@ a product decision this PR cannot settle.
 **Filed:** 2026-11-11 (`fix/offline-report-writer-scope`) · **Facing:** product · **Effort:** S
 
 A held report carries its writer's viewer key, `HMAC(subkey(pickerKey), showId:crewMemberId)`
-(`lib/offline/viewerKey.ts`). If the picker signing key rotates, or a crew member comes back under a new
-crew id, every report held on a phone at that moment goes out under a key the server no longer computes,
-is refused with a 401, and turns failed. Its writer's key has changed too, so it matches no viewer: the
-writer sees their waiting count clear with no failed row, which reads as sent, and nobody on the phone can
-open, resend or discard it. It sits in the queue until the browser evicts storage, and it counts toward the
+(`lib/offline/viewerKey.ts`). If the picker signing key rotates, every report held on a phone at that
+moment goes out under a key the server no longer computes, is refused with a 401, and turns failed. If one
+crew member comes back under a new crew id, the same happens to that member's reports only. The writer's
+key has changed too, so no page rendered after the change matches it: the writer sees their waiting count
+clear with no failed row, which reads as sent, and once every page open from before the change has
+reloaded, nobody on the phone can open, resend or discard it. A page rendered before the change keeps the
+old key and still shows it until it reloads. It sits in the queue until the browser evicts storage, and it counts toward the
 cap of 10. Before the writer-scope change, anyone on that show could resend it under their own name.
 
 **Reachable live surface:** a rotation of the picker cookie signing key, which spec §10 already calls rare,
