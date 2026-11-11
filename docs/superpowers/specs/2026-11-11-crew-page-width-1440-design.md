@@ -8,7 +8,7 @@ The crew page stops at 1200px (`lib/crew/pageContainer.ts:17`, `max-w-300`), so 
 
 ## 2.1 Resolved scope: do not relitigate
 
-1440px, everywhere the crew page's own chrome lines up with its body: header, body, footer and the admin preview banners. A window 1200px wide or narrower renders exactly as today. Between 1200px and 1440px the rows fill the window, minus the same gutters, where today they stop at 1200px; above 1440px they stop at 1440px.
+1440px, everywhere the crew page's own chrome lines up with its body: header, body, footer and the admin preview banners. A window 1200px wide or narrower renders as today, except that note text now wraps at 75 characters (below). Between 1200px and 1440px the rows fill the space the page has, minus the same gutters, where today they stop at 1200px: the window on the crew route, the window less the admin layout's 64px of padding on the admin preview. Above that space reaching 1440px they stop at 1440px.
 
 ## 2. Change
 
@@ -29,13 +29,13 @@ The Rooms gallery declares its thumbnail size per width (`components/crew/sectio
 ## 3. Acceptance criteria
 
 - AC-1: at 1728px the header row, the body row, the footer row and the preview banner row are each 1440px wide and share a left edge within 0.5px.
-- AC-2: at 1280px each row is the window's full width, its content inset by the same gutter, where today it stops at 1200px; at 1200px and 1024px each is as today.
-- AC-3: the admin popup's goldens are unchanged, and nothing renders differently at 1200px or narrower.
-- AC-4: the Rooms gallery's declared size is within 8px of the rendered thumbnail width at 1280px and at 1728px, and unchanged below 1024px.
+- AC-2: at 1280px each row fills the space the page has (the window on the crew route, the window less 64px on the admin preview), its content inset by the same gutter, where today it stops at 1200px; at 1200px and 1024px each is as today.
+- AC-3: the admin popup's goldens are unchanged, and nothing renders differently at 1200px or narrower apart from note text's 75-character measure.
+- AC-4: on the crew route, the Rooms gallery's declared size is within 8px of the rendered thumbnail width at 1280px and at 1728px, and unchanged below 1024px.
 
 ## 4. Mode boundaries and dimensional invariants
 
-Wide mode only, and only above 1200px. The relationships are AC-1 and AC-2, asserted with `getBoundingClientRect()` and computed padding in a real browser.
+Wide mode only, and only above 1200px, apart from the note measure. The relationships are AC-1 and AC-2, asserted with `getBoundingClientRect()` and computed padding in a real browser.
 
 ## 4.1 Transition Inventory
 
@@ -48,5 +48,7 @@ Wide mode only, and only above 1200px. The relationships are AC-1 and AC-2, asse
 ## 5. Documented limits
 
 - The admin pages keep their own width; this is the crew page and its preview chrome only.
+- The gallery's declaration reads `100vw`, so on the admin preview, whose layout pads the page by 64px, it declares about 16px more than the thumbnail between 1024px and 1504px (219.5px against 203.5px at 1280px). An admin may fetch one image size up there; crew on the share link get the measured size.
+- Show and venue notes wrap at 75 characters at every width. At 1200px and below this shortens long note lines that used to run the column's full width.
 - Above 1440px the margins grow again; the owner chose that over full width.
 - Rows lengthen with the column: a room's equipment list reaches about 144 characters a line from 1440px, and labels sit up to 580px from their values. The room body is shared with the admin popup, so it is not capped here; note text is capped at 75ch.
