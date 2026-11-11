@@ -188,3 +188,33 @@ Both from the invariant-8 critique on `fix/diagram-tile-chrome-consistency`. Nei
 diff: the change relocates the tile's box chrome and touches neither the image's fit nor the tile's labelling.
 Both are deferred under class-sweep exception (a) — each needs a product decision this PR cannot settle — and
 both are recorded here rather than in `BACKLOG.md` because each has a concrete trigger.
+
+## Crew offline reports, writer scope — impeccable dual-gate deferral (2026-11-11)
+
+From the invariant-8 critique on `fix/offline-report-writer-scope`, which hides a failed offline report from
+everyone but its writer (owner decision, 2026-11-11). Deferred under class-sweep exception (a): the repair is
+a product decision this PR cannot settle.
+
+### OFFLINE-REPORT-ORPHANED-BY-KEY-CHANGE-1 — [P1] a viewer-key change leaves held reports that no one can see
+
+**Filed:** 2026-11-11 (`fix/offline-report-writer-scope`) · **Facing:** product · **Effort:** S
+
+A held report carries its writer's viewer key, `HMAC(subkey(pickerKey), showId:crewMemberId)`
+(`lib/offline/viewerKey.ts`). If the picker signing key rotates, or a crew member comes back under a new
+crew id, every report held on a phone at that moment goes out under a key the server no longer computes,
+is refused with a 401, and turns failed. Its writer's key has changed too, so it matches no viewer: the
+writer sees their waiting count clear with no failed row, which reads as sent, and nobody on the phone can
+open, resend or discard it. It sits in the queue until the browser evicts storage, and it counts toward the
+cap of 10. Before the writer-scope change, anyone on that show could resend it under their own name.
+
+**Reachable live surface:** a rotation of the picker cookie signing key, which spec §10 already calls rare,
+or a crew row deleted and recreated by a sheet sync. No probe: the key arithmetic is deterministic.
+
+**Not fixed here.** The client cannot tell an orphan from another person's report, because the key is opaque
+by design. The two repairs are product calls: let a failed record nobody has claimed age out after some
+period (the alternative Eric was offered on 2026-11-11 and that this PR declined, because ageing out drops a
+report nobody saw go), or have the server accept the previous signing key for a grace window, which is
+operator tooling. Spec §9 records the limit.
+
+**Un-defer trigger:** the first rotation of the picker cookie signing key, or any report of a held crew
+report that never reached Doug.

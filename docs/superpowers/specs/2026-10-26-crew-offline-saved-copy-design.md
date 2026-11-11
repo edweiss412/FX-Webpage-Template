@@ -526,6 +526,7 @@ The crew layout redesign runs in parallel in another session. B keeps its `_Crew
 - **A held report and an admin session.** The server files a queued report only for the crew member its `writer` names. On a phone that has lost that crew member's picker entry and has an admin signed in, it is refused and shows as failed.
 - **A report filed before a switch.** If a POST was filed but its answer never arrived, and the name on the phone then changes, the retry is refused and shows as failed. Sending it again files a second issue. That is conservative and visible.
 - **A failed report and the next person.** **Owner decision, 2026-11-11:** a failed record shows only to its writer (§5.1). Until then, the next person on a shared phone could read its text, send it under their own name, or discard it. Now they see no trace of it, but its text stays in this phone's storage until its writer sends or discards it, and anyone who opens the browser's storage tools can read it. A writer who never opens that show on this phone again leaves it there for good. It still counts toward the cap of 10, so a phone holding ten of someone else's refused reports gives the next person today's failure copy, with their draft kept in the tab, instead of holding theirs.
+- **Reports orphaned by a key change.** A held report names its writer by viewer key (§4.3). If the key that signs it rotates, or a crew member comes back under a new crew id, a report held at that moment is refused and turns failed under a key no viewer matches, so its writer sees the waiting count clear with nothing in its place, and nobody on the phone can see, resend or discard it. It stays until storage eviction and counts toward the cap. Tracked as `OFFLINE-REPORT-ORPHANED-BY-KEY-CHANGE-1` in `DEFERRED.md`.
 - **Reports and a name switch.** A switch drops the leaving person's unsent draft from the modal's slot, so it is not shown to the next person. A report already held is unaffected.
 - **The rate-limit wait.** It lives in the page's memory, so a reload costs one more 429, which the quota does not count.
 - **Held reports and iPhone eviction.** The storage eviction above takes held reports with it. A phone that drops its storage never sends them.
@@ -539,7 +540,7 @@ The crew layout redesign runs in parallel in another session. B keeps its `_Crew
 
 - Exact Tailwind classes for the bar within the §4.7.2 tokens, after the UI gate.
 - Seeding for the e2e (reuse the existing crew-page fixtures and `pnpm db:seed`).
-- Which server-held secret keys the viewer HMAC, as long as it is never sent to the client. Rotating it wipes saved copies at their next check and turns queued reports into failed records for manual resend (§5.1), so it should be a secret that rarely rotates.
+- Which server-held secret keys the viewer HMAC, as long as it is never sent to the client. Rotating it wipes saved copies at their next check and turns held reports into failed records that match no viewer (§9, "Reports orphaned by a key change"), so it should be a secret that rarely rotates.
 - Whether piece 2's sender lives in `ReportButton.tsx` or a sibling component.
 
 ## 11. Spike findings
