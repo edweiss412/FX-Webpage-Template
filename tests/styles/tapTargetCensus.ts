@@ -449,7 +449,9 @@ export const TAP_TARGET_CENSUS: readonly TapCensusRow[] = [
     // 572 -> 633 on the R2 repairs; still the only button in its span.
     // 655 -> 793 on the retry check-in arc. Same element, same reason: the `block size-full cursor-zoom-in` thumbnail button, whose className now sits well below its tag because the check-in branch grew between them. Keyed by stepping to the tag.
     // 813 -> 812 on feat/crew-show-search Task 5 (galleryLimits.ts import replaced the local INITIAL_VISIBLE, row not updated then), then 812 -> 834 in Task 8 (the `searchTargets` prop, its doc and the slot-marker helper above it). Same `block size-full cursor-zoom-in` thumbnail button, located by stepping to the tag.
-    line: 834,
+    // 834 -> 835 on feat/crew-page-width-1440: the default sizes comment above
+    // grew a line. Same element, same reason.
+    line: 835,
     tag: "button",
     category: "full-bleed",
     reason: "`block size-full cursor-zoom-in` over a gallery tile: the tile is the target.",
