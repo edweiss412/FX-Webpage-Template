@@ -58,7 +58,7 @@ describe("Header without the search slot (markup unchanged)", () => {
         data-testid="page-header"
       >
         <div
-          class="mx-auto flex w-full max-w-[1200px] flex-wrap items-baseline justify-between gap-x-6 gap-y-3 px-4 py-3 sm:gap-y-4 sm:px-8 sm:py-4 lg:h-full lg:flex-nowrap lg:items-center lg:py-0"
+          class="mx-auto flex w-full max-w-360 flex-wrap items-baseline justify-between gap-x-6 gap-y-3 px-4 py-3 sm:gap-y-4 sm:px-8 sm:py-4 lg:h-full lg:flex-nowrap lg:items-center lg:py-0"
         >
           <div
             class="min-w-0 flex-1 lg:grid lg:flex-[2_1_0%] lg:grid-cols-[minmax(0,1fr)_auto] lg:items-center lg:gap-x-2 lg:gap-y-1"
@@ -163,7 +163,7 @@ describe("Header without the search slot (markup unchanged)", () => {
         data-testid="page-header"
       >
         <div
-          class="mx-auto flex w-full max-w-[1200px] flex-wrap items-baseline justify-between gap-x-6 gap-y-3 px-4 py-3 sm:gap-y-4 sm:px-8 sm:py-4 lg:h-full lg:flex-nowrap lg:items-center lg:py-0"
+          class="mx-auto flex w-full max-w-360 flex-wrap items-baseline justify-between gap-x-6 gap-y-3 px-4 py-3 sm:gap-y-4 sm:px-8 sm:py-4 lg:h-full lg:flex-nowrap lg:items-center lg:py-0"
         >
           <div
             class="min-w-0 flex-1 lg:grid lg:flex-[2_1_0%] lg:grid-cols-[minmax(0,1fr)_auto] lg:items-center lg:gap-x-2 lg:gap-y-1"

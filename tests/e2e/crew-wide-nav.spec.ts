@@ -294,6 +294,32 @@ test.describe("crew wide nav (spec §5.3)", () => {
     expect(report.values).toBeGreaterThan(0);
   });
 
+  test("width: a Rooms thumbnail renders at the size the gallery declares, at 1280 and 1728", async ({
+    page,
+  }) => {
+    // Crew page width spec AC-4: the declaration is a quarter of the column after a 402px
+    // inset from 1024px, and 256px above the 1440px page limit (rendered 259.5).
+    for (const [width, declared] of [
+      [1280, (1280 - 402) / 4],
+      [1728, 256],
+    ] as const) {
+      await page.setViewportSize({ width, height: 900 });
+      await load(page, "?s=rooms");
+      const slot = page
+        .locator(
+          '[data-testid="crew-wide-section"][data-section="rooms"] [data-testid^="diagram-slot-"]',
+        )
+        .first();
+      await expect(slot).toBeVisible();
+      const rendered = (await slot.boundingBox())!.width;
+      expect(
+        Math.abs(rendered - declared),
+        `@${width}: ${rendered} vs ${declared}`,
+      ).toBeLessThanOrEqual(8);
+    }
+    await page.setViewportSize(WIDE);
+  });
+
   test("wide nav: ?s=today loads at the top of the page", async ({ page }) => {
     await load(page, "?s=today");
     await expect.poll(() => page.evaluate(() => window.scrollY)).toBe(0);
@@ -1346,6 +1372,62 @@ test.describe("the composed home, wide (crew page redesign Task 11)", () => {
         clientWidth: document.documentElement.clientWidth,
       }));
       expect(scrollWidth, `@${width}px`).toBeLessThanOrEqual(clientWidth);
+    }
+    await page.setViewportSize(WIDE);
+  });
+
+  test("width: the header, page, footer and preview banner share one column, 1440px at most", async ({
+    page,
+  }) => {
+    // docs/superpowers/specs/2026-11-11-crew-page-width-1440-design.md AC-1, AC-2. Border
+    // boxes catch a row left at the old limit; content edges catch a row whose gutter
+    // differs, which moves its text while its box stays put.
+    const crewId = seeded.crew[0]!.id;
+    for (const width of [1728, 1280, 1200, 1024]) {
+      await page.setViewportSize({ width, height: 900 });
+      await loadWide(page, `/admin/show/${seeded.slug}/preview/${crewId}`);
+      const r = await page.evaluate(() => {
+        const row = (sel: string) => {
+          const el = document.querySelector(sel);
+          if (!el) return null;
+          const b = el.getBoundingClientRect();
+          const cs = getComputedStyle(el);
+          return {
+            width: b.width,
+            left: b.left + parseFloat(cs.paddingLeft),
+            right: b.right - parseFloat(cs.paddingRight),
+          };
+        };
+        // The width the body row could fill: its parent's content box. On the preview
+        // route the admin chrome pads it, so it is narrower than the window.
+        const shell = document.querySelector('[data-testid="crew-shell-sections"]')!;
+        const cs = getComputedStyle(shell);
+        return {
+          available:
+            shell.getBoundingClientRect().width -
+            parseFloat(cs.paddingLeft) -
+            parseFloat(cs.paddingRight),
+          body: row('[data-testid="crew-shell-sections"] > div'),
+          header: row('[data-testid="page-header"] > div'),
+          footer: row('[data-testid="page-footer"] > div'),
+          banner: row('[data-testid="admin-preview-banner"] > div'),
+        };
+      });
+      const at = `@${width}: ${JSON.stringify(r)}`;
+      // PREMISE: at 1728 there is room past the limit, so the 1440 check binds there.
+      if (width === 1728) expect(r.available, at).toBeGreaterThan(1440);
+      const expected = Math.min(r.available, 1440);
+      for (const key of ["body", "header", "footer", "banner"] as const) {
+        const row = r[key];
+        expect(row, `${key} ${at}`).not.toBeNull();
+        expect(Math.abs(row!.width - expected), `${key} width ${at}`).toBeLessThanOrEqual(0.5);
+        expect(Math.abs(row!.left - r.body!.left), `${key} left edge ${at}`).toBeLessThanOrEqual(
+          0.5,
+        );
+        expect(Math.abs(row!.right - r.body!.right), `${key} right edge ${at}`).toBeLessThanOrEqual(
+          0.5,
+        );
+      }
     }
     await page.setViewportSize(WIDE);
   });

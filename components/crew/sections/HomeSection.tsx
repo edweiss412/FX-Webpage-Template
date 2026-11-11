@@ -132,13 +132,17 @@ export function HomeSection({
                                 </span>
                                 <span
                                   data-search-skip=""
-                                  className="text-sm/snug text-text group-open:hidden"
+                                  className="max-w-[75ch] text-sm/snug text-text group-open:hidden"
                                 >
                                   {display}
                                 </span>
                               </summary>
-                              <div className="whitespace-pre-wrap border-t border-border p-3 text-sm/relaxed text-text">
-                                {entry.text}
+                              <div className="border-t border-border p-3">
+                                {/* A readable measure at the 1440px page width; the
+                                    divider above still spans the card. */}
+                                <div className="max-w-[75ch] whitespace-pre-wrap text-sm/relaxed text-text">
+                                  {entry.text}
+                                </div>
                               </div>
                             </details>
                           ) : (
@@ -146,7 +150,7 @@ export function HomeSection({
                               <span className="text-xs font-medium uppercase tracking-eyebrow text-text-subtle">
                                 {entry.label}
                               </span>
-                              <span className="text-sm/snug text-text">{display}</span>
+                              <span className="max-w-[75ch] text-sm/snug text-text">{display}</span>
                             </div>
                           )}
                         </li>

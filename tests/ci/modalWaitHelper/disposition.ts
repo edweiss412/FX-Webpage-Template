@@ -749,7 +749,10 @@ export const DISPOSITION_RULES: DispositionRule[] = [
     // 33 since PR C's Task 9: the registry groups block in crew-wide-nav.spec.ts reaches the
     // preview-as path through the same `loadWide`. Re-derived from the failure's own count
     // (33 candidates).
-    expectedCount: 33,
+    // 34 since the crew page width change: crew-wide-nav.spec.ts's width case loads
+    // the preview-as route to measure the preview banner's row. Re-derived from the
+    // failure's own count (34 candidates).
+    expectedCount: 34,
     match: (c) =>
       !isTestTitle(c.matchLineText) &&
       !/^\["\/admin\/show\//.test(c.matchLineText) &&

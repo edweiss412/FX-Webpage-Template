@@ -113,8 +113,9 @@ type GalleryProps = {
 };
 
 /**
- * Full-width fallback: the page caps at max-w-300 (1200px) and the grid is 4-up
- * above 640px, so a thumbnail tops out near 280px.
+ * Full-width fallback for a caller that passes no `sizes`: a 4-up grid above 640px
+ * in a container about 1200px wide tops out near 280px. The crew Rooms section
+ * passes its own declaration, measured against its layout.
  */
 const DEFAULT_THUMBNAIL_SIZES = "(min-width: 1200px) 280px, (min-width: 640px) 23vw, 30vw";
 

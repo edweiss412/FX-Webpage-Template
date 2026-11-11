@@ -279,7 +279,7 @@ export function VenueSection({
                 <p className="text-xs font-medium uppercase tracking-eyebrow text-text-subtle">
                   {venueNotes.label}
                 </p>
-                <p className="text-sm text-text">{venueNotes.value}</p>
+                <p className="max-w-[75ch] text-sm text-text">{venueNotes.value}</p>
               </div>
             ) : null}
           </PanelCard>

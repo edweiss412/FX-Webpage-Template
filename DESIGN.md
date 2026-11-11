@@ -903,7 +903,7 @@ Match spec §8.4 grid contract exactly.
 | --------- | ------ | -------------------------------------------------------------------------- |
 | `--bp-sm` | 640px  | Tile grid: 2 cols → 3 cols transition. Mobile target viewport is 390px.    |
 | `--bp-lg` | 1024px | Tile grid: 3 cols → 4 cols transition. Desktop posture begins.             |
-| `--bp-xl` | 1200px | Container max-width on the widest desktop. Page caps here, doesn't sprawl. |
+| `--bp-xl` | 1200px | The `xl:` breakpoint. The crew page's container stops at 1440px (`max-w-360`, 2026-11-11), with its header, footer and preview banners. |
 
 Tailwind v4 maps these to `sm:`, `lg:`, `xl:` utility prefixes via `@theme` `--breakpoint-*` tokens.
 
@@ -913,7 +913,7 @@ Tailwind v4 maps these to `sm:`, `lg:`, `xl:` utility prefixes via `@theme` `--b
 | ----------------------------- | -------------- | ----------- |
 | Sheet body (below 640px)      | at most 605px  | one column  |
 | Sheet body (640px to 1023px)  | 446px          | one column  |
-| Wide sections (1024px up)     | 688px to 864px | two columns |
+| Wide sections (1024px up)     | 688px to 1104px | two columns |
 
 The threshold only has to fall between the widest sheet body (605px) and the narrowest wide section (688px). 656px is where the retired `min-[720px]` viewport switch landed (720 − 2 × 32px `sm:px-8` gutter), kept because it falls in that gap; the widths are derived in the token's comment. Do not put a viewport variant (`sm:`, `min-[…]:`) on a layout switch inside a crew section body.
 

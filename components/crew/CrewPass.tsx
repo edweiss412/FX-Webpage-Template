@@ -492,7 +492,8 @@ function BodyView({ body, eyebrowRight }: { body: PassBody; eyebrowRight: string
           </div>
           {/* Two columns until the pass is wide enough for three readable cells
               (`@lg/pass`, the pass's own width, never the viewport: the pass is
-              a phone-width card in the wide layout's half column too). Labels
+              a phone-width card in the wide layout's half column, which passes
+              `@lg/pass` only near the 1440px page limit). Labels
               and times wrap in full; other values clamp at two lines. */}
           <dl
             data-testid="crew-pass-facts"
