@@ -21,7 +21,14 @@
  * waiting line is hidden from readers for that reason, and the failed count sits
  * outside the region because a live region must not hold a control.
  */
-import { useCallback, useEffect, useRef, useState, type ReactNode } from "react";
+import {
+  useCallback,
+  useEffect,
+  useRef,
+  useState,
+  useSyncExternalStore,
+  type ReactNode,
+} from "react";
 
 import { ReportModal } from "@/components/shared/ReportModal";
 import {
@@ -41,6 +48,33 @@ function waitingLabel(count: number): string {
 
 function failedLabel(count: number): string {
   return count === 1 ? "1 report couldn't be sent" : `${count} reports couldn't be sent`;
+}
+
+/**
+ * Who the page names now. The marker is not in the document while a status
+ * mounted by a client-side navigation renders, only once that commit lands, and
+ * a refresh can render someone else's page under a mounted status, so the
+ * viewer is a store over the document: React reads it again after the commit,
+ * and the observer reports a marker that changes later.
+ */
+function subscribeToMarker(onChange: () => void): () => void {
+  const observer = new MutationObserver(onChange);
+  observer.observe(document.body, {
+    childList: true,
+    subtree: true,
+    attributes: true,
+    attributeFilter: ["data-viewer", "data-disposition"],
+  });
+  return () => observer.disconnect();
+}
+
+function currentViewer(): string | null {
+  return readPageIdentity().writer;
+}
+
+/** The server render names nobody, so it shows no failed report. */
+function serverViewer(): null {
+  return null;
 }
 
 /** A failed report of this show that this viewer wrote. A page that names nobody has none. */
@@ -64,8 +98,7 @@ export function ReportQueueStatus({
   const [reports, setReports] = useState<readonly QueuedReport[]>([]);
   const [resending, setResending] = useState<QueuedReport | null>(null);
   const [ready, setReady] = useState(false);
-  // Read once, as the modal does: the page names its viewer when it renders.
-  const [viewer] = useState(() => readPageIdentity().writer);
+  const viewer = useSyncExternalStore(subscribeToMarker, currentViewer, serverViewer);
   const failedButton = useRef<HTMLButtonElement | null>(null);
 
   // A monotonic ordinal: two reads can settle out of order, and the older list
@@ -195,7 +228,8 @@ export function ReportQueueStatus({
           ) : null}
         </div>
       ) : null}
-      {resending ? (
+      {/* The sheet closes if the page stops naming its writer. */}
+      {resending && ownFailed(resending, showId, viewer) ? (
         <ReportModal
           open
           onOpenChange={(open) => {
