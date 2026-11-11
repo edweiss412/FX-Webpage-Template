@@ -1056,8 +1056,13 @@ export function scanCandidates(): Candidate[] {
       //
       // 799 -> 802 on feat/crew-panel-followups Task 2: PanelCard's title and header
       // conditionals add two and VenueBody's label one. None is a fault branch; 84 kept.
-      // Probed: 802 such ternaries under the derived roots, 84 on a
-      // fault-vocabulary guard and unclassifiable. 74 of those 84 sit in
+      //
+      // 802 kept on fix/offline-report-writer-scope, but 84 -> 85: the footer's resend
+      // sheet now renders only while `ownFailed(...)` holds, and that name matches the
+      // vocabulary. It is the viewer's own report, in a `"use client"` file, not a fault
+      // branch. Re-derived by running the guard.
+      // Probed: 802 such ternaries under the derived roots, 85 on a
+      // fault-vocabulary guard and unclassifiable. 75 of those 85 sit in
       // `"use client"` files, where the guard is interaction state -- `errorCode`,
       // `state.kind === "error"`, `switchStatus === "error"` -- and not a server-render
       // fault. The screenshot harness captures server-rendered output, so a
