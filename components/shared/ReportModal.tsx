@@ -581,7 +581,11 @@ export function ReportModal(props: ReportModalProps) {
     setError({ kind: "network" });
   }
 
-  /** Send again: the new key goes on the phone first, and the sender does the rest. */
+  /**
+   * Send again: the new key goes on the phone first, and the sender does the rest.
+   * It goes under the record's own writer, never the page's, so a resend can only
+   * be filed for the person who wrote it (owner decision, 2026-11-11).
+   */
   async function resendFailed(current: QueuedReport): Promise<void> {
     // A resend ends any armed Discard: a refusal must not come back one tap from deleting.
     if (discardTimer.current !== null) clearTimeout(discardTimer.current);
@@ -594,7 +598,6 @@ export function ReportModal(props: ReportModalProps) {
       ...current,
       id: mintUuid(),
       message: draft,
-      writer: writer ?? current.writer,
       status: "queued",
       errorCode: null,
     };
