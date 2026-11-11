@@ -43,3 +43,21 @@ Browser: a case in `tests/e2e/crew-wide-nav.spec.ts`, on a show with diagrams, r
 ## Closeout
 
 In order: the full unit suite and the crew e2e specs; the invariant-8 UI gate on the diff, recorded in this plan's §12; any moved help screenshots regenerated through `screenshots-regen.yml`; whole-diff cross-model review to APPROVE; push, CI green, merge, fast-forward `main`, verify `0  0`.
+
+## 12. Invariant-8 UI quality gate
+
+Run on 2026-11-11 against `e4f1d80de` to `26eacc4cf`, on this branch's diff (`git diff origin/main..HEAD -- app components lib DESIGN.md`). Both passes ran with their setup gates: the context load of `PRODUCT.md` and `DESIGN.md`, then the register read. The critique ran as two isolated assessments, a design review and the detector with browser evidence, and scored 30/40; the audit scored 17/20. Together they raised 0 P0 and 0 P1. Measured in Chromium at 1024, 1280, 1440, 1728 and 2048, light and dark: header, body, footer and banner rows aligned to 0.0px, no overflow at any width or at 200% zoom on a 1440 window, Rooms thumbnails within 2.5px of their declared size, detector 0 findings on the changed files. Not reached: Safari and iOS, the staged wizard preview, the live admin preview banner (its row was measured as a copy inside the page, and `tests/e2e/crew-wide-nav.spec.ts` measures it on the preview route).
+
+| # | Pass | Tier | Where | Finding | Disposition |
+| --- | --- | --- | --- | --- | --- |
+| 1 | both | P2 | `components/crew/sections/HomeSection.tsx`, `components/crew/sections/VenueSection.tsx` | Show and venue notes ran about 150 characters a line at 1440px, past DESIGN.md's 65 to 75 character measure. | Fixed, `08c6f164a`: the note text caps at 75ch; the card still fills the column. |
+| 2 | both | P2 | `components/show-panels/RoomsBody.tsx` | A room's equipment list runs up to 144 characters a line from 1440px. | Accepted: the body is shared with the admin popup, whose DOM is pinned, and the owner chose the width knowing rows lengthen. Recorded in spec §5. |
+| 3 | critique | P2 | fact rows, crew roster | Labels sit up to 580px from their values, and call buttons about 680px from names. | Accepted, recorded in spec §5: the owner declined the two-column layout that would have shortened rows. |
+| 4 | critique | P3 | `components/crew/sections/RoomsSection.tsx` | Above about 1427px a 1x screen fetched the 512 image tier for a 259.5px thumbnail. | Fixed, `08c6f164a`: 256px declared above 1440, within the 8px check. |
+| 5 | both | P3 | `components/crew/sections/RoomsSection.tsx`, `components/crew/CrewPass.tsx`, `DESIGN.md` | Comments and the section-width table named the old geometry. | Fixed, `08c6f164a`. |
+| 6 | audit | P3 | `components/crew/CrewPass.tsx` | The pass's fact grid turns three-column from about 1388px, a state the tests cover only at phone widths. | Accepted: the pass's own container query, unchanged; the gate measured 158px cells at 1440, readable. |
+| 7 | audit | P3 | `components/crew/CrewLoadingSkeleton.tsx` | Skeleton day-row slots stretch to 129px at 1440 against loaded buttons of 64 to 76px. | Accepted: a placeholder for under a second. |
+| 8 | critique | P3 | single-fact cards, the header status pill | Billing and Venue status read mostly empty at 1104px; the status pill sits by the search box. | Accepted: the owner declined two columns; the pill predates this. |
+| 9 | critique | P3 | `components/offline/SavedCopyBar.tsx` | The saved-copy bar is full width, not on the 1440 column. | Outside this diff; it was full width before too. |
+
+impeccable-gate: critique=RAN audit=RAN p0=0 p1=0 dispositions=recorded

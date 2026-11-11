@@ -49,3 +49,4 @@ Wide mode only, and only above 1200px. The relationships are AC-1 and AC-2, asse
 
 - The admin pages keep their own width; this is the crew page and its preview chrome only.
 - Above 1440px the margins grow again; the owner chose that over full width.
+- Rows lengthen with the column: a room's equipment list reaches about 144 characters a line from 1440px, and labels sit up to 580px from their values. The room body is shared with the admin popup, so it is not capped here; note text is capped at 75ch.
