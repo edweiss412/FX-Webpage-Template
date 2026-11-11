@@ -711,7 +711,14 @@ describe("the scanner's population is pinned against resolver drift", () => {
     // Same transportation `tile-errors` row, still marked. Nothing joined or left:
     // membership is still 34, and mapping that ONE row back reproduces 0d28b42c...
     // byte-for-byte (recomputed from scanCandidates()).
-    expect(digest).toBe("15756e40563a0fd7e51aee58300ff5f7881abef6cb989554463ee8657b0f7144");
+    // Regenerated for feat/crew-page-width-1440 Task 2, to the same bar. EXACTLY ONE input
+    // changed, a line number:
+    //   components/crew/sections/RoomsSection.tsx 94 -> 100 (the gallery's measured sizes
+    //   declaration and its comment above it)
+    // Same rooms `tile-errors` row, still marked. Nothing joined or left: membership is
+    // still 34, and mapping that ONE row back reproduces 15756e40... byte-for-byte
+    // (recomputed from scanCandidates()).
+    expect(digest).toBe("808327708208b54fc336b7a52a82ff999d56ed0d88eee7000945b07b38d17cdf");
   });
 });
 

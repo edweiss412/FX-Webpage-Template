@@ -49,7 +49,13 @@ import { roomLabel } from "@/lib/visibility/roomLabel";
  * reach, and fetched the 1024 tier for a 111px thumbnail: 2.8x the bytes on a venue's
  * network (gate repair 5).
  */
-const THUMBNAIL_SIZES = "(min-width: 1024px) 200px, (min-width: 640px) 100px, 26vw";
+// From 1024px a thumbnail is a quarter of what the wide column leaves after the nav,
+// gutters, card padding and gallery gaps: 402px, measured in Chromium at every width
+// from 1024 to 1440. The page stops at 1440px, so above it the thumbnail stays 260px
+// (docs/superpowers/specs/2026-11-11-crew-page-width-1440-design.md §2). Below 1024px
+// the declaration is unchanged.
+const THUMBNAIL_SIZES =
+  "(min-width: 1440px) 260px, (min-width: 1024px) calc((100vw - 402px) / 4), (min-width: 640px) 100px, 26vw";
 
 type RoomsSectionProps = {
   data: ShowForViewer;

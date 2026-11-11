@@ -294,6 +294,32 @@ test.describe("crew wide nav (spec §5.3)", () => {
     expect(report.values).toBeGreaterThan(0);
   });
 
+  test("width: a Rooms thumbnail renders at the size the gallery declares, at 1280 and 1728", async ({
+    page,
+  }) => {
+    // Crew page width spec AC-4: the declaration is a quarter of the column after a 402px
+    // inset from 1024px, and 260px above the 1440px page limit.
+    for (const [width, declared] of [
+      [1280, (1280 - 402) / 4],
+      [1728, 260],
+    ] as const) {
+      await page.setViewportSize({ width, height: 900 });
+      await load(page, "?s=rooms");
+      const slot = page
+        .locator(
+          '[data-testid="crew-wide-section"][data-section="rooms"] [data-testid^="diagram-slot-"]',
+        )
+        .first();
+      await expect(slot).toBeVisible();
+      const rendered = (await slot.boundingBox())!.width;
+      expect(
+        Math.abs(rendered - declared),
+        `@${width}: ${rendered} vs ${declared}`,
+      ).toBeLessThanOrEqual(8);
+    }
+    await page.setViewportSize(WIDE);
+  });
+
   test("wide nav: ?s=today loads at the top of the page", async ({ page }) => {
     await load(page, "?s=today");
     await expect.poll(() => page.evaluate(() => window.scrollY)).toBe(0);
