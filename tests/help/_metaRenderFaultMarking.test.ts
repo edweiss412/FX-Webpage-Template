@@ -718,7 +718,15 @@ describe("the scanner's population is pinned against resolver drift", () => {
     // Same rooms `tile-errors` row, still marked. Nothing joined or left: membership is
     // still 34, and mapping that ONE row back reproduces 15756e40... byte-for-byte
     // (recomputed from scanCandidates()).
-    expect(digest).toBe("808327708208b54fc336b7a52a82ff999d56ed0d88eee7000945b07b38d17cdf");
+    // Regenerated for feat/crew-page-width-1440's invariant-8 gate repairs, to the same bar.
+    // EXACTLY FOUR inputs changed, line numbers:
+    //   components/crew/sections/HomeSection.tsx 172/173/174 -> 176/177/178 (the show
+    //   notes' expanded text gained a measure wrapper above them)
+    //   components/crew/sections/RoomsSection.tsx 100 -> 101 (the sizes comment grew a line)
+    // Same hotel, contacts and rooms `tile-errors` rows, still marked. Nothing joined or
+    // left: membership is still 34, and mapping those FOUR rows back reproduces 80832770...
+    // byte-for-byte (recomputed from scanCandidates()).
+    expect(digest).toBe("7848ddca4cf79236d440579d2e4a0eac371c6c9110f11292e156aa8c3359980e");
   });
 });
 

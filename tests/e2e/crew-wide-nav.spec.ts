@@ -298,10 +298,10 @@ test.describe("crew wide nav (spec §5.3)", () => {
     page,
   }) => {
     // Crew page width spec AC-4: the declaration is a quarter of the column after a 402px
-    // inset from 1024px, and 260px above the 1440px page limit.
+    // inset from 1024px, and 256px above the 1440px page limit (rendered 259.5).
     for (const [width, declared] of [
       [1280, (1280 - 402) / 4],
-      [1728, 260],
+      [1728, 256],
     ] as const) {
       await page.setViewportSize({ width, height: 900 });
       await load(page, "?s=rooms");

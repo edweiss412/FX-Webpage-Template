@@ -44,18 +44,19 @@ import { roomLabel } from "@/lib/visibility/roomLabel";
 
 /**
  * What a thumbnail measures in this section: 26vw on a phone (76 to 113px), about 95px
- * in the 446px sheet from 640, and at most 200px in the wide column. The gallery's
+ * in the 446px sheet from 640, and at most 260px in the wide column. The gallery's
  * default says 30vw, so a 430 phone at 3x asked for 387px, three past the 512 tier's
  * reach, and fetched the 1024 tier for a 111px thumbnail: 2.8x the bytes on a venue's
  * network (gate repair 5).
  */
 // From 1024px a thumbnail is a quarter of what the wide column leaves after the nav,
 // gutters, card padding and gallery gaps: 402px, measured in Chromium at every width
-// from 1024 to 1440. The page stops at 1440px, so above it the thumbnail stays 260px
+// from 1024 to 1440. The page stops at 1440px, so above it the thumbnail stays 259.5px,
+// declared as 256 so a 1x screen keeps the 256 tier rather than fetching the 512
 // (docs/superpowers/specs/2026-11-11-crew-page-width-1440-design.md §2). Below 1024px
 // the declaration is unchanged.
 const THUMBNAIL_SIZES =
-  "(min-width: 1440px) 260px, (min-width: 1024px) calc((100vw - 402px) / 4), (min-width: 640px) 100px, 26vw";
+  "(min-width: 1440px) 256px, (min-width: 1024px) calc((100vw - 402px) / 4), (min-width: 640px) 100px, 26vw";
 
 type RoomsSectionProps = {
   data: ShowForViewer;

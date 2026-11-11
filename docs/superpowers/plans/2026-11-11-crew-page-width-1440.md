@@ -36,7 +36,7 @@ RED: `tests/components/crew/sections/RoomsSection.test.tsx` asserts the gallery'
 
 GREEN: measure the column's inset at 1280 and 1728 in a browser first (rendered thumbnail width against `100vw`), then write `components/crew/sections/RoomsSection.tsx:52` from it; `components/diagrams/Gallery.tsx:116-118`'s comment drops the old limit.
 
-Browser: a case in `tests/e2e/crew-wide-nav.spec.ts`, on a show with diagrams, reads a rendered Rooms thumbnail's width at 1280 and at 1728 and asserts each is within 8px of the declared size evaluated at that width (the `calc` at 1280, 260 at 1728). Failure caught: a declared size that drifts from the layout it describes. Below 1024px the declaration's entries are unchanged, which the unit RED pins.
+Browser: a case in `tests/e2e/crew-wide-nav.spec.ts`, on a show with diagrams, reads a rendered Rooms thumbnail's width at 1280 and at 1728 and asserts each is within 8px of the declared size evaluated at that width (the `calc` at 1280, 256 at 1728). Failure caught: a declared size that drifts from the layout it describes. Below 1024px the declaration's entries are unchanged, which the unit RED pins.
 
 <!-- tasks: end -->
 

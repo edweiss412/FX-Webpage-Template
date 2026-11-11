@@ -913,7 +913,7 @@ Tailwind v4 maps these to `sm:`, `lg:`, `xl:` utility prefixes via `@theme` `--b
 | ----------------------------- | -------------- | ----------- |
 | Sheet body (below 640px)      | at most 605px  | one column  |
 | Sheet body (640px to 1023px)  | 446px          | one column  |
-| Wide sections (1024px up)     | 688px to 864px | two columns |
+| Wide sections (1024px up)     | 688px to 1104px | two columns |
 
 The threshold only has to fall between the widest sheet body (605px) and the narrowest wide section (688px). 656px is where the retired `min-[720px]` viewport switch landed (720 − 2 × 32px `sm:px-8` gutter), kept because it falls in that gap; the widths are derived in the token's comment. Do not put a viewport variant (`sm:`, `min-[…]:`) on a layout switch inside a crew section body.
 

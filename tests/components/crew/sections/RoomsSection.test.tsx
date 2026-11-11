@@ -516,9 +516,9 @@ describe("rooms: the Diagrams block", () => {
     const sizes = root.querySelector("img")?.getAttribute("sizes") ?? "";
     premise("the gallery rendered an image with a sizes value", sizes.length, 0);
     // Measured against the layout it describes (crew page width spec §2): a quarter of the
-    // wide column after a 402px inset from 1024px, 260px above the 1440px page limit.
+    // wide column after a 402px inset from 1024px, 256px (the 256 tier) above the 1440px page limit.
     expect(sizes).toBe(
-      "(min-width: 1440px) 260px, (min-width: 1024px) calc((100vw - 402px) / 4), (min-width: 640px) 100px, 26vw",
+      "(min-width: 1440px) 256px, (min-width: 1024px) calc((100vw - 402px) / 4), (min-width: 640px) 100px, 26vw",
     );
   });
 });
