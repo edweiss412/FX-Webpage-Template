@@ -438,9 +438,7 @@ describe("another person's failed report", () => {
         "1 report couldn't be sent",
       ),
     );
-    expect(screen.getByTestId("report-queue-region").textContent).toBe(
-      "1 report couldn't be sent",
-    );
+    expect(screen.getByTestId("report-queue-region").textContent).toBe("1 report couldn't be sent");
     expect(document.body.textContent).not.toContain("the other person's words");
   });
 
