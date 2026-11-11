@@ -550,8 +550,10 @@ describe("the viewer the page names, as it changes", () => {
     );
   });
 
-  test("a refresh that renders someone else's page hides the report, and closes its open sheet", async () => {
+  test("a refresh that renders someone else's page shows only theirs, and closes the open sheet", async () => {
     await enqueueReport(report(1, { status: "failed", message: "mine" }));
+    // The next person has a failed report of their own, so a count stays on screen.
+    await enqueueReport(report(2, { status: "failed", writer: "viewer-b", message: "theirs" }));
     const { rerender } = render(<Page viewer="viewer-a" />);
     await ready();
     fireEvent.click(await screen.findByTestId("report-queue-failed"));
@@ -560,9 +562,9 @@ describe("the viewer the page names, as it changes", () => {
     ).toBe("mine");
 
     rerender(<Page viewer="viewer-b" />);
-    await waitFor(() => expect(screen.queryByTestId("report-queue-failed")).toBeNull());
-    expect(screen.queryByTestId("report-modal-textarea")).toBeNull();
-    expect(screen.getByTestId("report-queue-region").textContent).toBe("");
+    await waitFor(() => expect(screen.queryByTestId("report-modal-textarea")).toBeNull());
+    expect(screen.getByTestId("report-queue-failed").textContent).toBe("1 report couldn't be sent");
+    expect(screen.getByTestId("report-queue-region").textContent).toBe("1 report couldn't be sent");
     expect(document.body.textContent).not.toContain("mine");
 
     rerender(<Page viewer="viewer-a" />);
@@ -573,13 +575,16 @@ describe("the viewer the page names, as it changes", () => {
     );
   });
 
-  test("a refresh that names nobody hides it too", async () => {
-    await enqueueReport(report(1, { status: "failed" }));
+  test("a refresh that names nobody hides it too, and closes the open sheet", async () => {
+    await enqueueReport(report(1, { status: "failed", message: "mine" }));
     const { rerender } = render(<Page viewer="viewer-a" />);
     await ready();
-    await screen.findByTestId("report-queue-failed");
+    fireEvent.click(await screen.findByTestId("report-queue-failed"));
+    await screen.findByTestId("report-modal-textarea");
     rerender(<Page viewer={null} />);
-    await waitFor(() => expect(screen.queryByTestId("report-queue-failed")).toBeNull());
+    await waitFor(() => expect(screen.queryByTestId("report-modal-textarea")).toBeNull());
+    expect(screen.queryByTestId("report-queue-failed")).toBeNull();
+    expect(document.body.textContent).not.toContain("mine");
   });
 });
 
