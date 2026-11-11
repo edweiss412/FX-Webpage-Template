@@ -9,6 +9,13 @@
  * held report, because the record carries the whole request, so the 60-second
  * timer runs while anything on the phone is queued, not just this show's.
  *
+ * A failed report shows only to the person who wrote it: its writer must be the
+ * viewer this page names. Anyone else on a shared phone sees no trace of it, in
+ * the count, the status region or the modal, and it stays held until its writer
+ * opens the show again (owner decision, 2026-11-11). The waiting count is the
+ * phone's, whoever wrote what is waiting, because it shows no text and clears
+ * by itself.
+ *
  * The status region is mounted from the first render and only its text changes,
  * because a screen reader announces a mutation, not an insertion. The visible
  * waiting line is hidden from readers for that reason, and the failed count sits
@@ -17,7 +24,12 @@
 import { useCallback, useEffect, useRef, useState, type ReactNode } from "react";
 
 import { ReportModal } from "@/components/shared/ReportModal";
-import { listReports, subscribeQueue, type QueuedReport } from "@/lib/reports/offlineQueue";
+import {
+  listReports,
+  readPageIdentity,
+  subscribeQueue,
+  type QueuedReport,
+} from "@/lib/reports/offlineQueue";
 import { reportSender } from "@/lib/reports/offlineSender";
 
 /** How often a page tries again while any report is queued (spec 5.1). */
@@ -31,6 +43,16 @@ function failedLabel(count: number): string {
   return count === 1 ? "1 report couldn't be sent" : `${count} reports couldn't be sent`;
 }
 
+/** A failed report of this show that this viewer wrote. A page that names nobody has none. */
+function ownFailed(report: QueuedReport, showId: string, viewer: string | null): boolean {
+  return (
+    report.showId === showId &&
+    report.status === "failed" &&
+    viewer !== null &&
+    report.writer === viewer
+  );
+}
+
 export function ReportQueueStatus({
   showId,
   onReturnFocus,
@@ -42,6 +64,8 @@ export function ReportQueueStatus({
   const [reports, setReports] = useState<readonly QueuedReport[]>([]);
   const [resending, setResending] = useState<QueuedReport | null>(null);
   const [ready, setReady] = useState(false);
+  // Read once, as the modal does: the page names its viewer when it renders.
+  const [viewer] = useState(() => readPageIdentity().writer);
   const failedButton = useRef<HTMLButtonElement | null>(null);
 
   // A monotonic ordinal: two reads can settle out of order, and the older list
@@ -93,9 +117,10 @@ export function ReportQueueStatus({
     return () => clearInterval(timer);
   }, [anyQueued, refresh]);
 
-  const here = reports.filter((report) => report.showId === showId);
-  const waiting = here.filter((report) => report.status === "queued").length;
-  const failed = here.filter((report) => report.status === "failed");
+  const waiting = reports.filter(
+    (report) => report.showId === showId && report.status === "queued",
+  ).length;
+  const failed = reports.filter((report) => ownFailed(report, showId, viewer));
 
   /**
    * The modal puts focus back on the failed count as it closes. If that count is
@@ -104,9 +129,7 @@ export function ReportQueueStatus({
   const closeResend = async (): Promise<void> => {
     setResending(null);
     const next = await listReports();
-    const stillFailed = next.some(
-      (report) => report.showId === showId && report.status === "failed",
-    );
+    const stillFailed = next.some((report) => ownFailed(report, showId, viewer));
     if (!stillFailed) {
       onReturnFocus?.();
       return;
