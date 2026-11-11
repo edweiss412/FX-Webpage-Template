@@ -191,6 +191,13 @@ async function writeQueue(page: Page, records: Stored[]): Promise<void> {
   );
 }
 
+/** The viewer key the page was rendered for: a failed report shows only to its writer. */
+async function pageViewer(page: Page): Promise<string> {
+  const viewer = await page.locator("#fxav-saved-copy").getAttribute("data-viewer");
+  premiseHolds("the page names its viewer", viewer !== null && viewer !== "");
+  return viewer as string;
+}
+
 function storedReport(show: CaseShow, n: number, overrides: Partial<Stored> = {}): Stored {
   return {
     id: randomUUID(),
@@ -356,13 +363,14 @@ test("503, 409 and 429 keep the report queued under one key", async ({
   expect(keys.size).toBe(1);
 });
 
-test("the real server files nothing for the wrong writer, and the report can be sent again", async ({
+test("the real server files nothing for the wrong writer, and only its writer sees it refused", async ({
   crewPage,
   crewProxy,
   origin,
 }) => {
   const show = await seedCase();
   await openShow(crewPage, origin, show);
+  const viewer = await pageViewer(crewPage);
   await holdReport(crewPage, crewProxy, "the writer case");
 
   // As written: the marker's key is the server's, so the POST gets past the writer
@@ -374,8 +382,21 @@ test("the real server files nothing for the wrong writer, and the report can be 
   premiseHolds("the report is still held", held !== undefined);
   await writeQueue(crewPage, [{ ...(held as Stored), writer: "somebody-else" }]);
   await signalUntil(crewPage, () => reportPosts(crewProxy).at(-1)?.upstreamStatus === 401);
-  await expect(failed(crewPage)).toHaveText("1 report couldn't be sent");
 
+  // Refused and kept, but this page's viewer did not write it, so nothing shows.
+  // The waiting count clearing proves the page heard the change.
+  await expect.poll(async () => (await readQueue(crewPage))[0]?.status).toBe("failed");
+  await expect(waiting(crewPage)).toHaveCount(0);
+  await expect(failed(crewPage)).toHaveCount(0);
+  await expect(crewPage.getByTestId("report-queue-region")).toHaveText("");
+  await expect(crewPage.getByText("the writer case")).toHaveCount(0);
+
+  // Its writer opening the show sees it, and can send it again.
+  const [refused] = await readQueue(crewPage);
+  await writeQueue(crewPage, [{ ...(refused as Stored), writer: viewer }]);
+  await crewPage.goto(`${origin}${crewUrlPath(show)}`);
+  await queueReady(crewPage);
+  await expect(failed(crewPage)).toHaveText("1 report couldn't be sent");
   await failed(crewPage).click();
   await expect(crewPage.getByTestId("report-modal-textarea")).toHaveValue("the writer case");
   crewProxy.answerNext("/api/report", [CREATED]);
@@ -411,7 +432,7 @@ test("a refused report can be discarded, and stays gone", async ({
   expect(await readQueue(crewPage)).toEqual([]);
 });
 
-test("an eleventh report shows the failure copy and keeps its draft", async ({
+test("an eleventh report shows the failure copy and keeps its draft, though the ten are someone else's", async ({
   crewPage,
   crewProxy,
   origin,
@@ -422,6 +443,11 @@ test("an eleventh report shows the failure copy and keeps its draft", async ({
     crewPage,
     Array.from({ length: 10 }, (_unused, n) => storedReport(show, n)),
   );
+
+  // Another writer's failed reports stay held for them and still fill the cap.
+  await crewPage.goto(`${origin}${crewUrlPath(show)}`);
+  await queueReady(crewPage);
+  await expect(failed(crewPage)).toHaveCount(0);
 
   crewProxy.setMode("refuse");
   await writeReport(crewPage, "the eleventh");
@@ -439,9 +465,10 @@ test("the footer band holds both counts at 390px with no overflow", async ({
 }) => {
   const show = await seedCase();
   await openShow(crewPage, origin, show);
+  const viewer = await pageViewer(crewPage);
   await writeQueue(crewPage, [
     storedReport(show, 1, { status: "queued" }),
-    storedReport(show, 2, { status: "failed" }),
+    storedReport(show, 2, { status: "failed", writer: viewer }),
   ]);
 
   crewProxy.setMode("refuse");
@@ -471,9 +498,10 @@ test("the counts and the failed sheet hold on a small screen and at a short one"
 }) => {
   const show = await seedCase();
   await openShow(crewPage, origin, show);
+  const viewer = await pageViewer(crewPage);
   await writeQueue(crewPage, [
     storedReport(show, 1, { status: "queued" }),
-    storedReport(show, 2, { status: "failed" }),
+    storedReport(show, 2, { status: "failed", writer: viewer }),
   ]);
   crewProxy.setMode("refuse");
   await crewPage.setViewportSize({ width: 320, height: 568 });

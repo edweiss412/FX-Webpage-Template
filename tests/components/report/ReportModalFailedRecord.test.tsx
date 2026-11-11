@@ -106,7 +106,8 @@ beforeEach(async () => {
   fetchMock.mockReset();
   global.fetch = fetchMock as unknown as typeof fetch;
   sessionStorage.clear();
-  plant(saveMarker("viewer-b"));
+  // The status beside the button opens a failed record only for its writer.
+  plant(saveMarker("viewer-a"));
   await enqueueReport(record);
 });
 
@@ -175,7 +176,7 @@ describe("the surface's persisted draft", () => {
       draft: "a footer draft",
       status: "composing",
       surfaceId: SURFACE,
-      writer: "viewer-b",
+      writer: "viewer-a",
     });
     sessionStorage.setItem(ROW_KEY, draft);
     fetchMock.mockResolvedValueOnce(created());
@@ -204,7 +205,7 @@ describe("Send again", () => {
     expect(posted()).toMatchObject({
       message: "edited",
       offline: { writtenAt: WRITTEN, pageRenderedAt: RENDERED },
-      writer: "viewer-b",
+      writer: "viewer-a",
       viewerVisibleSection: "dock",
     });
     expect(posted().idempotency_key).not.toBe(OLD_KEY);
@@ -218,6 +219,15 @@ describe("Send again", () => {
     await waitFor(() => expect(state()).toBe("succeeded"));
     expect(screen.queryByTestId("report-modal-failed-notice")).toBeNull();
     expect(screen.getByTestId("report-modal-root").getAttribute("aria-describedby")).toBeNull();
+  });
+
+  test("a page that names someone else still sends under the record's writer", async () => {
+    plant(saveMarker("viewer-b"));
+    fetchMock.mockResolvedValueOnce(created());
+    render(modal(record));
+    sendAgain();
+    await waitFor(() => expect(state()).toBe("succeeded"));
+    expect(posted().writer).toBe("viewer-a");
   });
 
   test("a page with no writer keeps the record's own, and the server decides", async () => {
@@ -272,7 +282,7 @@ describe("Send again", () => {
 
     const reports = await listReports();
     expect(reports).toHaveLength(1);
-    expect(reports[0]).toMatchObject({ message: "edited", status: "queued", writer: "viewer-b" });
+    expect(reports[0]).toMatchObject({ message: "edited", status: "queued", writer: "viewer-a" });
     expect(reports[0]?.id).not.toBe(OLD_KEY);
     expect(screen.getByTestId("report-modal-queued")).toBeTruthy();
   });

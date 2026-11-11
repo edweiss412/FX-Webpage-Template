@@ -5,6 +5,10 @@
  * The waiting and failed counts beside the crew report button, and the page's
  * triggers for the sender (crew offline spec 2026-10-26 §5.1). The queue is real;
  * the sender is a spy, because its own suite covers what a pass does.
+ *
+ * The page says who is viewing through its saved-copy marker. Every test starts
+ * as "viewer-a", who wrote the default record, because a failed report shows
+ * only to the person who wrote it (owner decision, 2026-11-11).
  */
 import { IDBFactory } from "fake-indexeddb";
 import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
@@ -24,11 +28,13 @@ const sender = vi.hoisted(() => ({
 vi.mock("@/lib/reports/offlineSender", () => ({ reportSender: sender }));
 
 import { ReportButton } from "@/components/shared/ReportButton";
+import { markerAttributes } from "@/lib/offline/marker";
 import { ReportQueueStatus } from "@/components/shared/ReportQueueStatus";
 import {
   deleteReport,
   enqueueReport,
   failReport,
+  listReports,
   type QueuedReport,
 } from "@/lib/reports/offlineQueue";
 
@@ -53,6 +59,32 @@ function report(n: number, overrides: Partial<QueuedReport> = {}): QueuedReport 
   };
 }
 
+/** Says who the page is rendered for, or, with null, names nobody. */
+function viewing(viewer: string | null): void {
+  document.getElementById("fxav-saved-copy")?.remove();
+  if (viewer === null) return;
+  const element = document.createElement("template");
+  const attributes = markerAttributes({ disposition: "keep", showId: SHOW, viewer });
+  for (const [name, value] of Object.entries(attributes)) element.setAttribute(name, value);
+  document.body.appendChild(element);
+}
+
+/**
+ * A page whose marker React renders in the same commit as the status, as a
+ * client-side navigation or a refresh does: the marker is not in the document
+ * while the status renders, only once the commit lands.
+ */
+function Page({ viewer }: { viewer: string | null }) {
+  return (
+    <>
+      {viewer === null ? null : (
+        <template {...markerAttributes({ disposition: "keep", showId: SHOW, viewer })} />
+      )}
+      <ReportQueueStatus showId={SHOW} />
+    </>
+  );
+}
+
 async function ready(): Promise<void> {
   await waitFor(() =>
     expect(screen.getByTestId("report-queue-region").getAttribute("data-queue-ready")).toBe("true"),
@@ -67,10 +99,12 @@ async function mounted(): Promise<void> {
 beforeEach(() => {
   vi.stubGlobal("indexedDB", new IDBFactory());
   for (const spy of Object.values(sender)) spy.mockClear();
+  viewing("viewer-a");
 });
 
 afterEach(() => {
   cleanup();
+  viewing(null);
   vi.useRealTimers();
   vi.unstubAllGlobals();
   vi.restoreAllMocks();
@@ -406,6 +440,151 @@ describe("tapping the failed count", () => {
     await waitFor(() =>
       expect(document.activeElement).toBe(screen.getByTestId("report-button-trigger")),
     );
+  });
+});
+
+describe("another person's failed report", () => {
+  test("leaves no row, no text and no announcement, beside the viewer's own", async () => {
+    await enqueueReport(
+      report(1, { status: "failed", writer: "viewer-b", message: "the other person's words" }),
+    );
+    await enqueueReport(report(2, { status: "failed" }));
+    await mounted();
+    await waitFor(() =>
+      expect(screen.getByTestId("report-queue-failed").textContent).toBe(
+        "1 report couldn't be sent",
+      ),
+    );
+    expect(screen.getByTestId("report-queue-region").textContent).toBe("1 report couldn't be sent");
+    expect(document.body.textContent).not.toContain("the other person's words");
+  });
+
+  test("alone, it leaves nothing at all", async () => {
+    await enqueueReport(
+      report(1, { status: "failed", writer: "viewer-b", message: "the other person's words" }),
+    );
+    const { container } = render(<ReportQueueStatus showId={SHOW} />);
+    await ready();
+    expect(screen.queryByTestId("report-queue-failed")).toBeNull();
+    expect(screen.getByTestId("report-queue-region").textContent).toBe("");
+    // The region is the only child: the cell that holds the counts is not drawn.
+    expect(container.children).toHaveLength(1);
+  });
+
+  test("a page that names nobody shows no failed report, not even one with no writer", async () => {
+    viewing(null);
+    await enqueueReport(report(1, { status: "failed" }));
+    await enqueueReport(report(2, { status: "failed", writer: null }));
+    await mounted();
+    expect(screen.queryByTestId("report-queue-failed")).toBeNull();
+    expect(screen.getByTestId("report-queue-region").textContent).toBe("");
+  });
+
+  test("a record with no writer shows to nobody", async () => {
+    await enqueueReport(report(1, { status: "failed", writer: null }));
+    await mounted();
+    expect(screen.queryByTestId("report-queue-failed")).toBeNull();
+  });
+
+  test("tapping opens the viewer's own oldest, never the older one of someone else", async () => {
+    await enqueueReport(report(1, { status: "failed", writer: "viewer-b", message: "theirs" }));
+    await enqueueReport(report(2, { status: "failed", message: "mine" }));
+    await mounted();
+    fireEvent.click(await screen.findByTestId("report-queue-failed"));
+    const textarea = (await screen.findByTestId("report-modal-textarea")) as HTMLTextAreaElement;
+    expect(textarea.value).toBe("mine");
+  });
+
+  test("discarding the viewer's last one sends focus to the trigger, though theirs remains", async () => {
+    await enqueueReport(report(1, { status: "failed", writer: "viewer-b", message: "theirs" }));
+    await enqueueReport(report(2, { status: "failed" }));
+    render(<ReportButton surface="crew" surfaceId="footer-crew" showId={SHOW} variant="icon" />);
+    await ready();
+    const failed = await screen.findByTestId("report-queue-failed");
+    failed.focus();
+    fireEvent.click(failed);
+    const discard = await screen.findByTestId("report-modal-discard");
+    fireEvent.click(discard);
+    fireEvent.click(discard);
+    await waitFor(() => expect(screen.queryByTestId("report-queue-failed")).toBeNull());
+    await waitFor(() =>
+      expect(document.activeElement).toBe(screen.getByTestId("report-button-trigger")),
+    );
+    const left = await listReports();
+    expect(left.map((held) => [held.writer, held.message, held.status])).toEqual([
+      ["viewer-b", "theirs", "failed"],
+    ]);
+  });
+
+  test("it stays on the phone for its writer", async () => {
+    await enqueueReport(report(1, { status: "failed", writer: "viewer-b", message: "theirs" }));
+    await mounted();
+    cleanup();
+    viewing("viewer-b");
+    await mounted();
+    fireEvent.click(await screen.findByTestId("report-queue-failed"));
+    const textarea = (await screen.findByTestId("report-modal-textarea")) as HTMLTextAreaElement;
+    expect(textarea.value).toBe("theirs");
+  });
+
+  test("the waiting count is the phone's, whoever wrote what is waiting", async () => {
+    await enqueueReport(report(1, { writer: "viewer-b" }));
+    await mounted();
+    expect((await screen.findByTestId("report-queue-waiting")).textContent).toBe(
+      "1 report waiting for signal",
+    );
+  });
+});
+
+describe("the viewer the page names, as it changes", () => {
+  beforeEach(() => viewing(null));
+
+  test("a marker that arrives in the same commit as the status is read", async () => {
+    await enqueueReport(report(1, { status: "failed" }));
+    render(<Page viewer="viewer-a" />);
+    await ready();
+    await waitFor(() =>
+      expect(screen.getByTestId("report-queue-failed").textContent).toBe(
+        "1 report couldn't be sent",
+      ),
+    );
+  });
+
+  test("a refresh that renders someone else's page shows only theirs, and closes the open sheet", async () => {
+    await enqueueReport(report(1, { status: "failed", message: "mine" }));
+    // The next person has a failed report of their own, so a count stays on screen.
+    await enqueueReport(report(2, { status: "failed", writer: "viewer-b", message: "theirs" }));
+    const { rerender } = render(<Page viewer="viewer-a" />);
+    await ready();
+    fireEvent.click(await screen.findByTestId("report-queue-failed"));
+    expect(
+      ((await screen.findByTestId("report-modal-textarea")) as HTMLTextAreaElement).value,
+    ).toBe("mine");
+
+    rerender(<Page viewer="viewer-b" />);
+    await waitFor(() => expect(screen.queryByTestId("report-modal-textarea")).toBeNull());
+    expect(screen.getByTestId("report-queue-failed").textContent).toBe("1 report couldn't be sent");
+    expect(screen.getByTestId("report-queue-region").textContent).toBe("1 report couldn't be sent");
+    expect(document.body.textContent).not.toContain("mine");
+
+    rerender(<Page viewer="viewer-a" />);
+    await waitFor(() =>
+      expect(screen.getByTestId("report-queue-failed").textContent).toBe(
+        "1 report couldn't be sent",
+      ),
+    );
+  });
+
+  test("a refresh that names nobody hides it too, and closes the open sheet", async () => {
+    await enqueueReport(report(1, { status: "failed", message: "mine" }));
+    const { rerender } = render(<Page viewer="viewer-a" />);
+    await ready();
+    fireEvent.click(await screen.findByTestId("report-queue-failed"));
+    await screen.findByTestId("report-modal-textarea");
+    rerender(<Page viewer={null} />);
+    await waitFor(() => expect(screen.queryByTestId("report-modal-textarea")).toBeNull());
+    expect(screen.queryByTestId("report-queue-failed")).toBeNull();
+    expect(document.body.textContent).not.toContain("mine");
   });
 });
 

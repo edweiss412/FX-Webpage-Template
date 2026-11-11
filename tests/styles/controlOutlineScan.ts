@@ -320,7 +320,7 @@ export const CENSUS: readonly CensusRow[] = [
   // 2026-08-25. Its sibling at :678 is on a neutral ground and did not move.
   {
     file: "components/shared/ReportModal.tsx",
-    line: 987,
+    line: 990,
     outline: "control-outline-tinted",
   },
 
@@ -417,7 +417,7 @@ export const CENSUS: readonly CensusRow[] = [
   { file: "components/crew/primitives/PersonRow.tsx", line: 298 },
   { file: "components/layout/ThemeToggle.tsx", line: 92 },
   { file: "components/shared/ReportButton.tsx", line: 147 },
-  { file: "components/shared/ReportModal.tsx", line: 1138 },
+  { file: "components/shared/ReportModal.tsx", line: 1141 },
 ];
 
 /**
